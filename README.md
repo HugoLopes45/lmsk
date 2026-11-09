@@ -9,7 +9,7 @@
 
 ## Real keys for your agent. Fakes for the model.
 
-`lmsk` swaps API keys, passwords, tokens and emails for fakes before Claude Code or pi sends a request to the LLM provider. Tool calls get the real values back, so your commands still run.
+`lmsk` replaces detected API keys, passwords, tokens and emails with fakes before your AI coding agent sends a request to the model. Supported file and shell tools get the original values back. Keep useful context in your coding workflow, with masking handled on your computer.
 
 [Website](https://hugolopes45.github.io/lmsk/) &nbsp;·&nbsp; [Install](#install) &nbsp;·&nbsp; [Agents](#agents) &nbsp;·&nbsp; [FAQ](#faq) &nbsp;·&nbsp; [Good to know](#good-to-know)
 
@@ -22,7 +22,7 @@
 <a id="install"></a>
 <a id="agents"></a>
 
-Pick your agent. One line each.
+Choose your agent and follow its commands.
 
 **Claude Code**
 
@@ -31,7 +31,7 @@ npm install -g @hugolopes45/lmsk
 lmsk claude
 ```
 
-Use `lmsk claude` in place of `claude`. Guide: [lmsk with Claude Code](docs/claude-code.md).
+Requires Node.js 22.19+ and Claude Code 2.1.295+. Use `lmsk claude` in place of `claude`. Setup and compatibility: [Claude Code guide](docs/claude-code.md).
 
 **pi**
 
@@ -45,39 +45,30 @@ The default rules work with no configuration. Local only: no model, no account, 
 
 ---
 
-## You know this moment
+## Keep the context. Mask the secrets.
 
-- The agent read your `.env` to debug a config problem, and your API key went to the model provider in the next request.
-- A log line held a customer email, and the agent put that log in its context.
-- A stack trace printed a bearer token, and the token was sent with the rest of the output.
+Debug from logs, configure your app and run tests with your coding agent. lmsk replaces the sensitive values it detects while preserving the surrounding text.
 
-Your coding agent sends what it reads to the model provider. That includes your secrets.
-
-## What lmsk handles
-
-| You | What lmsk does |
+| Your workflow | What lmsk adds |
 |---|---|
-| You paste a Stripe key so that the agent can set up payments. | The model gets a fake. The file that the agent writes gets the real key. |
-| The agent tries to open `.env` to debug a config problem. | `lmsk` refuses the read and tells the agent why. |
-| A command prints `DATABASE_URL` with its password. | The model gets the URL with a fake password. |
-| The agent runs your tests, which need the real password. | The test command gets the real password. Its output goes back to the model masked. |
-| A log holds customer emails, phone numbers and card numbers. | The model gets fakes. |
-| You work for a client under NDA. | Add the client name once. The model gets a name such as `Client 1`. |
-| Your file paths and commits show your name and your computer. | The model gets fakes for your user name, host name and git identity. |
+| Debug from application logs. | Detected keys, emails and tokens become fakes; the surrounding error stays readable. |
+| Write a configuration file with a detected API key. | Supported file tools restore the original key when the model uses its fake. |
+| Run a local test with a masked password. | Supported shell calls restore the password, then mask detected secrets in the output. |
+| Work with client names or project names. | Add a custom rule to replace a name with a label such as `Client 1`. |
 
-The [user guide](docs/GUIDE.md) shows how to add your client names and your own secrets.
+The [user guide](docs/GUIDE.md) shows how to tailor masking to your project.
 
 ## How it works
 
-1. **Install it once.** `lmsk` runs on your computer, as a local proxy in front of your agent or as an extension inside it.
-2. **Each request is masked on your computer.** `lmsk` searches the whole request with 280 rules. It replaces each secret with a fake of the same length and keeps the real value in a vault on your computer.
-3. **Tool calls get the real values back.** When the agent writes a file or runs a command with a fake, `lmsk` puts the real value back. The command runs with your real secret. In the replies, you see the fakes.
+1. **Run locally.** lmsk works as a local proxy in front of your agent, or as an extension inside it.
+2. **Mask detected values.** Built-in rules scan request text and replace matching values with fakes. A local vault keeps the mapping.
+3. **Restore values for supported tools.** When a supported tool call uses an exact fake, lmsk restores its original value before execution. See [tool behavior and compatibility](docs/GUIDE.md#what-lmsk-does-not-protect).
 
-## Proof
+## See the transformation
 
-### A real request body, before and after
+### A request body, before and after
 
-The agent ran `docker compose logs api --tail 3`. This is the tool result in the request that the agent prepared:
+This example shows a tool result from `docker compose logs api --tail 3`. All values below are illustrative:
 
 ```json
 {
@@ -87,7 +78,7 @@ The agent ran `docker compose logs api --tail 3`. This is the tool result in the
 }
 ```
 
-This is the same block after `lmsk` masked it. The model provider receives this version. The fakes are random, so yours are different:
+Here is the masked version of that block. The surrounding log stays readable. Generated fakes vary between sessions:
 
 ```json
 {
@@ -99,15 +90,9 @@ This is the same block after `lmsk` masked it. The model provider receives this 
 
 The key, the email and the token are fakes. The rest of the text did not change, so the model can still read the error.
 
-### It fails closed
+### Checked before sending
 
-If `lmsk` cannot mask a request safely, it cancels the request. It never sends a partly masked request. You see an error such as:
-
-```text
-lmsk: SCAN_TIMEOUT. The request was stopped. Masking stays on.
-```
-
-Each error code and its fix is in [Troubleshooting](docs/TROUBLESHOOTING.md).
+lmsk completes its masking checks before forwarding a request. If a check fails or times out, the request stops. [Troubleshooting](docs/TROUBLESHOOTING.md) explains each status and the next step.
 
 ### 280 detection rules
 
@@ -122,9 +107,9 @@ You can add your own rules, for example to turn `Falcon Industries` into `Client
 
 ### A local vault
 
-The real values stay in a JSON file on your computer that only your user account can read. The guide of each agent gives its path. `lmsk` sends the vault nowhere.
+The mapping stays in a local JSON vault with owner-only file permissions. lmsk does not upload it. See [vault storage and backup guidance](docs/GUIDE.md#what-lmsk-does-not-protect).
 
-### Check it yourself in one minute
+### Try it with a sample key
 
 Send this message to your agent. The key in it is a test value:
 
@@ -132,41 +117,28 @@ Send this message to your agent. The key in it is a test value:
 Repeat this line exactly: API_KEY=Zq7Kp2Lm9Xw4Rt8Vb3Nc
 ```
 
-The reply must show a different value after `API_KEY=`. That value is the fake that the provider received.
+Look for a different value after `API_KEY=` in the reply: that is the expected result for this sample. Use [Troubleshooting](docs/TROUBLESHOOTING.md) to check your setup if the original value appears.
 
 ## FAQ
 
-**Does it break my commands?**
-No. When a tool call holds a fake, `lmsk` puts the real value back before the tool runs. This applies to the built-in file and shell tools of your agent. Other tools, such as MCP tools, get fakes.
-
-**How do I hide a value that has no known format?**
-Add a rule for it. Detection uses patterns, so give a rule to each short password that has no key name, such as `summer2024`, and to names of people and postal addresses. `lmsk` also blocks the usual agent reads of `.env`, keys and other secret files. See [Add your own secrets](docs/GUIDE.md#add-your-own-secrets).
-
-**Does it slow requests?**
-A little. In our test, masking a 20 kB tool result took about 17 ms (median of 30 runs, Apple M1 Max). A search that takes more than 5 seconds cancels the request.
-
-**Where are the real values stored?**
-In the local vault on your computer, a plain JSON file that only your user account can read. Keep it out of cloud backups.
-
-**How do I stop Claude Code from sending my API keys and .env values to the model?**
-Run Claude Code with `lmsk claude`. `lmsk` masks the secrets in each request before it leaves your computer, also in the text that you paste and in command output. It also refuses the tool calls that open `.env`, keys and other secret files. A `Read` deny rule in the Claude Code settings stops a file read, but it does not mask what you paste or what a command prints. In pi, install the extension.
-
-**How is it different from gitleaks or a redaction hook?**
-gitleaks finds secrets in files and commits, so that you can remove them. `lmsk` uses the gitleaks default rules, and its own rules, on each request that the agent sends. A hook that replaces a secret with `[REDACTED]` gives that tag to your commands. `lmsk` gives a fake of the same length to the model, and the real value to the tool calls.
-
 **Which agents does it work with?**
-Claude Code and pi. [Install](#install) shows the command for each one.
+Claude Code and pi. [Install](#install) has a separate setup path for each agent.
+
+**How does my agent use the original values?**
+lmsk restores exact fakes in supported file and shell tool calls. For commands that access the network, supply credentials through the environment. See [tool behavior and compatibility](docs/GUIDE.md#what-lmsk-does-not-protect).
+
+**Can I add client names and custom values?**
+Yes. Add a rule for the value you want to mask, including names, addresses and project-specific secrets. See [Add your own secrets](docs/GUIDE.md#add-your-own-secrets).
+
+**How does it work with gitleaks?**
+gitleaks scans files and commits. lmsk uses its detection rules, alongside additional rules, to mask matching values in requests to the model.
+
+**Is it free?**
+Yes. lmsk is open source under the MIT license. No account or telemetry.
 
 ## Good to know
 
-- **Replies show fakes.** Tool calls get the real values. In pi, `/lmsk reveal` shows the real values of a reply.
-- **Your code goes to the model as usual.** `lmsk` hides secrets, personal data and IDs.
-- **Pair it with a sandbox.** Shell commands get the real values that they need, and network access stays as your agent has it.
-- **A fake has the length of its value.**
-- **Your agent keeps its own local history.** For example, Claude Code keeps it in `~/.claude/projects/` on your computer.
-- **Configuration and storage can change before 1.0.** Try it on your own data first.
-
-The full list is in the guide: [What lmsk does not protect](docs/GUIDE.md#what-lmsk-does-not-protect).
+Start with the built-in rules, then add project-specific values. The [coverage, tool compatibility and storage guide](docs/GUIDE.md#what-lmsk-does-not-protect) explains how to choose the right setup. Agent-specific behavior is documented in the [Claude Code guide](docs/claude-code.md) and [pi guide](docs/pi.md).
 
 ## Privacy
 
@@ -174,7 +146,7 @@ The full list is in the guide: [What lmsk does not protect](docs/GUIDE.md#what-l
 
 ## Start now
 
-Pick your agent in [Install](#install) and run its line.
+[Choose your agent](#install), install lmsk, then try the sample key above.
 
 ## Documentation
 

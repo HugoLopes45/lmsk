@@ -3,133 +3,38 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>lmsk: hide API keys and .env secrets from Claude Code and pi</title>
-<meta name="description" content="lmsk stops Claude Code and pi from sending your API keys, passwords and .env secrets to the AI model. It swaps them for fakes. Free and open source.">
+<title>lmsk: hide API keys and secrets from your AI coding agent</title>
+<meta name="description" content="Mask API keys, passwords and emails before your AI coding agent sends them to the model. Keep useful context, restore values in supported tools. Free and open source.">
 <link rel="canonical" href="https://hugolopes45.github.io/lmsk/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="lmsk">
 <meta property="og:url" content="https://hugolopes45.github.io/lmsk/">
-<meta property="og:title" content="lmsk: hide API keys and .env secrets from Claude Code and pi">
-<meta property="og:description" content="lmsk stops Claude Code and pi from sending your API keys, passwords and .env secrets to the AI model. It swaps them for fakes. Free and open source.">
+<meta property="og:title" content="lmsk: hide API keys and secrets from your AI coding agent">
+<meta property="og:description" content="Mask API keys, passwords and emails before your AI coding agent sends them to the model. Keep useful context, restore values in supported tools. Free and open source.">
 <meta property="og:image" content="https://hugolopes45.github.io/lmsk/brand/logo.svg">
 <meta property="og:image:alt" content="lmsk logo">
 <meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="lmsk: hide API keys and .env secrets from Claude Code and pi">
-<meta name="twitter:description" content="lmsk stops Claude Code and pi from sending your API keys, passwords and .env secrets to the AI model. It swaps them for fakes. Free and open source.">
+<meta name="twitter:title" content="lmsk: hide API keys and secrets from your AI coding agent">
+<meta name="twitter:description" content="Mask API keys, passwords and emails before your AI coding agent sends them to the model. Keep useful context, restore values in supported tools. Free and open source.">
 <meta name="twitter:image" content="https://hugolopes45.github.io/lmsk/brand/logo.svg">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "lmsk",
-  "description": "Masks API keys, passwords, IDs and emails before Claude Code or pi sends a request to the LLM provider, and puts the real values back in tool calls.",
+  "description": "Masks detected secrets in requests from AI coding agents, and restores original values in supported file and shell tools.",
   "url": "https://hugolopes45.github.io/lmsk/",
   "downloadUrl": "https://www.npmjs.com/package/@hugolopes45/lmsk",
   "applicationCategory": "DeveloperApplication",
   "applicationSubCategory": "Security",
   "operatingSystem": "macOS, Linux",
-  "softwareRequirements": "Node.js, and a supported coding agent: Claude Code or pi",
+  "softwareRequirements": "Node.js 22.19+ and a supported AI coding agent",
   "license": "https://opensource.org/licenses/MIT",
   "isAccessibleForFree": true,
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-  "keywords": "hide API keys from Claude Code, .env secrets, mask secrets, redact secrets, LLM privacy, pi coding agent, AI coding agent security",
+  "author": { "@type": "Person", "name": "Hugo Lopes", "url": "https://github.com/HugoLopes45" },
+  "keywords": "hide API keys from AI coding agents, .env secrets, mask secrets, redact secrets, LLM privacy, AI coding agent security",
   "sameAs": "https://github.com/HugoLopes45/lmsk"
-}
-</script>
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  "mainEntity": [
-    {
-      "@type": "Question",
-      "name": "Does Claude Code send my .env file to the AI model?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "Claude Code sends what it reads to the model in the next request. lmsk refuses the tool calls that open .env, key and secret files. Each secret that lmsk finds in a request becomes a fake first."
-      }
-    },
-    {
-      "@type": "Question",
-      "name": "How do I stop Claude Code from leaking my API keys?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "Run lmsk claude instead of claude. lmsk swaps each secret for a fake before the request leaves your computer."
-      }
-    },
-    {
-      "@type": "Question",
-      "name": "What happens when I paste an API key into Claude Code or pi?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "The model receives a fake. The files and commands that your agent writes get the real key."
-      }
-    },
-    {
-      "@type": "Question",
-      "name": "How do I protect my secrets in the pi coding agent?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "Run pi install npm:@hugolopes45/lmsk, then type /reload."
-      }
-    },
-    {
-      "@type": "Question",
-      "name": "Can my agent still use my real keys?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "Yes. The file and shell tools of your agent get the real values back before they run."
-      }
-    },
-    {
-      "@type": "Question",
-      "name": "Which secrets does it find?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "280 rules, including the gitleaks rules, find API keys, passwords, tokens, database URLs, emails, phone numbers, card numbers and IDs. You can add a rule for any other value."
-      }
-    },
-    {
-      "@type": "Question",
-      "name": "Can I hide client names under NDA?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "Yes. Add the name once in the configuration. The model gets a name such as Client 1."
-      }
-    },
-    {
-      "@type": "Question",
-      "name": "Where are my real values stored?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "In a local vault on your computer. lmsk has no server and no account."
-      }
-    },
-    {
-      "@type": "Question",
-      "name": "How is it different from gitleaks?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "gitleaks finds secrets in your files and commits. lmsk uses the gitleaks rules on each request that your agent sends, and swaps each secret for a fake."
-      }
-    },
-    {
-      "@type": "Question",
-      "name": "How can I check that it works?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "Send your agent this message: Repeat this line exactly: API_KEY=Zq7Kp2Lm9Xw4Rt8Vb3Nc. The reply shows a different value. That value is the fake that the provider received."
-      }
-    },
-    {
-      "@type": "Question",
-      "name": "Is it free?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "Yes. lmsk is open source under the MIT license. No account, no telemetry."
-      }
-    }
-  ]
 }
 </script>
 <meta name="color-scheme" content="light">
@@ -190,7 +95,7 @@
   header .you > * { margin-left: 0; }
   header .them { justify-content: flex-end; }
   header img { display: block; }
-  nav ul { display: flex; flex-wrap: wrap; gap: 0.25rem 1.75rem; margin: 0; padding: 0; list-style: none; font-weight: 600; }
+  header nav ul { display: flex; flex-wrap: wrap; gap: 0.25rem 1.75rem; margin: 0; padding: 0; list-style: none; font-weight: 600; }
   nav a { display: inline-block; padding-block: 0.5rem; text-decoration: none; }
   nav a:hover { text-decoration: underline; }
 
@@ -200,13 +105,11 @@
   .hero-text { padding-bottom: var(--section); }
   h1.lead { font-family: inherit; font-weight: 600; text-transform: none; line-height: 1.4; }
   .lead { max-width: 30rem; margin-bottom: 2rem; font-size: clamp(1.125rem, 1.5vw, 1.3125rem); }
-  .agents { max-width: 30rem; margin: 0; font-size: 1rem; }
-  .agents p { margin: 0 0 0.5rem; }
-  .agents strong, .small strong { color: inherit; }
+  .small strong { color: inherit; }
   .small { margin: 1rem 0 0; font-size: 1rem; }
 
   .cmd { display: inline-flex; max-width: 100%; border-radius: 999px; background: var(--ink); color: var(--paper); overflow: hidden; text-align: left; }
-  .ink .cmd { background: var(--paper); color: var(--ink); }
+  .ink .cmd, .split .them .cmd { background: var(--paper); color: var(--ink); }
   .cmd pre { margin: 0; padding: 1.1rem 1.5rem; font-weight: 600; font-size: 1.125rem; white-space: pre-wrap; overflow-wrap: anywhere; }
   .cmd.block { border-radius: 1rem; }
   .cmd button { flex: none; min-width: 6rem; border: 0; padding: 0 1.5rem; font: 700 1rem "Public Sans", sans-serif; background: var(--fake); color: var(--ink); cursor: pointer; transition: background-color 150ms; }
@@ -215,6 +118,12 @@
 
   .facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.75rem 3rem; margin: 0; padding: 2rem var(--edge); list-style: none; border-bottom: 1px solid var(--paper-rule); color: var(--paper-muted); font-size: 1rem; }
   .facts strong { color: var(--ink); }
+
+  .oss { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem; padding: 0.85rem 1.4rem; border: 1px solid var(--ink-rule); border-radius: 999px; color: var(--paper); text-decoration: none; transition: border-color 150ms; }
+  .oss strong { color: var(--fake); }
+  .oss span { color: var(--ink-muted); }
+  .oss:hover { border-color: var(--paper); }
+  .oss:hover span { color: var(--paper); }
 
   /* The story: one request, pinned beside four chapters. Red text is always a fake. */
   .story { padding-top: var(--block); }
@@ -245,10 +154,19 @@
   .close .poster > span { padding-block: var(--section) clamp(2rem, 3vw, 3rem); }
   .close .duo:last-child { padding-bottom: var(--section); }
 
-  footer { padding-block: 2.5rem; border-top: 1px solid var(--paper-rule); font-size: 1rem; }
-  footer ul { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem 1.5rem; margin: 0; padding: 0; list-style: none; }
-  footer p { max-width: 30rem; margin: 0; }
-  footer li a { display: inline-block; padding-block: 0.3rem; }
+  footer { padding-block: var(--block) 2rem; font-size: 1rem; }
+  footer .you { text-align: left; }
+  footer .you > * { margin-left: 0; }
+  footer img { display: block; margin-bottom: 1.25rem; }
+  footer .byline { max-width: 24rem; margin-bottom: 1.25rem; color: var(--paper-muted); }
+  .star { display: inline-block; padding: 0.75rem 1.25rem; border-radius: 999px; background: var(--ink); color: var(--paper); font-weight: 700; text-decoration: none; transition: background-color 150ms; }
+  .star:hover { background: var(--fake-on-paper); }
+  .links { display: flex; flex-wrap: wrap; gap: 2rem 4rem; }
+  .links-title { margin-bottom: 0.5rem; font-weight: 700; }
+  .links ul { margin: 0; padding: 0; list-style: none; }
+  .links a { display: inline-block; padding-block: 0.3rem; color: var(--paper-muted); text-decoration: none; }
+  .links a:hover { color: var(--ink); text-decoration: underline; }
+  .legal { margin: var(--block) var(--edge) 0; padding-top: 1.5rem; border-top: 1px solid var(--paper-rule); font-size: 0.875rem; color: var(--paper-muted); }
 
   /* Motion: the first screen opens from the seam; in the story, values resolve like a fake does. */
   @keyframes open-left { from { clip-path: inset(0 0 0 100%); transform: translateX(3rem); } }
@@ -288,8 +206,7 @@
     .faq { padding-block: var(--block); }
     .facts { justify-content: flex-start; gap: 0.5rem 2rem; }
     .faq .them { margin-top: 2rem; }
-    footer ul { justify-content: flex-start; }
-    footer .them { margin-top: 1.5rem; }
+    footer .them { margin-top: 2.5rem; }
     .cmd pre { padding-inline: 1.25rem; font-size: 1rem; }
     .cmd button { min-width: 5rem; padding-inline: 1rem; }
   }
@@ -314,23 +231,21 @@
     <p class="duo poster"><span class="you">Real keys for<br> your agent.</span> <span class="them"><span class="red">Fakes</span> for<br> the model.</span></p>
     <div class="duo hero-text">
       <div class="you">
-        <h1 class="lead">Hide your API keys, passwords and <code>.env</code> secrets from the AI model in Claude Code and pi.</h1>
+        <h1 class="lead">Mask API keys, passwords and emails before your AI coding agent sends them to the model.</h1>
         <div class="cmd"><pre><code>npm install -g @hugolopes45/lmsk</code></pre><button type="button" data-copy hidden>Copy</button></div>
-        <p class="small muted">Free and open source. No account.</p>
+        <p class="small muted">Then connect your agent. <a href="https://github.com/HugoLopes45/lmsk#install">See the setup</a>.</p>
       </div>
       <div class="them">
-        <p class="lead">The model sees fakes. Your commands still run with the real values.</p>
-        <div class="agents muted">
-          <p><strong>Claude Code:</strong> run <code>lmsk claude</code> instead of <code>claude</code>.</p>
-          <p><strong>pi:</strong> run <code>pi install npm:@hugolopes45/lmsk</code>, then <code>/reload</code>.</p>
-        </div>
+        <p class="lead">Keep the context your model needs. Restore original values in supported file and shell tools.</p>
+        <a class="oss" href="https://github.com/HugoLopes45/lmsk"><strong>Open source</strong><span>MIT license. Read the code on GitHub</span></a>
+        <p class="small muted">Free. No account, no telemetry.</p>
       </div>
     </div>
   </div>
 
   <ul class="facts" aria-label="Facts about lmsk">
     <li><strong>280</strong> detection rules, including gitleaks</li>
-    <li><strong>Open source</strong>, MIT license</li>
+    <li><strong>Runs locally</strong>, on your computer</li>
     <li><strong>Signed</strong> npm releases with provenance</li>
     <li><strong>No account</strong>, no telemetry</li>
   </ul>
@@ -338,20 +253,20 @@
   <section class="duo story" id="story" aria-label="How lmsk works">
     <div class="you">
       <article class="chapter" data-screen="0" data-values="real">
-        <h2>Your agent reads your secrets.</h2>
-        <p>To fix a bug, it opens config files, runs commands and reads logs. All of it goes to the AI model in the next request.</p>
+        <h2>Keep useful context.</h2>
+        <p>Logs and command output help your agent understand your app. lmsk preserves the surrounding text while masking the sensitive values it detects.</p>
       </article>
       <article class="chapter" data-screen="0" data-values="fake">
-        <h2>lmsk swaps them for fakes.</h2>
-        <p>Before the request leaves your computer, each key, password, token and email that lmsk finds becomes a fake. The model only gets the fake.</p>
+        <h2>Mask on your computer.</h2>
+        <p>Before sending a request, lmsk replaces detected keys, passwords, tokens and emails with fakes. Built-in rules work from the first request.</p>
       </article>
       <article class="chapter" data-screen="1">
-        <h2>Your commands still work.</h2>
-        <p>When the model puts a fake in a command or a file, lmsk puts the real value back. Your tests, scripts and deploys run as usual.</p>
+        <h2>Put real values to work.</h2>
+        <p>When a supported file or shell tool uses an exact fake, lmsk restores its original value. Your local test can use the password it needs.</p>
       </article>
       <article class="chapter" data-screen="2">
-        <h2>Your <code>.env</code> stays closed.</h2>
-        <p>lmsk refuses the tool calls that open <code>.env</code>, key and secret files, and tells the agent why.</p>
+        <h2>Add file-read protection.</h2>
+        <p>Supported file tools check protected paths such as <code>.env</code> before reading them. lmsk explains a blocked read so your agent can choose another approach.</p>
       </article>
     </div>
     <div class="them">
@@ -387,52 +302,32 @@
     <div class="you"><h2 id="faq-title">Questions</h2></div>
     <div class="them">
       <details>
-        <summary>Does Claude Code send my .env file to the AI model?</summary>
-        <p>Claude Code sends what it reads to the model in the next request. lmsk refuses the tool calls that open <code>.env</code>, key and secret files. Each secret that lmsk finds in a request becomes a fake first.</p>
+        <summary>Which values can I mask?</summary>
+        <p>Built-in rules detect API keys, passwords, tokens, database credentials, emails and other personal data. Add your own rules for project-specific values.</p>
       </details>
       <details>
-        <summary>How do I stop Claude Code from leaking my API keys?</summary>
-        <p>Run <code>lmsk claude</code> instead of <code>claude</code>. lmsk swaps each secret for a fake before the request leaves your computer.</p>
+        <summary>How does my agent use the original values?</summary>
+        <p>lmsk restores exact fakes in supported file and shell tool calls. For commands that access the network, supply credentials through the environment. See <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md#what-lmsk-does-not-protect">tool behavior and compatibility</a>.</p>
       </details>
       <details>
-        <summary>What happens when I paste an API key into Claude Code or pi?</summary>
-        <p>The model receives a fake. The files and commands that your agent writes get the real key.</p>
-      </details>
-      <details>
-        <summary>How do I protect my secrets in the pi coding agent?</summary>
-        <p>Run <code>pi install npm:@hugolopes45/lmsk</code>, then type <code>/reload</code>.</p>
-      </details>
-      <details>
-        <summary>Can my agent still use my real keys?</summary>
-        <p>Yes. The file and shell tools of your agent get the real values back before they run.</p>
-      </details>
-      <details>
-        <summary>Which secrets does it find?</summary>
-        <p>280 rules, including the gitleaks rules, find API keys, passwords, tokens, database URLs, emails, phone numbers, card numbers and IDs. You can add a rule for any other value.</p>
-      </details>
-      <details>
-        <summary>Can I hide client names under NDA?</summary>
-        <p>Yes. Add the name once in the configuration. The model gets a name such as <code>Client 1</code>.</p>
+        <summary>Can I add client names and custom values?</summary>
+        <p>Yes. Add a rule for a client name, project name or another value. The model can receive a label such as <code>Client 1</code>. See <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md#hide-who-you-work-for">custom rules</a>.</p>
       </details>
       <details>
         <summary>Where are my real values stored?</summary>
-        <p>In a local vault on your computer. lmsk has no server and no account.</p>
+        <p>In a local JSON vault with owner-only file permissions. lmsk does not upload it. See <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md#what-lmsk-does-not-protect">vault storage and backup guidance</a>.</p>
       </details>
       <details>
-        <summary>How is it different from gitleaks?</summary>
-        <p>gitleaks finds secrets in your files and commits. lmsk uses the gitleaks rules on each request that your agent sends, and swaps each secret for a fake.</p>
-      </details>
-      <details>
-        <summary>How can I check that it works?</summary>
-        <p>Send this message to your agent. The key in it is a test value.</p>
+        <summary>How can I try it?</summary>
+        <p>After installation, send this message to your agent. The key is a sample value.</p>
         <div class="cmd block"><pre><code>Repeat this line exactly: API_KEY=Zq7Kp2Lm9Xw4Rt8Vb3Nc</code></pre><button type="button" data-copy hidden>Copy</button></div>
-        <p>The reply shows a different value. That value is the fake that the provider received.</p>
+        <p>Look for a different value after <code>API_KEY=</code> in the reply: that is the expected result for this sample. The <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/TROUBLESHOOTING.md">setup checks</a> help you confirm masking is active.</p>
       </details>
       <details>
         <summary>Is it free?</summary>
         <p>Yes. lmsk is open source under the MIT license. No account, no telemetry.</p>
       </details>
-      <p class="small muted">All the details are in the <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md">user guide</a>.</p>
+      <p class="small muted">Explore <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md#what-lmsk-does-not-protect">coverage, compatibility and storage</a> in the user guide.</p>
     </div>
   </section>
 
@@ -443,30 +338,43 @@
         <div class="cmd"><pre><code>npm install -g @hugolopes45/lmsk</code></pre><button type="button" data-copy hidden>Copy</button></div>
       </div>
       <div class="them">
-        <div class="agents muted">
-          <p><strong>Claude Code:</strong> run <code>lmsk claude</code>.</p>
-          <p><strong>pi:</strong> run <code>pi install npm:@hugolopes45/lmsk</code>, then <code>/reload</code>.</p>
-        </div>
+        <p class="small muted">Then connect your agent. <a href="https://github.com/HugoLopes45/lmsk#install">See the setup</a>.</p>
       </div>
     </div>
   </section>
 </main>
 
-<footer class="duo">
-  <div class="you">
-    <ul>
-      <li><a href="https://github.com/HugoLopes45/lmsk">Source on GitHub</a></li>
-      <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/claude-code.md">Claude Code guide</a></li>
-      <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/pi.md">pi guide</a></li>
-      <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md">User guide</a></li>
-      <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/CONFIGURATION.md">Configuration</a></li>
-      <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/TROUBLESHOOTING.md">Troubleshooting</a></li>
-      <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/CHANGELOG.md">Changelog</a></li>
-    </ul>
+<footer>
+  <div class="duo">
+    <div class="you">
+      <a href="./" aria-label="lmsk home"><img src="brand/logo.svg" alt="lmsk" width="134" height="32" loading="lazy"></a>
+      <p class="byline">Free, open source software, built in the open by <a rel="author" href="https://github.com/HugoLopes45">Hugo Lopes</a>. Issues and pull requests are welcome.</p>
+      <a class="star" href="https://github.com/HugoLopes45/lmsk">Star lmsk on GitHub</a>
+    </div>
+    <nav class="them links" aria-label="Footer">
+      <div>
+        <p class="links-title">Docs</p>
+        <ul>
+          <li><a href="https://github.com/HugoLopes45/lmsk#install">Agent setup</a></li>
+          <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md">User guide</a></li>
+          <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/CONFIGURATION.md">Configuration</a></li>
+          <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/TROUBLESHOOTING.md">Troubleshooting</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="links-title">Project</p>
+        <ul>
+          <li><a href="https://github.com/HugoLopes45/lmsk">Source code</a></li>
+          <li><a href="https://github.com/HugoLopes45/lmsk/issues">Issues</a></li>
+          <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/CONTRIBUTING.md">Contributing</a></li>
+          <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/SECURITY.md">Security</a></li>
+          <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/CHANGELOG.md">Changelog</a></li>
+          <li><a href="https://www.npmjs.com/package/@hugolopes45/lmsk">npm package</a></li>
+        </ul>
+      </div>
+    </nav>
   </div>
-  <div class="them">
-    <p class="muted">MIT license. Fonts: Anton, Public Sans and IBM Plex Mono, under the SIL Open Font License (<a href="fonts/OFL-Anton.txt">Anton</a>, <a href="fonts/OFL-PublicSans.txt">Public Sans</a>, <a href="fonts/OFL-IBMPlexMono.txt">IBM Plex Mono</a>).</p>
-  </div>
+  <p class="legal">MIT license. Fonts under the SIL Open Font License: <a href="fonts/OFL-Anton.txt">Anton</a>, <a href="fonts/OFL-PublicSans.txt">Public Sans</a>, <a href="fonts/OFL-IBMPlexMono.txt">IBM Plex Mono</a>.</p>
 </footer>
 
 <p class="sr-only" aria-live="polite" id="copy-status"></p>
