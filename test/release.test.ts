@@ -182,6 +182,24 @@ describe("workspaceOrder", () => {
     },
   );
 
+  it("rejects a development dependency not pinned to the root version", () => {
+    expect(() =>
+      workspaceOrder("0.2.0", [
+        core,
+        { ...adapter, devDependencies: { core: "0.1.0" } },
+      ]),
+    ).toThrow("adapter");
+  });
+
+  it("orders by runtime dependencies only", () => {
+    expect(
+      workspaceOrder("0.2.0", [
+        { ...core, devDependencies: { adapter: "0.2.0" } },
+        adapter,
+      ]),
+    ).toEqual(["core", "adapter"]);
+  });
+
   it("rejects a dependency cycle", () => {
     expect(() =>
       workspaceOrder("0.2.0", [
@@ -215,6 +233,24 @@ describe("bumpManifest", () => {
       name: "cli",
       version: "0.2.0",
       dependencies: { core: "0.2.0", typebox: "^1" },
+    });
+  });
+
+  it("pins internal development dependencies too", () => {
+    expect(
+      bumpManifest(
+        {
+          name: "proxy",
+          version: "0.1.0",
+          devDependencies: { formats: "0.1.0" },
+        },
+        "0.2.0",
+        new Set(["formats"]),
+      ),
+    ).toEqual({
+      name: "proxy",
+      version: "0.2.0",
+      devDependencies: { formats: "0.2.0" },
     });
   });
 

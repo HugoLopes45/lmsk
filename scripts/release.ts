@@ -77,30 +77,51 @@ function packageInfo(value: unknown): { name: string; version: string } {
   return { name: value.name, version: value.version };
 }
 
+const RUNTIME_FIELDS = [
+  "dependencies",
+  "peerDependencies",
+  "optionalDependencies",
+];
+const DEPENDENCY_FIELDS = [...RUNTIME_FIELDS, "devDependencies"];
+
 function dependenciesOf(
   manifest: Record<string, unknown>,
+  field: string,
 ): Record<string, unknown> {
-  if (manifest.dependencies === undefined) return {};
-  if (!isRecord(manifest.dependencies))
-    throw new Error(
-      "Invalid package manifest: dependencies must be an object.",
-    );
-  return manifest.dependencies;
+  const dependencies = manifest[field];
+  if (dependencies === undefined) return {};
+  if (!isRecord(dependencies))
+    throw new Error(`Invalid package manifest: ${field} must be an object.`);
+  return dependencies;
+}
+
+function workspace(manifest: unknown): {
+  name: string;
+  version: string;
+  ranges: [string, unknown][];
+  runtime: string[];
+} {
+  const info = packageInfo(manifest);
+  if (!isRecord(manifest)) throw new Error("Invalid package manifest.");
+  const entries = (fields: string[]) =>
+    fields.flatMap((field) => Object.entries(dependenciesOf(manifest, field)));
+  return {
+    ...info,
+    ranges: entries(DEPENDENCY_FIELDS),
+    runtime: entries(RUNTIME_FIELDS).map(([name]) => name),
+  };
 }
 
 function checkPins(
   version: string,
-  workspaces: Map<
-    string,
-    { version: string; dependencies: Record<string, unknown> }
-  >,
+  workspaces: Map<string, ReturnType<typeof workspace>>,
 ): void {
   for (const [name, workspace] of workspaces) {
     if (workspace.version !== version)
       throw new Error(
         `Workspace ${name} has version ${workspace.version}, expected ${version}.`,
       );
-    for (const [dependency, range] of Object.entries(workspace.dependencies))
+    for (const [dependency, range] of workspace.ranges)
       if (workspaces.has(dependency) && range !== version)
         throw new Error(
           `Workspace ${name} must pin ${dependency} to ${version}.`,
@@ -115,9 +136,8 @@ export function workspaceOrder(
 ): string[] {
   const workspaces = new Map(
     manifests.map((manifest) => {
-      const info = packageInfo(manifest);
-      const dependencies = isRecord(manifest) ? dependenciesOf(manifest) : {};
-      return [info.name, { version: info.version, dependencies }];
+      const entry = workspace(manifest);
+      return [entry.name, entry];
     }),
   );
   checkPins(version, workspaces);
@@ -128,9 +148,7 @@ export function workspaceOrder(
     if (visiting.has(name))
       throw new Error(`Workspace dependency cycle through ${name}.`);
     visiting.add(name);
-    for (const dependency of Object.keys(
-      workspaces.get(name)?.dependencies ?? {},
-    ))
+    for (const dependency of workspaces.get(name)?.runtime ?? [])
       if (workspaces.has(dependency)) visit(dependency);
     order.push(name);
   };
@@ -146,12 +164,16 @@ export function bumpManifest(
 ): Record<string, unknown> {
   packageInfo(manifest);
   if (!isRecord(manifest)) throw new Error("Invalid package manifest.");
-  const bumped = { ...manifest, version };
-  if (manifest.dependencies === undefined) return bumped;
-  const dependencies = Object.entries(dependenciesOf(manifest)).map(
-    ([name, range]) => [name, internal.has(name) ? version : range],
-  );
-  return { ...bumped, dependencies: Object.fromEntries(dependencies) };
+  const bumped: Record<string, unknown> = { ...manifest, version };
+  for (const field of DEPENDENCY_FIELDS)
+    if (manifest[field] !== undefined)
+      bumped[field] = Object.fromEntries(
+        Object.entries(dependenciesOf(manifest, field)).map(([name, range]) => [
+          name,
+          internal.has(name) ? version : range,
+        ]),
+      );
+  return bumped;
 }
 
 function workspaceManifests(): { path: string; manifest: unknown }[] {
