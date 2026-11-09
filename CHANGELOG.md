@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Keyed secrets: an unquoted value that holds `.`, `:`, `&`, `(`, `<`, `,` or `@` is masked in full. Before, it was cut at the first such character, or not masked at all.
+- Keyed secrets: such a value is also masked when more text follows it on its line, as in `DB_PASSWORD=<value> psql ...`, `export PW=<value>; echo ok` or inline code. Before, only a value at the end of its line was masked.
 
 ## 0.1.0
 

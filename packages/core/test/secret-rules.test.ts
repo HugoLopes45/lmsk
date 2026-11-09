@@ -185,6 +185,41 @@ describe("keyed secrets", () => {
       }
   });
 
+  it("takes an unquoted value with punctuation before more text on its line", async () => {
+    for (const value of PUNCTUATED)
+      for (const form of KEYED_FORMS)
+        for (const rest of [" psql -h db app", "; echo ok", " and more text"]) {
+          const text = `${form(value)}${rest}`;
+          expect(await found(text), text).toEqual([value]);
+        }
+  });
+
+  it("ignores a code reference or call before more text on its line", async () => {
+    for (const text of [
+      `password: this.password || fallback`,
+      `apiKey: opts.apiKey, timeout: 5`,
+      `password: process.env.PW ?? ""`,
+      `password: getPassword() + suffix`,
+    ])
+      expect(await found(text), text).toEqual([]);
+  });
+
+  it("ignores a word that ends a sentence after a key", async () => {
+    for (const text of [
+      `auth: required. Please log in.`,
+      `password: required.`,
+      `token: missing.\nnext line`,
+    ])
+      expect(await found(text), text).toEqual([]);
+  });
+
+  it("takes an unquoted value with punctuation in inline code", async () => {
+    for (const value of PUNCTUATED) {
+      const text = `Set \`password: ${value}\` in the file.`;
+      expect(await found(text), text).toEqual([value]);
+    }
+  });
+
   it("keeps a query or connection string part out of an unquoted value", async () => {
     expect(await found(`password=${VALUE}&ssl=true`)).toEqual([VALUE]);
     expect(await found(`Password=${VALUE};Encrypt=True;`)).toEqual([VALUE]);
