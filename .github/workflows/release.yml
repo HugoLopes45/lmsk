@@ -53,7 +53,7 @@ jobs:
             echo "The latest CI run for $COMMIT on main must succeed before publication." >&2
             exit 1
           fi
-          printf '### Publication target\n- Tag: `%s`\n- Commit: `%s`\n' "$RELEASE_TAG" "$COMMIT" >> "$GITHUB_STEP_SUMMARY"
+          printf '### Publication target\n- Tag: %s\n- Commit: %s\n' "$RELEASE_TAG" "$COMMIT" >> "$GITHUB_STEP_SUMMARY"
         env:
           GH_TOKEN: ${{ github.token }}
           COMMIT: ${{ steps.target.outputs.commit }}
