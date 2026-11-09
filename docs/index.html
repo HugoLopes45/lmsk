@@ -84,7 +84,7 @@
   /* One grid for the whole page: the seam. Paper content aligns toward it, ink content starts from it. */
   .duo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); margin: 0; }
   .you { padding: 0 var(--seam) 0 var(--edge); text-align: right; }
-  .you > * { margin-left: auto; }
+  .you > *, .chapter > * { margin-left: auto; }
   .them { padding: 0 var(--edge) 0 var(--seam); }
   .split { background: linear-gradient(90deg, var(--paper) 50%, var(--ink) 50%); }
   .split .them { color: var(--paper); }
@@ -103,8 +103,8 @@
   .poster > span { padding-block: clamp(3rem, 8vw, 7rem) clamp(2rem, 3vw, 3rem); white-space: nowrap; }
   .red { color: var(--fake); }
   .hero-text { padding-bottom: var(--section); }
-  h1.lead { font-family: inherit; font-weight: 600; text-transform: none; line-height: 1.4; }
-  .lead { max-width: 30rem; margin-bottom: 2rem; font-size: clamp(1.125rem, 1.5vw, 1.3125rem); }
+  h1.lead { font-family: inherit; font-weight: 600; text-transform: none; }
+  .lead { max-width: 30rem; line-height: 1.45; margin-bottom: 2rem; font-size: clamp(1.125rem, 1.5vw, 1.3125rem); }
   .small strong { color: inherit; }
   .small { margin: 1rem 0 0; font-size: 1rem; }
 
@@ -116,22 +116,24 @@
   .cmd button:hover { background: var(--paper); }
   .ink .cmd button:hover { background: var(--ink); color: var(--paper); }
 
-  .facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.75rem 3rem; margin: 0; padding: 2rem var(--edge); list-style: none; border-bottom: 1px solid var(--paper-rule); color: var(--paper-muted); font-size: 1rem; }
+  .facts { padding-block: 1.75rem; border-bottom: 1px solid var(--paper-rule); color: var(--paper-muted); font-size: 1rem; }
+  .facts > div { display: flex; flex-wrap: wrap; gap: 0.5rem 2.5rem; }
+  .facts > .you { justify-content: flex-end; }
+  .facts p { margin: 0; }
   .facts strong { color: var(--ink); }
 
-  .oss { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem; padding: 0.85rem 1.4rem; border: 1px solid var(--ink-rule); border-radius: 999px; color: var(--paper); text-decoration: none; transition: border-color 150ms; }
+  .oss { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem; padding: calc(1.1rem - 1px) 1.5rem; border: 1px solid var(--ink-rule); border-radius: 999px; color: var(--paper); text-decoration: none; transition: border-color 150ms; }
   .oss strong { color: var(--fake); }
   .oss span { color: var(--ink-muted); }
   .oss:hover { border-color: var(--paper); }
   .oss:hover span { color: var(--paper); }
 
   /* The story: one request, pinned beside four chapters. Red text is always a fake. */
-  .story { padding-top: var(--block); }
   .chapter { display: flex; flex-direction: column; justify-content: center; min-height: 62vh; }
   h2 code { font: inherit; text-transform: lowercase; }
   .chapter h2 { margin-bottom: 1.25rem; }
   .chapter p { max-width: 28rem; font-size: clamp(1.125rem, 1.5vw, 1.3125rem); }
-  .panel { position: sticky; top: calc(50vh - 7rem); max-width: 36rem; padding: clamp(1.5rem, 3vw, 2.25rem); border-radius: 1rem; background: var(--ink); color: var(--paper); font: 400 0.9375rem/1.8 var(--mono); overflow-wrap: anywhere; }
+  .panel { position: sticky; margin: calc(31vh - 7rem) 0 0; top: calc(50vh - 7rem); max-width: 36rem; padding: clamp(1.5rem, 3vw, 2.25rem); border-radius: 1rem; background: var(--ink); color: var(--paper); font: 400 0.9375rem/1.8 var(--mono); overflow-wrap: anywhere; }
   .screen p { margin: 0; }
   .screen + .screen { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--ink-rule); }
   .label { display: block; margin-bottom: 0.75rem; font: 600 0.8125rem/1.2 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-muted); }
@@ -140,7 +142,7 @@
   .real { color: var(--paper); font-weight: 600; }
   .panel figcaption { margin-top: 1.25rem; font: 400 0.875rem/1.5 "Public Sans", sans-serif; color: var(--ink-muted); }
 
-  .faq { padding-block: var(--section); }
+  .faq { padding-block: var(--block) var(--section); }
   details { border-top: 1px solid var(--paper-rule); }
   details:last-of-type { border-bottom: 1px solid var(--paper-rule); }
   summary { display: flex; justify-content: space-between; gap: 1.5rem; padding-block: 1.25rem; font-weight: 700; font-size: 1.1875rem; cursor: pointer; list-style: none; }
@@ -185,7 +187,7 @@
     .duo { grid-template-columns: minmax(0, 1fr); }
     .split { background: none; }
     .you, .them { padding-inline: var(--edge); text-align: left; }
-    .you > * { margin-left: 0; }
+    .you > *, .chapter > * { margin-left: 0; }
     header.split .them { justify-content: flex-start; margin-top: 0.75rem; color: var(--ink); }
     nav ul { column-gap: 1.25rem; font-size: 1rem; }
     .poster { padding-block: 2.5rem 2rem; font-size: min(12vw, 4.5rem); }
@@ -199,14 +201,16 @@
     .close .duo:last-child { gap: 2rem; padding-bottom: var(--block); }
     .story { display: flex; flex-direction: column; padding-top: var(--block); }
     .story > .them { order: -1; position: sticky; top: 0; z-index: 1; padding-block: 0.75rem; background: var(--paper); }
-    .panel { position: static; padding: 1rem 1.25rem; font-size: 0.75rem; line-height: 1.6; }
+    .panel { position: static; margin: 0; padding: 1rem 1.25rem; font-size: 0.75rem; line-height: 1.6; }
     .panel figcaption { margin-top: 0.75rem; font-size: 0.75rem; }
     .label { margin-bottom: 0.5rem; font-size: 0.6875rem; }
     .chapter { min-height: 60vh; }
     .faq { padding-block: var(--block); }
-    .facts { justify-content: flex-start; gap: 0.5rem 2rem; }
+    .facts > div { flex-direction: column; }
+    .facts > .them { margin-top: 0.5rem; }
     .faq .them { margin-top: 2rem; }
     footer .them { margin-top: 2.5rem; }
+    .oss { display: flex; flex-direction: column; align-items: flex-start; border-radius: 1rem; }
     .cmd pre { padding-inline: 1.25rem; font-size: 1rem; }
     .cmd button { min-width: 5rem; padding-inline: 1rem; }
   }
@@ -243,12 +247,10 @@
     </div>
   </div>
 
-  <ul class="facts" aria-label="Facts about lmsk">
-    <li><strong>280</strong> detection rules, including gitleaks</li>
-    <li><strong>Runs locally</strong>, on your computer</li>
-    <li><strong>Signed</strong> npm releases with provenance</li>
-    <li><strong>No account</strong>, no telemetry</li>
-  </ul>
+  <div class="duo facts" role="list" aria-label="Facts about lmsk">
+    <div class="you"><p role="listitem"><strong>280</strong> detection rules, including gitleaks</p><p role="listitem"><strong>Runs locally</strong>, on your computer</p></div>
+    <div class="them"><p role="listitem"><strong>Signed</strong> npm releases with provenance</p><p role="listitem"><strong>No account</strong>, no telemetry</p></div>
+  </div>
 
   <section class="duo story" id="story" aria-label="How lmsk works">
     <div class="you">
