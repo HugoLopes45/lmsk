@@ -3,8 +3,39 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>lmsk: use AI on your code, your keys stay on your laptop</title>
-<meta name="description" content="lmsk swaps your keys, passwords and emails for fakes before your AI coding agent sends them, and puts the real values back in your files.">
+<title>lmsk: mask secrets and API keys for Claude Code and pi</title>
+<meta name="description" content="Masks API keys, passwords and emails before your coding agent sends them to the LLM, and puts the real values back in tool calls.">
+<link rel="canonical" href="https://hugolopes45.github.io/lmsk/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="lmsk">
+<meta property="og:url" content="https://hugolopes45.github.io/lmsk/">
+<meta property="og:title" content="lmsk: mask secrets and API keys for Claude Code and pi">
+<meta property="og:description" content="Real keys for your agent. Fakes for the model. lmsk swaps secrets for fakes before your coding agent sends a request, and tool calls get the real values back.">
+<meta property="og:image" content="https://hugolopes45.github.io/lmsk/brand/logo.svg">
+<meta property="og:image:alt" content="lmsk logo">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="lmsk: mask secrets and API keys for Claude Code and pi">
+<meta name="twitter:description" content="Real keys for your agent. Fakes for the model. lmsk swaps secrets for fakes before your coding agent sends a request, and tool calls get the real values back.">
+<meta name="twitter:image" content="https://hugolopes45.github.io/lmsk/brand/logo.svg">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "lmsk",
+  "description": "Masks API keys, passwords, IDs and emails before your coding agent sends a request to the LLM provider, and puts the real values back in tool calls.",
+  "url": "https://hugolopes45.github.io/lmsk/",
+  "downloadUrl": "https://www.npmjs.com/package/@hugolopes45/lmsk",
+  "applicationCategory": "DeveloperApplication",
+  "applicationSubCategory": "Security",
+  "operatingSystem": "macOS, Linux",
+  "softwareRequirements": "Node.js, and a supported coding agent: Claude Code or pi",
+  "license": "https://opensource.org/licenses/MIT",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "keywords": "mask secrets, redact, API keys, Claude Code, pi coding agent, LLM, privacy",
+  "sameAs": "https://github.com/HugoLopes45/lmsk"
+}
+</script>
 <meta name="color-scheme" content="light">
 <link rel="icon" href="brand/icon.svg" type="image/svg+xml">
 <link rel="preload" href="fonts/anton.woff2" as="font" type="font/woff2" crossorigin>
@@ -45,7 +76,7 @@
   .you { padding-left: var(--edge); background: var(--paper); }
   .them { padding-right: var(--edge); background: var(--ink); color: var(--paper); }
   .you.end { text-align: right; }
-  .tag { display: block; margin-bottom: 1rem; font: 600 0.8125rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--paper-muted); }
+  .tag { display: block; margin: 0 0 1rem; font: 600 0.8125rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--paper-muted); }
   .them .tag { color: var(--ink-muted); }
   .them .muted { color: var(--ink-muted); }
   .fake { color: var(--fake); font-weight: 600; }
@@ -54,7 +85,8 @@
   .cross > div { overflow: hidden; padding: 2.5rem 0 1rem; }
   .cross h1, .cross h2, .cross p { width: 200%; margin: 0; padding-inline: var(--edge); font: 400 clamp(3rem, 9vw, 9rem)/0.88 var(--display); text-transform: uppercase; text-align: center; text-wrap: balance; }
   .cross .them p { margin-left: -100%; }
-  .cross.hero h1, .cross.hero p { font-size: clamp(4rem, 13vw, 13rem); }
+  h1.split { margin: 0; font: 400 clamp(3rem, 7.5vw, 8rem)/0.92 var(--display); text-transform: uppercase; text-wrap: balance; }
+  h1.split > span { padding-block: 3rem 2rem; }
 
   .motion .cross h1, .motion .cross h2, .motion .cross p { transition: transform 700ms cubic-bezier(0.2, 0.7, 0.2, 1); }
   .motion .cross:not(.in) .you > * { transform: translateX(-4vw); }
@@ -117,6 +149,7 @@
     .cross h1, .cross h2 { width: 100%; }
     .cmd pre { font-size: 1rem; }
     .env { font-size: min(1rem, 4.4vw); }
+    h1.split > span { padding-block: 1.5rem; }
   }
 </style>
 </head>
@@ -129,42 +162,60 @@
     <ul>
       <li><a href="#how">How it works</a></li>
       <li><a href="#install">Install</a></li>
+      <li><a href="#faq">FAQ</a></li>
+      <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md">Docs</a></li>
       <li><a href="https://github.com/HugoLopes45/lmsk">GitHub</a></li>
     </ul>
   </nav>
 </header>
 
 <main>
-  <div class="row cross hero">
-    <div class="you"><h1>Keys stay on your side.</h1></div>
-    <div class="them" aria-hidden="true"><p>Keys stay on your side.</p></div>
-  </div>
-
-  <figure class="row env" style="margin: 0">
-    <div class="you end">
-      <span class="tag">Your laptop</span>
-      STRIPE_KEY=sk_live_51Hq8x2LmQ<br>
-      DB_PASSWORD=Tr0ub4dor-Horse-42<br>
-      CONTACT=jane.doe@acme.io
-    </div>
-    <div class="them">
-      <span class="tag">The AI company’s server</span>
-      STRIPE_KEY=<span class="fake">Xq7Lm2Pz9Kd4Wb8Tn3</span><br>
-      DB_PASSWORD=<span class="fake">6YPT4SfhOUbx6EEqx5</span><br>
-      CONTACT=<span class="fake">ptfe.rol@dwee.xt</span>
-    </div>
-    <figcaption class="sr-only">Example: three real values on your laptop, and the fakes of the same length that the AI company receives.</figcaption>
-  </figure>
+  <h1 class="row split hero">
+    <span class="you end">Real keys for your agent.</span>
+    <span class="them">Fakes for the model.</span>
+  </h1>
 
   <div class="row">
     <div class="you end">
-      <div class="cmd"><pre><code>pi install npm:@lmsk/pi</code></pre><button type="button" data-copy hidden>Copy</button></div>
-      <p class="note">Free, no account. Using Claude Code? <a href="#install">Try the preview</a>.</p>
+      <p class="lead">lmsk swaps API keys, passwords, tokens and emails for fakes before your coding agent sends a request.</p>
     </div>
     <div class="them">
-      <p class="lead">Work with your AI agent at full speed. lmsk swaps your keys, passwords and emails for fakes before anything leaves your laptop. When the AI edits a file or runs a command, lmsk puts the real values back.</p>
+      <p class="lead">Tool calls get the real values back, so your commands still run.</p>
     </div>
   </div>
+
+  <div class="row" id="install">
+    <div class="you end">
+      <h2 class="tag">Claude Code (preview)</h2>
+      <div class="cmd block"><pre><code>npm install -g @hugolopes45/lmsk
+lmsk claude</code></pre><button type="button" data-copy hidden>Copy</button></div>
+      <p class="note">Use <code>lmsk claude</code> in place of <code>claude</code>.</p>
+    </div>
+    <div class="them">
+      <h2 class="tag">pi</h2>
+      <div class="cmd"><pre><code>pi install npm:@hugolopes45/lmsk</code></pre><button type="button" data-copy hidden>Copy</button></div>
+      <p class="note muted">Then type <code>/reload</code>. More agents are planned.</p>
+    </div>
+  </div>
+
+  <section aria-labelledby="pain-title">
+    <div class="row cross">
+      <div class="you"><h2 id="pain-title">You know this moment</h2></div>
+      <div class="them" aria-hidden="true"><p>You know this moment</p></div>
+    </div>
+    <div class="row step">
+      <div class="you"><h3>The agent read your <code>.env</code>.</h3><p>It wanted to debug a config problem.</p></div>
+      <div class="them"><p class="muted">Your API key went to the model provider in the next request.</p></div>
+    </div>
+    <div class="row step">
+      <div class="you"><h3>A log line held a customer email.</h3><p>The agent put the log in its context.</p></div>
+      <div class="them"><p class="muted">The email went with it.</p></div>
+    </div>
+    <div class="row step">
+      <div class="you"><h3>A stack trace printed a bearer token.</h3><p>The agent read the whole output.</p></div>
+      <div class="them"><p class="muted">The token was sent with the rest of the output.</p></div>
+    </div>
+  </section>
 
   <section id="how" aria-labelledby="how-title">
     <div class="row cross">
@@ -172,75 +223,69 @@
       <div class="them" aria-hidden="true"><p>How it works</p></div>
     </div>
     <div class="row step">
-      <div class="you"><span class="num">1</span><h3>Install it once.</h3><p>One command, no account. lmsk uses no AI and runs on your laptop.</p></div>
-      <div class="them"><p class="muted">Nothing from lmsk itself. No telemetry.</p></div>
+      <div class="you"><span class="num">1</span><h3>Install it once.</h3><p>lmsk runs on your computer, as a local proxy in front of your agent or as an extension inside it.</p></div>
+      <div class="them"><p class="muted">No account, no configuration, no telemetry.</p></div>
     </div>
     <div class="row step">
-      <div class="you"><span class="num">2</span><h3>Work as usual.</h3><p>The AI reads your <code>.env</code>. You paste a log full of customer emails. You type your client’s name.</p></div>
-      <div class="them"><p>Keys, passwords, emails, phone numbers, IBANs and card numbers arrive as fakes of the same length, so their length is visible to the AI company. A client name you list arrives as <code>Client 1</code>.</p><span class="line">sent: <span class="fake">6YPT4SfhOUbx6EEqx5</span></span></div>
+      <div class="you"><span class="num">2</span><h3>Each request is masked on your computer.</h3><p>lmsk replaces each secret in the request with a fake. It keeps each real value in a vault on your computer.</p></div>
+      <div class="them"><p>Each secret arrives as a fake of the same length. The same value gets the same fake for the whole session.</p><span class="line">sent: <span class="fake">X8fumIJWTm5Rl6C305</span></span></div>
     </div>
     <div class="row step">
-      <div class="you"><span class="num">3</span><h3>Your files stay real.</h3><p>When the AI writes a file or runs a command, lmsk puts the real values back. Your app keeps working.</p><span class="line">written: Tr0ub4dor-Horse-42</span></div>
-      <div class="them"><p>The AI works with the fakes. The same value gets the same fake for the whole session.</p></div>
-    </div>
-    <div class="row step">
-      <div class="you"><span class="num">4</span><h3>It fails closed.</h3><p>If lmsk cannot hide a request safely, it cancels it.</p></div>
-      <div class="them"><p>Nothing arrives. lmsk never sends a request that is only partly hidden.</p></div>
+      <div class="you"><span class="num">3</span><h3>Tool calls get the real values back.</h3><p>When the agent writes a file or runs a command with a fake, lmsk puts the real value back. The command runs with your real secret.</p><span class="line">run with: Tr0ub4dor-Horse-42</span></div>
+      <div class="them"><p>The replies that you read can show fakes.</p></div>
     </div>
   </section>
 
-  <section class="limits" aria-labelledby="limits-title">
+  <section aria-labelledby="proof-title">
     <div class="row cross">
-      <div class="you"><h2 id="limits-title">What still crosses</h2></div>
-      <div class="them" aria-hidden="true"><p>What still crosses</p></div>
-    </div>
-    <div class="row">
-      <div class="you">
-        <p class="lead">lmsk is early (0.1). Here is what it does not do, so you know where to look.</p>
-        <p><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md#what-lmsk-does-not-protect">Read what lmsk does not protect</a></p>
-      </div>
-      <div class="them">
-        <ul>
-          <li><strong>Your code.</strong> lmsk hides secrets, names and ids, not code.</li>
-          <li><strong>Secrets with no pattern.</strong> lmsk finds secrets by their pattern, so a short password with no name next to it is not found.</li>
-          <li><strong>It is not a sandbox.</strong> A command that the AI runs gets the real values it needs. Use a sandbox as well.</li>
-        </ul>
-      </div>
-    </div>
-  </section>
-
-  <section id="install" aria-labelledby="install-title">
-    <div class="row cross">
-      <div class="you"><h2 id="install-title">Try it in two minutes</h2></div>
-      <div class="them" aria-hidden="true"><p>Try it in two minutes</p></div>
+      <div class="you"><h2 id="proof-title">Proof</h2></div>
+      <div class="them" aria-hidden="true"><p>Proof</p></div>
     </div>
     <div class="row step">
+      <div class="you"><h3>A real request body</h3><p>A tool result before and after lmsk. Only the secrets change.</p></div>
+      <div class="them"><p class="muted"><a href="https://github.com/HugoLopes45/lmsk#a-real-request-body-before-and-after">See the full request</a>.</p></div>
+    </div>
+    <figure class="row env" style="margin: 0">
       <div class="you">
-        <h3>With pi</h3>
-        <p>Install it, then start pi or type <code>/reload</code>.</p>
-        <div class="cmd"><pre><code>pi install npm:@lmsk/pi</code></pre><button type="button" data-copy hidden>Copy</button></div>
+        <span class="tag">tool_result on your computer</span>
+        api-1 | config OPENAI_API_KEY=sk-proj-4fQ9xT2mLp8VnR3kWc7ZsB1yHd6JeA0uGt5<br>
+        api-1 | refund failed for customer jane.doe@example.com<br>
+        api-1 | at charge (billing.ts:42) Authorization: Bearer 7Hq2Lx9VmK4pR8sT1wZ6cN3bY5dF0gJ
       </div>
       <div class="them">
-        <h3>With Claude Code (preview)</h3>
-        <p>Install it, then start Claude Code with <code>lmsk claude</code>.</p>
-        <div class="cmd block"><pre><code>npm install -g lmsk
-lmsk claude</code></pre><button type="button" data-copy hidden>Copy</button></div>
+        <span class="tag">tool_result that the provider receives</span>
+        api-1 | config OPENAI_API_KEY=<span class="fake">T8MCnGhey7vwndvjsQBbNPVIDZBUtkj80LcGEhqcWCr</span><br>
+        api-1 | refund failed for customer <span class="fake">bmib.xtm@kitquhs.mnn</span><br>
+        api-1 | at charge (billing.ts:42) Authorization: Bearer <span class="fake">IA1uy6fuqU2b89b3k4zir4UPE9BL7Q1</span>
       </div>
+      <figcaption class="sr-only">A tool result with an API key, a customer email and a bearer token, and the same tool result after lmsk replaced the three values with fakes.</figcaption>
+    </figure>
+    <div class="row step">
+      <div class="you"><h3>It fails closed.</h3><p>If lmsk cannot mask a request safely, the request is not sent.</p></div>
+      <div class="them"><p class="muted"><a href="https://github.com/HugoLopes45/lmsk#it-fails-closed">How it fails</a>.</p></div>
     </div>
     <div class="row step">
+      <div class="you"><h3>Detection rules</h3><p>Vendor keys, passwords, tokens and personal data. Add your own rules.</p></div>
+      <div class="them"><p class="muted"><a href="https://github.com/HugoLopes45/lmsk#280-detection-rules">See the rules</a>.</p></div>
+    </div>
+    <div class="row step">
+      <div class="you"><h3>A local vault</h3><p>The real values stay on your computer. The provider gets only the fakes.</p></div>
+      <div class="them"><p class="muted"><a href="https://github.com/HugoLopes45/lmsk#a-local-vault">About the vault</a>.</p></div>
+    </div>
+    <div class="row step" id="check">
       <div class="you">
-        <h3>Then send this message</h3>
-        <p>The key in it is a test value.</p>
+        <h3>Check it yourself in one minute</h3>
+        <p>Send this message to your agent. The key in it is a test value.</p>
         <div class="cmd block"><pre><code>Repeat this line exactly: API_KEY=Zq7Kp2Lm9Xw4Rt8Vb3Nc</code></pre><button type="button" data-copy hidden>Copy</button></div>
       </div>
       <div class="them">
         <h3>The reply shows a different value</h3>
-        <p>The value after <code>API_KEY=</code> in the reply is the fake that the AI company received.</p>
+        <p>That value is the fake that the provider received.</p>
       </div>
     </div>
   </section>
 
-  <section aria-labelledby="questions-title">
+  <section id="faq" aria-labelledby="questions-title">
     <div class="row cross">
       <div class="you"><h2 id="questions-title">Questions</h2></div>
       <div class="them" aria-hidden="true"><p>Questions</p></div>
@@ -248,20 +293,50 @@ lmsk claude</code></pre><button type="button" data-copy hidden>Copy</button></di
     <div class="row">
       <div class="you">
         <dl>
-          <dt>Does lmsk send my data anywhere?</dt>
-          <dd>No. lmsk uses no AI, has no account and sends no telemetry.</dd>
-          <dt>Where are my real values?</dt>
-          <dd>In a plain JSON file on your laptop that only your user account can read. The file is not encrypted.</dd>
-          <dt>Which AI agents does it work with?</dt>
-          <dd>pi, and Claude Code as a preview.</dd>
+          <dt>Does it break my commands?</dt>
+          <dd>No. The built-in file and shell tools get the real values back before they run. Other tools, such as MCP tools, get fakes.</dd>
+          <dt>What if detection misses something?</dt>
+          <dd>Then that value goes to the provider. You can add your own rules for the values that you must hide.</dd>
+          <dt>Does it slow requests?</dt>
+          <dd>A little. Masking runs on your computer, with no network call.</dd>
+          <dt>Where are the real values stored?</dt>
+          <dd>In a local vault on your computer. lmsk sends the vault nowhere.</dd>
+          <dt>Which agents does it work with?</dt>
+          <dd>Claude Code and pi today. More agents are planned.</dd>
         </dl>
+        <p class="note muted">Technical details are on <a href="https://github.com/HugoLopes45/lmsk">GitHub</a>.</p>
       </div>
-      <div class="them">
-        <h3>Free and open source</h3>
-        <p class="muted">MIT license. Test it on your own data before you trust it.</p>
-        <a class="button" href="#install">Install in one command</a>
+      <div class="them limits">
+        <h3>What still crosses</h3>
+        <ul>
+          <li><strong>A reply can show fakes.</strong> lmsk puts real values back only into tool calls.</li>
+          <li><strong>Your code.</strong> lmsk hides secrets, personal data and IDs, not code.</li>
+          <li><strong>The length of each value.</strong> A fake has the same length as its real value.</li>
+          <li><strong>It is not a sandbox.</strong> A command that the agent runs gets the real values it needs. Use a sandbox as well.</li>
+          <li><strong>This is an early version.</strong> Test it on your own data before you trust it. <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md#what-lmsk-does-not-protect">What lmsk does not protect</a>.</li>
+        </ul>
       </div>
     </div>
+  </section>
+
+  <section aria-labelledby="start-title">
+    <div class="row cross">
+      <div class="you"><h2 id="start-title">Start now</h2></div>
+      <div class="them" aria-hidden="true"><p>Start now</p></div>
+    </div>
+    <div class="row step">
+      <div class="you end">
+      <h2 class="tag">Claude Code (preview)</h2>
+      <div class="cmd block"><pre><code>npm install -g @hugolopes45/lmsk
+lmsk claude</code></pre><button type="button" data-copy hidden>Copy</button></div>
+      <p class="note">Use <code>lmsk claude</code> in place of <code>claude</code>.</p>
+    </div>
+    <div class="them">
+      <h2 class="tag">pi</h2>
+      <div class="cmd"><pre><code>pi install npm:@hugolopes45/lmsk</code></pre><button type="button" data-copy hidden>Copy</button></div>
+      <p class="note muted">Then type <code>/reload</code>. Free and open source, MIT license.</p>
+    </div>
+  </div>
   </section>
 </main>
 
@@ -269,8 +344,12 @@ lmsk claude</code></pre><button type="button" data-copy hidden>Copy</button></di
   <div class="you">
     <ul>
       <li><a href="https://github.com/HugoLopes45/lmsk">Source on GitHub</a></li>
-      <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/pi.md">pi guide</a></li>
       <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/claude-code.md">Claude Code guide</a></li>
+      <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/pi.md">pi guide</a></li>
+      <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md">User guide</a></li>
+      <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/CONFIGURATION.md">Configuration</a></li>
+      <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/TROUBLESHOOTING.md">Troubleshooting</a></li>
+      <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/CHANGELOG.md">Changelog</a></li>
     </ul>
   </div>
   <div class="them">

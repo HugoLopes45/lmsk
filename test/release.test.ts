@@ -16,8 +16,6 @@ import {
   validateRelease,
   releasePlan,
   publicationTarget,
-  workspaceOrder,
-  bumpManifest,
 } from "../scripts/release.ts";
 
 const changelog = `# Changelog
@@ -137,131 +135,6 @@ describe("validateRelease", () => {
       );
     },
   );
-});
-
-describe("workspaceOrder", () => {
-  const core = {
-    name: "core",
-    version: "0.2.0",
-    dependencies: { typebox: "^1" },
-  };
-  const adapter = {
-    name: "adapter",
-    version: "0.2.0",
-    dependencies: { core: "0.2.0" },
-  };
-  const cli = {
-    name: "cli",
-    version: "0.2.0",
-    dependencies: { adapter: "0.2.0", core: "0.2.0" },
-  };
-
-  it("lists the workspaces after the workspaces they depend on", () => {
-    expect(workspaceOrder("0.2.0", [cli, adapter, core])).toEqual([
-      "core",
-      "adapter",
-      "cli",
-    ]);
-  });
-
-  it("rejects a workspace with another version than the root", () => {
-    expect(() =>
-      workspaceOrder("0.2.0", [core, { ...adapter, version: "0.1.0" }]),
-    ).toThrow("adapter");
-  });
-
-  it.each(["0.1.0", "^0.2.0"])(
-    "rejects an internal dependency not pinned to the root version: %s",
-    (range) => {
-      expect(() =>
-        workspaceOrder("0.2.0", [
-          core,
-          { ...adapter, dependencies: { core: range } },
-        ]),
-      ).toThrow("adapter");
-    },
-  );
-
-  it("rejects a development dependency not pinned to the root version", () => {
-    expect(() =>
-      workspaceOrder("0.2.0", [
-        core,
-        { ...adapter, devDependencies: { core: "0.1.0" } },
-      ]),
-    ).toThrow("adapter");
-  });
-
-  it("orders by runtime dependencies only", () => {
-    expect(
-      workspaceOrder("0.2.0", [
-        { ...core, devDependencies: { adapter: "0.2.0" } },
-        adapter,
-      ]),
-    ).toEqual(["core", "adapter"]);
-  });
-
-  it("rejects a dependency cycle", () => {
-    expect(() =>
-      workspaceOrder("0.2.0", [
-        { ...core, dependencies: { adapter: "0.2.0" } },
-        adapter,
-      ]),
-    ).toThrow("cycle");
-  });
-
-  it.each([null, { name: "core" }, { ...core, dependencies: [] }])(
-    "rejects a malformed workspace manifest: %j",
-    (value) => {
-      expect(() => workspaceOrder("0.2.0", [value])).toThrow(/manifest/);
-    },
-  );
-});
-
-describe("bumpManifest", () => {
-  it("sets the version and the internal dependencies, and keeps the others", () => {
-    expect(
-      bumpManifest(
-        {
-          name: "cli",
-          version: "0.1.0",
-          dependencies: { core: "0.1.0", typebox: "^1" },
-        },
-        "0.2.0",
-        new Set(["core", "cli"]),
-      ),
-    ).toEqual({
-      name: "cli",
-      version: "0.2.0",
-      dependencies: { core: "0.2.0", typebox: "^1" },
-    });
-  });
-
-  it("pins internal development dependencies too", () => {
-    expect(
-      bumpManifest(
-        {
-          name: "proxy",
-          version: "0.1.0",
-          devDependencies: { formats: "0.1.0" },
-        },
-        "0.2.0",
-        new Set(["formats"]),
-      ),
-    ).toEqual({
-      name: "proxy",
-      version: "0.2.0",
-      devDependencies: { formats: "0.2.0" },
-    });
-  });
-
-  it("keeps a manifest without dependencies without them", () => {
-    expect(
-      bumpManifest({ name: "core", version: "0.1.0" }, "0.2.0", new Set()),
-    ).toEqual({
-      name: "core",
-      version: "0.2.0",
-    });
-  });
 });
 
 describe("releasePlan", () => {
@@ -411,9 +284,9 @@ describe("check", () => {
     new URL("../scripts/release.ts", import.meta.url),
   );
   const requiredFiles = [
-    "packages/pi/extensions/index.ts",
-    "packages/pi/test/e2e.test.ts",
-    "packages/pi/test/harness.ts",
+    "src/pi/extension.ts",
+    "test/pi/e2e.test.ts",
+    "test/pi/harness.ts",
   ];
   const roots: string[] = [];
 
@@ -451,17 +324,6 @@ describe("check", () => {
     const result = await runCheck(checkout());
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
-  });
-
-  it("rejects a checkout with a workspace at another version", async () => {
-    const root = checkout();
-    writeFileSync(
-      join(root, "packages/pi/package.json"),
-      JSON.stringify({ name: "lmsk-pi", version: "0.1.0" }),
-    );
-    const result = await runCheck(root);
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("Workspace lmsk-pi has version 0.1.0");
   });
 
   it.each(requiredFiles)("rejects a checkout without %s", async (file) => {

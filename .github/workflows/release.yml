@@ -73,15 +73,12 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
           VERSION: ${{ steps.target.outputs.version }}
           COMMIT: ${{ steps.target.outputs.commit }}
-      - name: Publish the workspaces to npm
+      - name: Publish to npm
         run: |
-          order=$(node scripts/release.ts order)
-          for name in $order; do
-            published=$(node scripts/release.ts published "$name" "$VERSION" "$COMMIT")
-            if [ "$published" = false ]; then
-              npm publish --provenance --workspace "$name"
-            fi
-          done
+          published=$(node scripts/release.ts published @hugolopes45/lmsk "$VERSION" "$COMMIT")
+          if [ "$published" = false ]; then
+            npm publish --provenance
+          fi
         env:
           VERSION: ${{ steps.target.outputs.version }}
           COMMIT: ${{ steps.target.outputs.commit }}

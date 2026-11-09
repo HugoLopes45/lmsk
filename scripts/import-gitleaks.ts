@@ -1,4 +1,4 @@
-// Converts the gitleaks default rules into packages/core/src/gitleaks-rules.ts.
+// Converts the gitleaks default rules into src/core/gitleaks-rules.ts.
 // The rules are data from gitleaks (MIT, Copyright (c) 2019 Zachary Rice).
 //
 // Usage:
@@ -6,7 +6,7 @@
 //   python3 -c 'import json,sys,tomllib; json.dump(tomllib.load(open(sys.argv[1],"rb")), sys.stdout)' gitleaks.toml > gitleaks.json
 //   node scripts/import-gitleaks.ts gitleaks.json <version>
 import { readFileSync, writeFileSync } from "node:fs";
-import { type Allowlist, isRecord, type RegexRule } from "../packages/core/src/config.ts";
+import { type Allowlist, isRecord, type RegexRule } from "../src/core/config.ts";
 
 interface Flags {
   caseless: boolean;
@@ -280,7 +280,7 @@ function main(args: string[]): void {
     "}));",
     "",
   ].join("\n");
-  writeFileSync(new URL("../packages/core/src/gitleaks-rules.ts", import.meta.url), text);
+  writeFileSync(new URL("../src/core/gitleaks-rules.ts", import.meta.url), text);
   process.stdout.write(
     `${rules.length} rules written, ${skipped.length} skipped\n`,
   );

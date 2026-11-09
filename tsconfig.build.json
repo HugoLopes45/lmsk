@@ -2,12 +2,18 @@
   "compilerOptions": {
     "target": "ES2023",
     "module": "NodeNext",
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "strict": true,
     "skipLibCheck": true,
     "allowJs": true,
-    "composite": true,
     "rewriteRelativeImportExtensions": true,
-    "erasableSyntaxOnly": true
-  }
+    "erasableSyntaxOnly": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": [
+    "src"
+  ]
 }

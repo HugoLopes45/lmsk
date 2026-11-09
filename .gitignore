@@ -12,8 +12,10 @@
 !/package-lock.json
 !/tsconfig.json
 !/tsconfig.build.json
+!/plugin/
 !/schema/
 !/scripts/
+!/src/
 !/test/
 
 !/docs/
@@ -26,15 +28,6 @@
 !/docs/TROUBLESHOOTING.md
 !/docs/claude-code.md
 !/docs/pi.md
-
-!/packages/
-/packages/*
-!/packages/claude-code/
-!/packages/cli/
-!/packages/core/
-!/packages/formats/
-!/packages/pi/
-!/packages/proxy/
 
 # Build output and local files, also inside re-included directories.
 node_modules/

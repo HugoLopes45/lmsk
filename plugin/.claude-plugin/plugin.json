@@ -1,0 +1,5 @@
+{
+  "name": "lmsk",
+  "description": "Denies Claude Code tool calls that open a path that lmsk protects, such as .env.",
+  "author": { "name": "HugoLopes45" }
+}
