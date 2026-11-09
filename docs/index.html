@@ -3,19 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>lmsk: mask secrets and API keys for Claude Code and pi</title>
-<meta name="description" content="Masks API keys, passwords and emails before Claude Code or pi sends them to the LLM, and puts the real values back in tool calls.">
+<title>lmsk: hide API keys and .env secrets from Claude Code and pi</title>
+<meta name="description" content="lmsk stops Claude Code and pi from sending your API keys, passwords and .env secrets to the AI model. It swaps them for fakes. Free and open source.">
 <link rel="canonical" href="https://hugolopes45.github.io/lmsk/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="lmsk">
 <meta property="og:url" content="https://hugolopes45.github.io/lmsk/">
-<meta property="og:title" content="lmsk: mask secrets and API keys for Claude Code and pi">
-<meta property="og:description" content="Real keys for your agent. Fakes for the model. lmsk swaps secrets for fakes before Claude Code or pi sends a request, and tool calls get the real values back.">
+<meta property="og:title" content="lmsk: hide API keys and .env secrets from Claude Code and pi">
+<meta property="og:description" content="lmsk stops Claude Code and pi from sending your API keys, passwords and .env secrets to the AI model. It swaps them for fakes. Free and open source.">
 <meta property="og:image" content="https://hugolopes45.github.io/lmsk/brand/logo.svg">
 <meta property="og:image:alt" content="lmsk logo">
 <meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="lmsk: mask secrets and API keys for Claude Code and pi">
-<meta name="twitter:description" content="Real keys for your agent. Fakes for the model. lmsk swaps secrets for fakes before Claude Code or pi sends a request, and tool calls get the real values back.">
+<meta name="twitter:title" content="lmsk: hide API keys and .env secrets from Claude Code and pi">
+<meta name="twitter:description" content="lmsk stops Claude Code and pi from sending your API keys, passwords and .env secrets to the AI model. It swaps them for fakes. Free and open source.">
 <meta name="twitter:image" content="https://hugolopes45.github.io/lmsk/brand/logo.svg">
 <script type="application/ld+json">
 {
@@ -32,12 +32,109 @@
   "license": "https://opensource.org/licenses/MIT",
   "isAccessibleForFree": true,
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-  "keywords": "mask secrets, redact, API keys, Claude Code, pi coding agent, LLM, privacy",
+  "keywords": "hide API keys from Claude Code, .env secrets, mask secrets, redact secrets, LLM privacy, pi coding agent, AI coding agent security",
   "sameAs": "https://github.com/HugoLopes45/lmsk"
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Does Claude Code send my .env file to the AI model?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Claude Code sends what it reads to the model in the next request. lmsk refuses the tool calls that open .env, key and secret files. Each secret that lmsk finds in a request becomes a fake first."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I stop Claude Code from leaking my API keys?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Run lmsk claude instead of claude. lmsk swaps each secret for a fake before the request leaves your computer."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What happens when I paste an API key into Claude Code or pi?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "The model receives a fake. The files and commands that your agent writes get the real key."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I protect my secrets in the pi coding agent?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Run pi install npm:@hugolopes45/lmsk, then type /reload."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can my agent still use my real keys?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. The file and shell tools of your agent get the real values back before they run."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Which secrets does it find?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "280 rules, including the gitleaks rules, find API keys, passwords, tokens, database URLs, emails, phone numbers, card numbers and IDs. You can add a rule for any other value."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I hide client names under NDA?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Add the name once in the configuration. The model gets a name such as Client 1."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Where are my real values stored?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "In a local vault on your computer. lmsk has no server and no account."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How is it different from gitleaks?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "gitleaks finds secrets in your files and commits. lmsk uses the gitleaks rules on each request that your agent sends, and swaps each secret for a fake."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How can I check that it works?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Send your agent this message: Repeat this line exactly: API_KEY=Zq7Kp2Lm9Xw4Rt8Vb3Nc. The reply shows a different value. That value is the fake that the provider received."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is it free?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. lmsk is open source under the MIT license. No account, no telemetry."
+      }
+    }
+  ]
 }
 </script>
 <meta name="color-scheme" content="light">
 <link rel="icon" href="brand/icon.svg" type="image/svg+xml">
+<script>if (matchMedia('(prefers-reduced-motion: no-preference)').matches && 'IntersectionObserver' in window) document.documentElement.classList.add('motion');</script>
 <link rel="preload" href="fonts/anton.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/public-sans.woff2" as="font" type="font/woff2" crossorigin>
 <style>
@@ -51,128 +148,160 @@
     --paper-muted: oklch(0.44 0.015 255);
     --paper-rule: oklch(0.86 0.006 255);
     --ink: oklch(0.17 0.015 255);
-    --ink-muted: oklch(0.8 0.015 255);
-    --ink-raised: oklch(0.27 0.015 255);
+    --ink-muted: oklch(0.78 0.015 255);
+    --ink-rule: oklch(0.32 0.015 255);
     --fake: oklch(0.72 0.18 33);
-    --edge: max(1.5rem, calc((100vw - 1440px) / 2 + 3rem));
-    --gap: 1.5rem;
-    --seam: clamp(2rem, 5vw, 6rem);
-    --step: clamp(3rem, 6vw, 6.5rem);
-    --section: clamp(6rem, 13vw, 13rem);
-    --measure: 34rem;
+    --fake-on-paper: oklch(0.55 0.2 30);
+    --edge: max(1.25rem, calc((100vw - 1280px) / 2));
+    --seam: clamp(1.5rem, 4vw, 4.5rem);
+    --block: clamp(3rem, 6vw, 5rem);
+    --section: clamp(6rem, 12vw, 10rem);
     --display: "Anton", "Impact", sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, monospace;
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
   }
   * { box-sizing: border-box; }
   html { scroll-padding-top: 1rem; }
   body { margin: 0; font: 400 1.125rem/1.55 "Public Sans", system-ui, sans-serif; color: var(--ink); background: var(--paper); }
+  ::selection { background: var(--fake); color: var(--ink); }
   a { color: inherit; text-underline-offset: 0.2em; }
-  a:focus-visible, button:focus-visible { outline: 3px solid var(--fake); outline-offset: 3px; }
+  :focus-visible { outline: 3px solid var(--fake-on-paper); outline-offset: 3px; }
+  .ink :focus-visible { outline-color: var(--fake); }
   p { margin: 0 0 1rem; text-wrap: pretty; }
-  code, pre { font-family: var(--mono); }
-  h3 { margin: 0 0 0.5rem; font-size: 1.375rem; line-height: 1.25; }
+  code, pre { font-family: var(--mono); font-size: 0.92em; }
+  h1, h2, .poster { margin: 0; font-weight: 400; font-family: var(--display); text-transform: uppercase; }
+  h2 { font-size: clamp(2.5rem, 5vw, 4.5rem); line-height: 0.95; text-wrap: balance; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .muted { color: var(--paper-muted); }
+  .ink { background: var(--ink); color: var(--paper); }
+  .ink .muted { color: var(--ink-muted); }
 
-  /* The seam: every row is your laptop (paper, left) against the AI company's server (ink, right). */
-  .row { display: grid; grid-template-columns: 1fr 1fr; }
-  main { background: linear-gradient(90deg, var(--paper) 50%, var(--ink) 50%); }
-  .you, .them { padding: var(--gap) var(--seam); }
-  .you { padding-left: var(--edge); background: var(--paper); }
-  .them { padding-right: var(--edge); background: var(--ink); color: var(--paper); }
-  .you.end { text-align: right; }
-  .tag { display: block; margin: 0 0 1rem; font: 600 0.8125rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--paper-muted); }
-  .them .tag { color: var(--ink-muted); }
-  .them .muted { color: var(--ink-muted); }
-  .fake { color: var(--fake); font-weight: 600; }
+  /* One grid for the whole page: the seam. Paper content aligns toward it, ink content starts from it. */
+  .duo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); margin: 0; }
+  .you { padding: 0 var(--seam) 0 var(--edge); text-align: right; }
+  .you > * { margin-left: auto; }
+  .them { padding: 0 var(--edge) 0 var(--seam); }
+  .split { background: linear-gradient(90deg, var(--paper) 50%, var(--ink) 50%); }
+  .split .them { color: var(--paper); }
+  .split .them .muted { color: var(--ink-muted); }
 
-  /* A title that crosses the seam: each half holds the full title, twice its width, so the two halves line up. */
-  .cross > div { overflow: hidden; padding: var(--section) 0 clamp(2.5rem, 5vw, 5rem); }
-  .cross h1, .cross h2, .cross p { width: 200%; margin: 0; padding-inline: var(--edge); font: 400 clamp(3rem, 9vw, 9rem)/0.88 var(--display); text-transform: uppercase; text-align: center; text-wrap: balance; }
-  .cross .them p { margin-left: -100%; }
-  h1.split { margin: 0; font: 400 clamp(3rem, 7.5vw, 8rem)/0.92 var(--display); text-transform: uppercase; text-wrap: balance; }
-  h1.split > span { padding-block: clamp(5rem, 11vw, 11rem) clamp(2rem, 4vw, 4rem); }
-  .hero + .row > div { padding-bottom: clamp(3rem, 5vw, 5rem); }
-  #install > div { padding-bottom: var(--section); }
-  :is(.hero + .row, #install, .step) > div > :not(.cmd) { max-width: var(--measure); }
-  .you.end > * { margin-left: auto; }
-
-  .motion .cross h1, .motion .cross h2, .motion .cross p { transition: transform 700ms cubic-bezier(0.2, 0.7, 0.2, 1); }
-  .motion .cross:not(.in) .you > * { transform: translateX(-4vw); }
-  .motion .cross:not(.in) .them p { transform: translateX(4vw); }
-  .motion .step:not(.in) > div { opacity: 0; transform: translateY(1rem); }
-  .motion .step > div { transition: transform 500ms ease-out, opacity 500ms ease-out; }
-  .motion .step > .them { transition-delay: 150ms; }
-  .cmd button { transition: background-color 150ms; }
-  .cmd button:hover { background: var(--paper); }
-  .them .cmd button:hover { background: var(--ink); color: var(--paper); }
-  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
-
-  header.row { align-items: center; }
-  header > div, header > nav { padding-block: 2rem; }
-  header .them { display: flex; justify-content: flex-end; }
+  header { align-items: center; padding-block: 1.75rem; }
+  header > * { display: flex; }
+  header .you > * { margin-left: 0; }
+  header .them { justify-content: flex-end; }
   header img { display: block; }
   nav ul { display: flex; flex-wrap: wrap; gap: 0.25rem 1.75rem; margin: 0; padding: 0; list-style: none; font-weight: 600; }
   nav a { display: inline-block; padding-block: 0.5rem; text-decoration: none; }
   nav a:hover { text-decoration: underline; }
 
-  .env { font: 400 clamp(1rem, 1.7vw, 1.5rem)/1.9 var(--mono); overflow-wrap: anywhere; }
-  .env .you, .env .them { padding-block: var(--step); }
+  .poster { font-size: clamp(2.75rem, 6vw, 6rem); line-height: 0.92; }
+  .poster > span { padding-block: clamp(3rem, 8vw, 7rem) clamp(2rem, 3vw, 3rem); white-space: nowrap; }
+  .red { color: var(--fake); }
+  .hero-text { padding-bottom: var(--section); }
+  h1.lead { font-family: inherit; font-weight: 600; text-transform: none; line-height: 1.4; }
+  .lead { max-width: 30rem; margin-bottom: 2rem; font-size: clamp(1.125rem, 1.5vw, 1.3125rem); }
+  .agents { max-width: 30rem; margin: 0; font-size: 1rem; }
+  .agents p { margin: 0 0 0.5rem; }
+  .agents strong, .small strong { color: inherit; }
+  .small { margin: 1rem 0 0; font-size: 1rem; }
 
   .cmd { display: inline-flex; max-width: 100%; border-radius: 999px; background: var(--ink); color: var(--paper); overflow: hidden; text-align: left; }
-  .them .cmd { background: var(--paper); color: var(--ink); }
+  .ink .cmd { background: var(--paper); color: var(--ink); }
   .cmd pre { margin: 0; padding: 1.1rem 1.5rem; font-weight: 600; font-size: 1.125rem; white-space: pre-wrap; overflow-wrap: anywhere; }
   .cmd.block { border-radius: 1rem; }
-  .cmd button { flex: none; min-width: 6rem; border: 0; padding: 0 1.5rem; font: 700 1rem "Public Sans", sans-serif; background: var(--fake); color: var(--ink); cursor: pointer; }
-  .note { margin-top: 1rem; font-size: 1rem; color: var(--paper-muted); }
-  .lead { font-size: clamp(1.125rem, 1.6vw, 1.375rem); }
+  .cmd button { flex: none; min-width: 6rem; border: 0; padding: 0 1.5rem; font: 700 1rem "Public Sans", sans-serif; background: var(--fake); color: var(--ink); cursor: pointer; transition: background-color 150ms; }
+  .cmd button:hover { background: var(--paper); }
+  .ink .cmd button:hover { background: var(--ink); color: var(--paper); }
 
-  .step { border-top: 1px solid var(--paper-rule); }
-  .step .them { border-top: 1px solid var(--ink-raised); }
-  .step .you, .step .them { padding-block: var(--step); }
-  .num { font: 400 2.5rem/1 var(--display); display: block; margin-bottom: 1.5rem; }
-  .line { display: inline-block; margin-top: 0.5rem; font: 400 1rem/1.4 var(--mono); overflow-wrap: anywhere; }
+  .facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.75rem 3rem; margin: 0; padding: 2rem var(--edge); list-style: none; border-bottom: 1px solid var(--paper-rule); color: var(--paper-muted); font-size: 1rem; }
+  .facts strong { color: var(--ink); }
 
-  #faq > .row:not(.cross) > div { padding-block: var(--step); }
-  .limits ul { margin: 0; padding: 0; list-style: none; }
-  .limits li + li { margin-top: 2.5rem; }
-  .limits strong { display: block; font-size: 1.25rem; }
+  /* The story: one request, pinned beside four chapters. Red text is always a fake. */
+  .story { padding-top: var(--block); }
+  .chapter { display: flex; flex-direction: column; justify-content: center; min-height: 62vh; }
+  h2 code { font: inherit; text-transform: lowercase; }
+  .chapter h2 { margin-bottom: 1.25rem; }
+  .chapter p { max-width: 28rem; font-size: clamp(1.125rem, 1.5vw, 1.3125rem); }
+  .panel { position: sticky; top: calc(50vh - 7rem); max-width: 36rem; padding: clamp(1.5rem, 3vw, 2.25rem); border-radius: 1rem; background: var(--ink); color: var(--paper); font: 400 0.9375rem/1.8 var(--mono); overflow-wrap: anywhere; }
+  .screen p { margin: 0; }
+  .screen + .screen { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--ink-rule); }
+  .label { display: block; margin-bottom: 0.75rem; font: 600 0.8125rem/1.2 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-muted); }
+  .who { color: var(--ink-muted); }
+  .fake { color: var(--fake); font-weight: 600; }
+  .real { color: var(--paper); font-weight: 600; }
+  .panel figcaption { margin-top: 1.25rem; font: 400 0.875rem/1.5 "Public Sans", sans-serif; color: var(--ink-muted); }
 
-  dl { margin: 0; }
-  dt { font-weight: 700; font-size: 1.125rem; }
-  dd { margin: 0.5rem 0 2.5rem; max-width: var(--measure); }
-  .button { display: inline-block; padding: 1.1rem 1.75rem; border-radius: 999px; background: var(--fake); color: var(--ink); font-weight: 700; text-decoration: none; }
-  .button:hover { background: var(--paper); }
+  .faq { padding-block: var(--section); }
+  details { border-top: 1px solid var(--paper-rule); }
+  details:last-of-type { border-bottom: 1px solid var(--paper-rule); }
+  summary { display: flex; justify-content: space-between; gap: 1.5rem; padding-block: 1.25rem; font-weight: 700; font-size: 1.1875rem; cursor: pointer; list-style: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: ""; flex: none; width: 0.875rem; height: 0.875rem; margin-top: 0.4rem; background: linear-gradient(currentColor, currentColor) center / 100% 2px no-repeat, linear-gradient(currentColor, currentColor) center / 2px 100% no-repeat; transition: transform 200ms var(--ease); }
+  details[open] summary::after { transform: rotate(45deg); }
+  summary:hover { color: var(--fake-on-paper); }
+  details > :not(summary) { max-width: 40rem; margin: 0 0 1.25rem; }
+  .faq .small { margin-top: 2rem; }
 
-  footer .you, footer .them { padding-block: var(--step); font-size: 1rem; }
-  footer ul { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; margin: 0 0 1rem; padding: 0; list-style: none; }
+  .close .poster > span { padding-block: var(--section) clamp(2rem, 3vw, 3rem); }
+  .close .duo:last-child { padding-bottom: var(--section); }
+
+  footer { padding-block: 2.5rem; border-top: 1px solid var(--paper-rule); font-size: 1rem; }
+  footer ul { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem 1.5rem; margin: 0; padding: 0; list-style: none; }
+  footer p { max-width: 30rem; margin: 0; }
+  footer li a { display: inline-block; padding-block: 0.3rem; }
+
+  /* Motion: the first screen opens from the seam; in the story, values resolve like a fake does. */
+  @keyframes open-left { from { clip-path: inset(0 0 0 100%); transform: translateX(3rem); } }
+  @keyframes open-right { from { clip-path: inset(0 100% 0 0); transform: translateX(-3rem); } }
+  @keyframes rise { from { opacity: 0; transform: translateY(1.25rem); } }
+  .motion .hero .poster > .you { animation: open-left 1100ms var(--ease) both; }
+  .motion .hero .poster > .them { animation: open-right 1100ms var(--ease) 120ms both; }
+  .motion .hero-text > * { animation: rise 800ms var(--ease) 500ms both; }
+  .motion .chapter { opacity: 0.3; transition: opacity 400ms var(--ease); }
+  .motion .chapter.on { opacity: 1; }
+  .motion .screens { display: grid; }
+  .motion .screen { grid-area: 1 / 1; margin: 0; padding: 0; border: 0; opacity: 0; filter: blur(6px); transition: opacity 450ms var(--ease), filter 450ms var(--ease); }
+  .motion .screen.on { opacity: 1; filter: none; }
 
   @media (max-width: 760px) {
-    .row { grid-template-columns: minmax(0, 1fr); }
-    main { background: none; }
+    .duo { grid-template-columns: minmax(0, 1fr); }
+    .split { background: none; }
+    .you, .them { padding-inline: var(--edge); text-align: left; }
+    .you > * { margin-left: 0; }
+    header.split .them { justify-content: flex-start; margin-top: 0.75rem; color: var(--ink); }
     nav ul { column-gap: 1.25rem; font-size: 1rem; }
-    .cmd pre { padding-inline: 1.25rem; }
+    .poster { padding-block: 2.5rem 2rem; font-size: min(12vw, 4.5rem); }
+    .poster > span, .close .poster > span { padding-block: 0; }
+    .hero .poster .them { color: var(--ink); }
+    .hero .red { color: var(--fake-on-paper); }
+    .hero-text { display: flex; flex-direction: column; padding-bottom: 0; }
+    .hero-text > .you { padding-bottom: 2.5rem; }
+    .hero-text > .them { padding-block: 2.5rem; background: var(--ink); }
+    .close .poster { padding-top: var(--block); }
+    .close .duo:last-child { gap: 2rem; padding-bottom: var(--block); }
+    .story { display: flex; flex-direction: column; padding-top: var(--block); }
+    .story > .them { order: -1; position: sticky; top: 0; z-index: 1; padding-block: 0.75rem; background: var(--paper); }
+    .panel { position: static; padding: 1rem 1.25rem; font-size: 0.75rem; line-height: 1.6; }
+    .panel figcaption { margin-top: 0.75rem; font-size: 0.75rem; }
+    .label { margin-bottom: 0.5rem; font-size: 0.6875rem; }
+    .chapter { min-height: 60vh; }
+    .faq { padding-block: var(--block); }
+    .facts { justify-content: flex-start; gap: 0.5rem 2rem; }
+    .faq .them { margin-top: 2rem; }
+    footer ul { justify-content: flex-start; }
+    footer .them { margin-top: 1.5rem; }
+    .cmd pre { padding-inline: 1.25rem; font-size: 1rem; }
     .cmd button { min-width: 5rem; padding-inline: 1rem; }
-    .you, .them { padding-inline: var(--edge); }
-    .you.end { text-align: left; }
-    header .them { justify-content: flex-start; padding-top: 0; background: var(--paper); color: var(--ink); }
-    .cross .them { display: none; }
-    .cross h1, .cross h2 { width: 100%; }
-    .cmd pre { font-size: 1rem; }
-    .env { font-size: min(1rem, 4.4vw); }
-    h1.split > span { padding-block: 3rem 1.5rem; }
-    #install > div { padding-bottom: var(--step); }
   }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
 <body>
-<header class="row">
-  <div class="you">
-    <a href="./" aria-label="lmsk home"><img src="brand/logo.svg" alt="lmsk" width="134" height="32"></a>
-  </div>
+<header class="duo split">
+  <div class="you"><a href="./" aria-label="lmsk home"><img src="brand/logo.svg" alt="lmsk" width="134" height="32"></a></div>
   <nav class="them" aria-label="Main">
     <ul>
-      <li><a href="#how">How it works</a></li>
-      <li><a href="#install">Install</a></li>
+      <li><a href="#story">How it works</a></li>
       <li><a href="#faq">FAQ</a></li>
       <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md">Docs</a></li>
       <li><a href="https://github.com/HugoLopes45/lmsk">GitHub</a></li>
@@ -181,206 +310,149 @@
 </header>
 
 <main>
-  <h1 class="row split hero">
-    <span class="you end">Real keys for your agent.</span>
-    <span class="them">Fakes for the model.</span>
-  </h1>
+  <div class="hero split" id="install">
+    <p class="duo poster"><span class="you">Real keys for<br> your agent.</span> <span class="them"><span class="red">Fakes</span> for<br> the model.</span></p>
+    <div class="duo hero-text">
+      <div class="you">
+        <h1 class="lead">Hide your API keys, passwords and <code>.env</code> secrets from the AI model in Claude Code and pi.</h1>
+        <div class="cmd"><pre><code>npm install -g @hugolopes45/lmsk</code></pre><button type="button" data-copy hidden>Copy</button></div>
+        <p class="small muted">Free and open source. No account.</p>
+      </div>
+      <div class="them">
+        <p class="lead">The model sees fakes. Your commands still run with the real values.</p>
+        <div class="agents muted">
+          <p><strong>Claude Code:</strong> run <code>lmsk claude</code> instead of <code>claude</code>.</p>
+          <p><strong>pi:</strong> run <code>pi install npm:@hugolopes45/lmsk</code>, then <code>/reload</code>.</p>
+        </div>
+      </div>
+    </div>
+  </div>
 
-  <div class="row">
-    <div class="you end">
-      <p class="lead">lmsk swaps API keys, passwords, tokens and emails for fakes before Claude Code or pi sends a request.</p>
+  <ul class="facts" aria-label="Facts about lmsk">
+    <li><strong>280</strong> detection rules, including gitleaks</li>
+    <li><strong>Open source</strong>, MIT license</li>
+    <li><strong>Signed</strong> npm releases with provenance</li>
+    <li><strong>No account</strong>, no telemetry</li>
+  </ul>
+
+  <section class="duo story" id="story" aria-label="How lmsk works">
+    <div class="you">
+      <article class="chapter" data-screen="0" data-values="real">
+        <h2>Your agent reads your secrets.</h2>
+        <p>To fix a bug, it opens config files, runs commands and reads logs. All of it goes to the AI model in the next request.</p>
+      </article>
+      <article class="chapter" data-screen="0" data-values="fake">
+        <h2>lmsk swaps them for fakes.</h2>
+        <p>Before the request leaves your computer, each key, password, token and email that lmsk finds becomes a fake. The model only gets the fake.</p>
+      </article>
+      <article class="chapter" data-screen="1">
+        <h2>Your commands still work.</h2>
+        <p>When the model puts a fake in a command or a file, lmsk puts the real value back. Your tests, scripts and deploys run as usual.</p>
+      </article>
+      <article class="chapter" data-screen="2">
+        <h2>Your <code>.env</code> stays closed.</h2>
+        <p>lmsk refuses the tool calls that open <code>.env</code>, key and secret files, and tells the agent why.</p>
+      </article>
     </div>
     <div class="them">
-      <p class="lead">Tool calls get the real values back, so your commands still run.</p>
-    </div>
-  </div>
-
-  <div class="row" id="install">
-    <div class="you end">
-      <h2 class="tag">Install</h2>
-      <div class="cmd"><pre><code>npm install -g @hugolopes45/lmsk</code></pre><button type="button" data-copy hidden>Copy</button></div>
-    </div>
-    <div class="them" id="agents">
-      <h2 class="tag">Then connect your agent</h2>
-      <p><strong>Claude Code (preview):</strong> type <code>lmsk claude</code> in place of <code>claude</code>.</p>
-      <p><strong>pi:</strong> run <code>pi install npm:@hugolopes45/lmsk</code>, then <code>/reload</code>.</p>
-      <p class="note muted">More agents are planned.</p>
-    </div>
-  </div>
-
-  <section aria-labelledby="pain-title">
-    <div class="row cross">
-      <div class="you"><h2 id="pain-title">You know this moment</h2></div>
-      <div class="them" aria-hidden="true"><p>You know this moment</p></div>
-    </div>
-    <div class="row step">
-      <div class="you"><h3>The agent read your <code>.env</code>.</h3><p>It wanted to debug a config problem.</p></div>
-      <div class="them"><p class="muted">Your API key went to the model provider in the next request.</p></div>
-    </div>
-    <div class="row step">
-      <div class="you"><h3>A log line held a customer email.</h3><p>The agent put the log in its context.</p></div>
-      <div class="them"><p class="muted">The email went with it.</p></div>
-    </div>
-    <div class="row step">
-      <div class="you"><h3>A stack trace printed a bearer token.</h3><p>The agent read the whole output.</p></div>
-      <div class="them"><p class="muted">The token was sent with the rest of the output.</p></div>
+      <figure class="panel">
+        <div class="screens">
+          <div class="screen">
+            <span class="label" data-real-label="tool result on your computer">tool result that the model receives</span>
+            <p>OPENAI_API_KEY=<span class="fake" data-real="sk-proj-4fQ9xT2mLp8VnR3kWc7Z">T8MCnGhey7vwndvjsQBbNPVIDZBU</span><br>
+            refund failed for <span class="fake" data-real="jane.doe@example.com">bmib.xtm@kitquhs.mnn</span><br>
+            Authorization: Bearer <span class="fake" data-real="7Hq2Lx9VmK4pR8sT1wZ6">IA1uy6fuqU2b89b3k4zi</span></p>
+          </div>
+          <div class="screen">
+            <span class="label">tool call</span>
+            <p><span class="who">The model writes</span><br>
+            $ PGPASSWORD=<span class="fake">X8fumIJWTm5Rl6C305</span> npm test<br>
+            <span class="who">Your shell runs</span><br>
+            $ PGPASSWORD=<span class="real" data-resolve>Tr0ub4dor-Horse-42</span> npm test</p>
+          </div>
+          <div class="screen">
+            <span class="label">tool call</span>
+            <p><span class="who">The model asks</span><br>
+            Read .env<br>
+            <span class="who">lmsk answers</span><br>
+            <span class="fake" data-resolve>Refused: .env is a secret file.</span></p>
+          </div>
+        </div>
+        <figcaption>Example values. Red text is what the model sees.</figcaption>
+      </figure>
     </div>
   </section>
 
-  <section id="handles" aria-labelledby="handles-title">
-    <div class="row cross">
-      <div class="you"><h2 id="handles-title">What lmsk handles</h2></div>
-      <div class="them" aria-hidden="true"><p>What lmsk handles</p></div>
-    </div>
-    <div class="row step">
-      <div class="you"><h3>You paste a Stripe key so that the agent can set up payments.</h3></div>
-      <div class="them"><p class="muted">The model gets a fake. The file that the agent writes gets the real key.</p></div>
-    </div>
-    <div class="row step">
-      <div class="you"><h3>The agent tries to open <code>.env</code> to debug a config problem.</h3></div>
-      <div class="them"><p class="muted"><code>lmsk</code> refuses the read and tells the agent why.</p></div>
-    </div>
-    <div class="row step">
-      <div class="you"><h3>A command prints <code>DATABASE_URL</code> with its password.</h3></div>
-      <div class="them"><p class="muted">The model gets the URL with a fake password.</p></div>
-    </div>
-    <div class="row step">
-      <div class="you"><h3>The agent runs your tests, which need the real password.</h3></div>
-      <div class="them"><p class="muted">The test command gets the real password. Its output goes back to the model masked.</p></div>
-    </div>
-    <div class="row step">
-      <div class="you"><h3>A log holds customer emails, phone numbers and card numbers.</h3></div>
-      <div class="them"><p class="muted">The model gets fakes.</p></div>
-    </div>
-    <div class="row step">
-      <div class="you"><h3>You work for a client under NDA.</h3></div>
-      <div class="them"><p class="muted">Add the client name once. The model gets a name such as <code>Client 1</code>.</p></div>
-    </div>
-    <div class="row step">
-      <div class="you"><h3>Your file paths and commits show your name and your computer.</h3></div>
-      <div class="them"><p class="muted">The model gets fakes for your user name, host name and git identity.</p></div>
-    </div>
-  </section>
-
-  <section id="how" aria-labelledby="how-title">
-    <div class="row cross">
-      <div class="you"><h2 id="how-title">How it works</h2></div>
-      <div class="them" aria-hidden="true"><p>How it works</p></div>
-    </div>
-    <div class="row step">
-      <div class="you"><span class="num">1</span><h3>Install it once.</h3><p>lmsk runs on your computer, as a local proxy in front of your agent or as an extension inside it.</p></div>
-      <div class="them"><p class="muted">No account, no configuration, no telemetry.</p></div>
-    </div>
-    <div class="row step">
-      <div class="you"><span class="num">2</span><h3>Each request is masked on your computer.</h3><p>lmsk replaces each secret in the request with a fake. It keeps each real value in a vault on your computer.</p></div>
-      <div class="them"><p>Each secret arrives as a fake of the same length. The same value gets the same fake for the whole session.</p><span class="line">sent: <span class="fake">X8fumIJWTm5Rl6C305</span></span></div>
-    </div>
-    <div class="row step">
-      <div class="you"><span class="num">3</span><h3>Tool calls get the real values back.</h3><p>When the agent writes a file or runs a command with a fake, lmsk puts the real value back. The command runs with your real secret.</p><span class="line">run with: Tr0ub4dor-Horse-42</span></div>
-      <div class="them"><p>The replies that you read can show fakes.</p></div>
-    </div>
-  </section>
-
-  <section aria-labelledby="proof-title">
-    <div class="row cross">
-      <div class="you"><h2 id="proof-title">Proof</h2></div>
-      <div class="them" aria-hidden="true"><p>Proof</p></div>
-    </div>
-    <div class="row step">
-      <div class="you"><h3>A real request body</h3><p>A tool result before and after lmsk. Only the secrets change.</p></div>
-      <div class="them"><p class="muted"><a href="https://github.com/HugoLopes45/lmsk#a-real-request-body-before-and-after">See the full request</a>.</p></div>
-    </div>
-    <figure class="row env" style="margin: 0">
-      <div class="you">
-        <span class="tag">tool_result on your computer</span>
-        api-1 | config OPENAI_API_KEY=sk-proj-4fQ9xT2mLp8VnR3kWc7ZsB1yHd6JeA0uGt5<br>
-        api-1 | refund failed for customer jane.doe@example.com<br>
-        api-1 | at charge (billing.ts:42) Authorization: Bearer 7Hq2Lx9VmK4pR8sT1wZ6cN3bY5dF0gJ
-      </div>
-      <div class="them">
-        <span class="tag">tool_result that the provider receives</span>
-        api-1 | config OPENAI_API_KEY=<span class="fake">T8MCnGhey7vwndvjsQBbNPVIDZBUtkj80LcGEhqcWCr</span><br>
-        api-1 | refund failed for customer <span class="fake">bmib.xtm@kitquhs.mnn</span><br>
-        api-1 | at charge (billing.ts:42) Authorization: Bearer <span class="fake">IA1uy6fuqU2b89b3k4zir4UPE9BL7Q1</span>
-      </div>
-      <figcaption class="sr-only">A tool result with an API key, a customer email and a bearer token, and the same tool result after lmsk replaced the three values with fakes.</figcaption>
-    </figure>
-    <div class="row step">
-      <div class="you"><h3>It fails closed.</h3><p>If lmsk cannot mask a request safely, the request is not sent.</p></div>
-      <div class="them"><p class="muted"><a href="https://github.com/HugoLopes45/lmsk#it-fails-closed">How it fails</a>.</p></div>
-    </div>
-    <div class="row step">
-      <div class="you"><h3>Detection rules</h3><p>Vendor keys, passwords, tokens and personal data. Add your own rules.</p></div>
-      <div class="them"><p class="muted"><a href="https://github.com/HugoLopes45/lmsk#280-detection-rules">See the rules</a>.</p></div>
-    </div>
-    <div class="row step">
-      <div class="you"><h3>A local vault</h3><p>The real values stay on your computer. The provider gets only the fakes.</p></div>
-      <div class="them"><p class="muted"><a href="https://github.com/HugoLopes45/lmsk#a-local-vault">About the vault</a>.</p></div>
-    </div>
-    <div class="row step" id="check">
-      <div class="you">
-        <h3>Check it yourself in one minute</h3>
+  <section class="duo faq" id="faq" aria-labelledby="faq-title">
+    <div class="you"><h2 id="faq-title">Questions</h2></div>
+    <div class="them">
+      <details>
+        <summary>Does Claude Code send my .env file to the AI model?</summary>
+        <p>Claude Code sends what it reads to the model in the next request. lmsk refuses the tool calls that open <code>.env</code>, key and secret files. Each secret that lmsk finds in a request becomes a fake first.</p>
+      </details>
+      <details>
+        <summary>How do I stop Claude Code from leaking my API keys?</summary>
+        <p>Run <code>lmsk claude</code> instead of <code>claude</code>. lmsk swaps each secret for a fake before the request leaves your computer.</p>
+      </details>
+      <details>
+        <summary>What happens when I paste an API key into Claude Code or pi?</summary>
+        <p>The model receives a fake. The files and commands that your agent writes get the real key.</p>
+      </details>
+      <details>
+        <summary>How do I protect my secrets in the pi coding agent?</summary>
+        <p>Run <code>pi install npm:@hugolopes45/lmsk</code>, then type <code>/reload</code>.</p>
+      </details>
+      <details>
+        <summary>Can my agent still use my real keys?</summary>
+        <p>Yes. The file and shell tools of your agent get the real values back before they run.</p>
+      </details>
+      <details>
+        <summary>Which secrets does it find?</summary>
+        <p>280 rules, including the gitleaks rules, find API keys, passwords, tokens, database URLs, emails, phone numbers, card numbers and IDs. You can add a rule for any other value.</p>
+      </details>
+      <details>
+        <summary>Can I hide client names under NDA?</summary>
+        <p>Yes. Add the name once in the configuration. The model gets a name such as <code>Client 1</code>.</p>
+      </details>
+      <details>
+        <summary>Where are my real values stored?</summary>
+        <p>In a local vault on your computer. lmsk has no server and no account.</p>
+      </details>
+      <details>
+        <summary>How is it different from gitleaks?</summary>
+        <p>gitleaks finds secrets in your files and commits. lmsk uses the gitleaks rules on each request that your agent sends, and swaps each secret for a fake.</p>
+      </details>
+      <details>
+        <summary>How can I check that it works?</summary>
         <p>Send this message to your agent. The key in it is a test value.</p>
         <div class="cmd block"><pre><code>Repeat this line exactly: API_KEY=Zq7Kp2Lm9Xw4Rt8Vb3Nc</code></pre><button type="button" data-copy hidden>Copy</button></div>
+        <p>The reply shows a different value. That value is the fake that the provider received.</p>
+      </details>
+      <details>
+        <summary>Is it free?</summary>
+        <p>Yes. lmsk is open source under the MIT license. No account, no telemetry.</p>
+      </details>
+      <p class="small muted">All the details are in the <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md">user guide</a>.</p>
+    </div>
+  </section>
+
+  <section class="close ink" aria-labelledby="close-title">
+    <h2 class="duo poster" id="close-title"><span class="you">Keep your<br> keys.</span> <span class="them">Keep your<br> <span class="red">flow.</span></span></h2>
+    <div class="duo">
+      <div class="you">
+        <div class="cmd"><pre><code>npm install -g @hugolopes45/lmsk</code></pre><button type="button" data-copy hidden>Copy</button></div>
       </div>
       <div class="them">
-        <h3>The reply shows a different value</h3>
-        <p>That value is the fake that the provider received.</p>
+        <div class="agents muted">
+          <p><strong>Claude Code:</strong> run <code>lmsk claude</code>.</p>
+          <p><strong>pi:</strong> run <code>pi install npm:@hugolopes45/lmsk</code>, then <code>/reload</code>.</p>
+        </div>
       </div>
-    </div>
-  </section>
-
-  <section id="faq" aria-labelledby="questions-title">
-    <div class="row cross">
-      <div class="you"><h2 id="questions-title">Questions</h2></div>
-      <div class="them" aria-hidden="true"><p>Questions</p></div>
-    </div>
-    <div class="row">
-      <div class="you">
-        <dl>
-          <dt>Does it break my commands?</dt>
-          <dd>No. The built-in file and shell tools get the real values back before they run. Other tools, such as MCP tools, get fakes.</dd>
-          <dt>What if detection misses something?</dt>
-          <dd>Then that value goes to the provider. You can add your own rules for the values that you must hide.</dd>
-          <dt>Does it slow requests?</dt>
-          <dd>A little. Masking runs on your computer, with no network call.</dd>
-          <dt>Where are the real values stored?</dt>
-          <dd>In a local vault on your computer. lmsk sends the vault nowhere.</dd>
-          <dt>How do I stop Claude Code from sending my API keys and .env values to the model?</dt>
-          <dd>Run Claude Code with <code>lmsk claude</code>. <code>lmsk</code> masks the secrets in each request before it leaves your computer, also in the text that you paste and in command output. It also refuses the tool calls that open <code>.env</code>, keys and other secret files. A <code>Read</code> deny rule in the Claude Code settings stops a file read, but it does not mask what you paste or what a command prints. In pi, install the extension.</dd>
-          <dt>How is it different from gitleaks or a redaction hook?</dt>
-          <dd>gitleaks finds secrets in files and commits, so that you can remove them. <code>lmsk</code> uses the gitleaks default rules, and its own rules, on each request that the agent sends. A hook that replaces a secret with <code>[REDACTED]</code> gives that tag to your commands. <code>lmsk</code> gives a fake of the same length to the model, and the real value to the tool calls.</dd>
-          <dt>Which agents does it work with?</dt>
-          <dd>Claude Code and pi today. More agents are planned.</dd>
-        </dl>
-        <p class="note muted">Technical details are on <a href="https://github.com/HugoLopes45/lmsk">GitHub</a>.</p>
-      </div>
-      <div class="them limits">
-        <h3>What still crosses</h3>
-        <ul>
-          <li><strong>A reply can show fakes.</strong> lmsk puts real values back only into tool calls.</li>
-          <li><strong>Your code.</strong> lmsk hides secrets, personal data and IDs, not code.</li>
-          <li><strong>The length of each value.</strong> A fake has the same length as its real value.</li>
-          <li><strong>It is not a sandbox.</strong> A command that the agent runs gets the real values it needs. Use a sandbox as well.</li>
-          <li><strong>This is an early version.</strong> Test it on your own data before you trust it. <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md#what-lmsk-does-not-protect">What lmsk does not protect</a>.</li>
-        </ul>
-      </div>
-    </div>
-  </section>
-
-  <section aria-labelledby="start-title">
-    <div class="row cross">
-      <div class="you"><h2 id="start-title">Start now</h2></div>
-      <div class="them" aria-hidden="true"><p>Start now</p></div>
-    </div>
-    <div class="row step">
-      <div class="you end"><a class="button" href="#install">Install lmsk</a></div>
-      <div class="them"><p class="muted">Free and open source, MIT license. No account, no telemetry.</p></div>
     </div>
   </section>
 </main>
 
-<footer class="row">
+<footer class="duo">
   <div class="you">
     <ul>
       <li><a href="https://github.com/HugoLopes45/lmsk">Source on GitHub</a></li>
@@ -393,34 +465,61 @@
     </ul>
   </div>
   <div class="them">
-    <p class="muted">Fonts: Anton, Public Sans and IBM Plex Mono, under the SIL Open Font License (<a href="fonts/OFL-Anton.txt">Anton</a>, <a href="fonts/OFL-PublicSans.txt">Public Sans</a>, <a href="fonts/OFL-IBMPlexMono.txt">IBM Plex Mono</a>).</p>
+    <p class="muted">MIT license. Fonts: Anton, Public Sans and IBM Plex Mono, under the SIL Open Font License (<a href="fonts/OFL-Anton.txt">Anton</a>, <a href="fonts/OFL-PublicSans.txt">Public Sans</a>, <a href="fonts/OFL-IBMPlexMono.txt">IBM Plex Mono</a>).</p>
   </div>
 </footer>
 
 <p class="sr-only" aria-live="polite" id="copy-status"></p>
 <script>
-  if (matchMedia('(prefers-reduced-motion: no-preference)').matches && 'IntersectionObserver' in window) {
-    document.documentElement.classList.add('motion');
+  // Without the motion class, every screen stays visible and shows what the model receives.
+  if (document.documentElement.classList.contains('motion')) {
     const glyphs = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789';
-    const resolve = (el, delay) => {
-      const fake = el.textContent;
+    const runs = new Map();
+    const scramble = (el, text, delay) => {
+      const run = Symbol();
+      runs.set(el, run);
       const start = performance.now() + delay;
       const frame = (now) => {
-        const settled = Math.floor(Math.max(0, now - start) / 45);
-        el.textContent = [...fake].map((c, i) => i < settled || /[^A-Za-z0-9]/.test(c) ? c : glyphs[Math.floor(Math.random() * glyphs.length)]).join('');
-        if (settled < fake.length) requestAnimationFrame(frame);
+        if (runs.get(el) !== run) return;
+        const settled = Math.floor(Math.max(0, now - start) / 40);
+        el.textContent = [...text].map((c, i) => i < settled || /[^A-Za-z0-9]/.test(c) ? c : glyphs[Math.floor(Math.random() * glyphs.length)]).join('');
+        if (settled < text.length) requestAnimationFrame(frame);
       };
       requestAnimationFrame(frame);
     };
-    const seen = new IntersectionObserver((entries) => {
-      for (const { target, isIntersecting } of entries) {
-        if (!isIntersecting) continue;
-        target.classList.add('in');
-        target.querySelectorAll('.them .fake').forEach((el, i) => resolve(el, 300 + i * 250));
-        seen.unobserve(target);
-      }
-    }, { rootMargin: '0px 0px -5% 0px' });
-    document.querySelectorAll('.cross, .step, .env').forEach((el) => seen.observe(el));
+
+    const screens = [...document.querySelectorAll('.screen')];
+    const chapters = [...document.querySelectorAll('.chapter')];
+    const label = screens[0].querySelector('.label');
+    const values = [...screens[0].querySelectorAll('[data-real]')];
+    label.dataset.fake = label.textContent;
+    values.forEach((el) => { el.dataset.fake = el.textContent; });
+    const showValues = (kind) => {
+      label.textContent = kind === 'real' ? label.dataset.realLabel : label.dataset.fake;
+      values.forEach((el, i) => {
+        el.className = kind;
+        if (kind === 'real') { runs.delete(el); el.textContent = el.dataset.real; }
+        else scramble(el, el.dataset.fake, 150 + i * 250);
+      });
+    };
+    screens.forEach((screen) => screen.querySelectorAll('[data-resolve]').forEach((el) => { el.dataset.text = el.textContent; }));
+
+    let current = -1;
+    const show = (n) => {
+      if (n === current) return;
+      current = n;
+      const chapter = chapters[n];
+      const screen = screens[Number(chapter.dataset.screen)];
+      chapters.forEach((c) => c.classList.toggle('on', c === chapter));
+      screens.forEach((s) => s.classList.toggle('on', s === screen));
+      if (chapter.dataset.values) showValues(chapter.dataset.values);
+      screen.querySelectorAll('[data-resolve]').forEach((el) => scramble(el, el.dataset.text, 350));
+    };
+    show(0);
+    const io = new IntersectionObserver((entries) => {
+      for (const { target, isIntersecting } of entries) if (isIntersecting) show(chapters.indexOf(target));
+    }, { rootMargin: '-45% 0px -45% 0px' });
+    chapters.forEach((c) => io.observe(c));
   }
 
   const status = document.getElementById('copy-status');

@@ -11,7 +11,7 @@
 
 `lmsk` swaps API keys, passwords, tokens and emails for fakes before Claude Code or pi sends a request to the LLM provider. Tool calls get the real values back, so your commands still run.
 
-[Website](https://hugolopes45.github.io/lmsk/) &nbsp;·&nbsp; [Install](#install) &nbsp;·&nbsp; [Agents](#agents) &nbsp;·&nbsp; [FAQ](#faq) &nbsp;·&nbsp; [Limits](#limits)
+[Website](https://hugolopes45.github.io/lmsk/) &nbsp;·&nbsp; [Install](#install) &nbsp;·&nbsp; [Agents](#agents) &nbsp;·&nbsp; [FAQ](#faq) &nbsp;·&nbsp; [Good to know](#good-to-know)
 
 [![CI](https://github.com/HugoLopes45/lmsk/actions/workflows/ci.yml/badge.svg)](https://github.com/HugoLopes45/lmsk/actions/workflows/ci.yml)
 ![Agents](https://img.shields.io/badge/agents-Claude%20Code%20%7C%20pi-6d28d9)
@@ -24,7 +24,7 @@
 
 Pick your agent. One line each.
 
-**Claude Code (preview)**
+**Claude Code**
 
 ```bash
 npm install -g @hugolopes45/lmsk
@@ -41,7 +41,7 @@ pi install npm:@hugolopes45/lmsk
 
 Then start pi, or type `/reload` in an open pi. Guide: [lmsk with pi](docs/pi.md).
 
-More agents are planned. The default rules work with no configuration. Local only: no model, no account, no telemetry.
+The default rules work with no configuration. Local only: no model, no account, no telemetry.
 
 ---
 
@@ -71,7 +71,7 @@ The [user guide](docs/GUIDE.md) shows how to add your client names and your own 
 
 1. **Install it once.** `lmsk` runs on your computer, as a local proxy in front of your agent or as an extension inside it.
 2. **Each request is masked on your computer.** `lmsk` searches the whole request with 280 rules. It replaces each secret with a fake of the same length and keeps the real value in a vault on your computer.
-3. **Tool calls get the real values back.** When the agent writes a file or runs a command with a fake, `lmsk` puts the real value back. The command runs with your real secret. The replies that you read can show fakes.
+3. **Tool calls get the real values back.** When the agent writes a file or runs a command with a fake, `lmsk` puts the real value back. The command runs with your real secret. In the replies, you see the fakes.
 
 ## Proof
 
@@ -139,14 +139,14 @@ The reply must show a different value after `API_KEY=`. That value is the fake t
 **Does it break my commands?**
 No. When a tool call holds a fake, `lmsk` puts the real value back before the tool runs. This applies to the built-in file and shell tools of your agent. Other tools, such as MCP tools, get fakes.
 
-**What if detection misses something?**
-Then that value goes to the provider. Detection uses patterns. A short password with no key name, such as `summer2024` alone in a text, is not found. Names of people and postal addresses are not found. Add a rule for each value that you must hide. Also, `lmsk` blocks the usual agent reads of `.env`, keys and other secret files.
+**How do I hide a value that has no known format?**
+Add a rule for it. Detection uses patterns, so give a rule to each short password that has no key name, such as `summer2024`, and to names of people and postal addresses. `lmsk` also blocks the usual agent reads of `.env`, keys and other secret files. See [Add your own secrets](docs/GUIDE.md#add-your-own-secrets).
 
 **Does it slow requests?**
 A little. In our test, masking a 20 kB tool result took about 17 ms (median of 30 runs, Apple M1 Max). A search that takes more than 5 seconds cancels the request.
 
 **Where are the real values stored?**
-In the local vault on your computer, a JSON file that only your user account can read. It is not encrypted. Exclude it from cloud backups.
+In the local vault on your computer, a plain JSON file that only your user account can read. Keep it out of cloud backups.
 
 **How do I stop Claude Code from sending my API keys and .env values to the model?**
 Run Claude Code with `lmsk claude`. `lmsk` masks the secrets in each request before it leaves your computer, also in the text that you paste and in command output. It also refuses the tool calls that open `.env`, keys and other secret files. A `Read` deny rule in the Claude Code settings stops a file read, but it does not mask what you paste or what a command prints. In pi, install the extension.
@@ -155,18 +155,18 @@ Run Claude Code with `lmsk claude`. `lmsk` masks the secrets in each request bef
 gitleaks finds secrets in files and commits, so that you can remove them. `lmsk` uses the gitleaks default rules, and its own rules, on each request that the agent sends. A hook that replaces a secret with `[REDACTED]` gives that tag to your commands. `lmsk` gives a fake of the same length to the model, and the real value to the tool calls.
 
 **Which agents does it work with?**
-Claude Code (preview) and pi today. More agents are planned. [Install](#install) shows the command for each one.
+Claude Code and pi. [Install](#install) shows the command for each one.
 
-## Limits
+## Good to know
 
-- **A reply can show fakes.** `lmsk` puts real values back only into tool calls. In pi, `/lmsk reveal` shows the real values.
-- **Your code still goes to the model provider.** `lmsk` hides secrets, personal data and IDs, not your code.
-- **It is not a sandbox.** A shell command gets the real values it needs, and `lmsk` does not stop a tool from using the network. Use a sandbox as well.
-- **A fake shows the length of its value.** The model provider learns the length of each password and token.
-- **Your agent can keep its own history.** Claude Code, for example, keeps the real values in `~/.claude/projects/` on your computer.
-- **This is an early version.** Configuration and storage can change before 1.0. Test it on your own data before you trust it.
+- **Replies show fakes.** Tool calls get the real values. In pi, `/lmsk reveal` shows the real values of a reply.
+- **Your code goes to the model as usual.** `lmsk` hides secrets, personal data and IDs.
+- **Pair it with a sandbox.** Shell commands get the real values that they need, and network access stays as your agent has it.
+- **A fake has the length of its value.**
+- **Your agent keeps its own local history.** For example, Claude Code keeps it in `~/.claude/projects/` on your computer.
+- **Configuration and storage can change before 1.0.** Try it on your own data first.
 
-Read the full list before you use `lmsk` on real data: [What lmsk does not protect](docs/GUIDE.md#what-lmsk-does-not-protect).
+The full list is in the guide: [What lmsk does not protect](docs/GUIDE.md#what-lmsk-does-not-protect).
 
 ## Privacy
 

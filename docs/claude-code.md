@@ -2,8 +2,6 @@
 
 This page tells you how to install `lmsk` for Claude Code, check that it works, and use it every day. The rules, the client names and the limits are the same for each agent. They are in the [user guide](GUIDE.md).
 
-This support is a preview.
-
 ## What changes when lmsk is on
 
 You start Claude Code with `lmsk claude` in place of `claude`. `lmsk` then starts a proxy on your computer. Claude Code sends each request to the proxy, and the proxy masks the request before it goes to Anthropic.
