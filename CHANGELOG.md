@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.1
+
 - The README shows how lmsk fits everyday work: debugging from logs, writing configuration files, running local tests and masking client names. Its FAQ explains how lmsk works with gitleaks.
 
 ## 0.2.0
