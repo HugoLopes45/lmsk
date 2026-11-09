@@ -54,7 +54,7 @@ CONTACT=ptfe.rol@dweervr.xtw
 - **Your client and employer names.** A `literal` rule turns `Falcon Industries` into `Client 1`, and the agent writes the real name back to disk. See [Hide who you work for](docs/GUIDE.md#hide-who-you-work-for).
 - **Your identity.** Your user name, host name and git identity are masked in each request.
 - **The whole request.** The system prompt, tool results, tool descriptions, summaries and model calls outside the conversation.
-- **Same-length fakes.** Each fake keeps the length of its real value. An email fake keeps the `@`, the dots and the case.
+- **Fakes that fit.** An `opaque` or `shape` fake has the length of its real value, so encoded and sliced copies still restore. That length is visible to the model provider. An email fake keeps the `@`, the dots and the case. A `fixed` fake, such as `Client 1`, does not keep the length of its real value. See [What lmsk does not protect](docs/GUIDE.md#what-lmsk-does-not-protect).
 - **Protected paths.** `read`, `grep`, `find` and `ls` refuse `.env`, keys and other secret files, and links to them.
 - **Images pass.** Image data is never searched and never blocks a request.
 - **`/lmsk reveal` (pi).** Shows the real values behind the fakes in a reply. Only you see the result.
