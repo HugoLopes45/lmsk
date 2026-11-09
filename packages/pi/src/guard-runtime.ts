@@ -6,7 +6,7 @@ import type {
   JsonObject,
   JsonValue,
 } from "@earendil-works/pi-ai";
-import { MaskError } from "@lmsk/core";
+import { MaskError } from "@hugolopes45/lmsk-core";
 
 /**
  * Model calls made through the registry, such as codemode's `models.classify()`,

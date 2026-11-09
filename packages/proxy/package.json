@@ -1,5 +1,5 @@
 {
-  "name": "@lmsk/proxy",
+  "name": "@hugolopes45/lmsk-proxy",
   "version": "0.1.0",
   "description": "Local HTTP proxy that masks agent requests with the lmsk engine before they reach the provider.",
   "type": "module",
@@ -28,9 +28,9 @@
     "access": "public"
   },
   "dependencies": {
-    "@lmsk/core": "0.1.0"
+    "@hugolopes45/lmsk-core": "0.1.0"
   },
   "devDependencies": {
-    "@lmsk/formats": "0.1.0"
+    "@hugolopes45/lmsk-formats": "0.1.0"
   }
 }

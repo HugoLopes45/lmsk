@@ -6,7 +6,7 @@ import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import fc from "fast-check";
-import { isRecord, loadVaultStore } from "@lmsk/core";
+import { isRecord, loadVaultStore } from "@hugolopes45/lmsk-core";
 import {
   fakeProvider,
   harness,

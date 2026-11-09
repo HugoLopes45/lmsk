@@ -1,5 +1,5 @@
 {
-  "name": "@lmsk/formats",
+  "name": "@hugolopes45/lmsk-formats",
   "version": "0.1.0",
   "description": "Provider wire format rules for the lmsk masking engine: the payload fields a provider needs byte-exact.",
   "type": "module",
@@ -28,6 +28,6 @@
     "access": "public"
   },
   "dependencies": {
-    "@lmsk/core": "0.1.0"
+    "@hugolopes45/lmsk-core": "0.1.0"
   }
 }

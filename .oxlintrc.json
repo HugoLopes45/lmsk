@@ -12,7 +12,7 @@
           {
             "patterns": [
               {
-                "group": ["@earendil-works/**", "@lmsk/**", "../../**"],
+                "group": ["@earendil-works/**", "@hugolopes45/**", "../../**"],
                 "message": "The engine depends on no harness, adapter or other package."
               }
             ]
@@ -29,8 +29,8 @@
             "patterns": [
               {
                 "group": [
-                  "@lmsk/claude-code",
-                  "@lmsk/*/**",
+                  "@hugolopes45/lmsk-claude-code",
+                  "@hugolopes45/*/**",
                   "../../**"
                 ],
                 "message": "An adapter imports no other adapter and uses only the public API of other packages."
@@ -48,7 +48,7 @@
           {
             "patterns": [
               {
-                "group": ["@earendil-works/**", "@lmsk/*/**", "../../**"],
+                "group": ["@earendil-works/**", "@hugolopes45/*/**", "../../**"],
                 "message": "Formats and the proxy depend only on the public API of the engine, and on no harness."
               }
             ]
@@ -66,9 +66,9 @@
               {
                 "group": [
                   "@earendil-works/**",
-                  "@lmsk/pi",
-                  "@lmsk/claude-code",
-                  "@lmsk/*/**",
+                  "@hugolopes45/lmsk-pi",
+                  "@hugolopes45/lmsk-claude-code",
+                  "@hugolopes45/*/**",
                   "../../**"
                 ],
                 "message": "An adapter imports no harness SDK and no other adapter, and uses only the public API of other packages."
@@ -86,7 +86,7 @@
           {
             "patterns": [
               {
-                "group": ["@earendil-works/**", "@lmsk/pi", "@lmsk/*/**", "../../**"],
+                "group": ["@earendil-works/**", "@hugolopes45/lmsk-pi", "@hugolopes45/*/**", "../../**"],
                 "message": "The CLI parses and dispatches only, through the public API of the Claude Code adapter."
               }
             ]

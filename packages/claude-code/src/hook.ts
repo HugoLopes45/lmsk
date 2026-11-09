@@ -1,4 +1,4 @@
-import { commandWords, hookDenial, proxyPaths } from "@lmsk/proxy";
+import { commandWords, hookDenial, proxyPaths } from "@hugolopes45/lmsk-proxy";
 import { pathOf, TOOLS } from "./profile.ts";
 
 export interface HookEnv {

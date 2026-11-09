@@ -1,4 +1,4 @@
-import { isRecord, type PayloadFormat } from "@lmsk/core";
+import { isRecord, type PayloadFormat } from "@hugolopes45/lmsk-core";
 
 /* The rules follow the provider wire formats (Anthropic Messages, OpenAI Chat and Responses, Mistral, Google, Bedrock). One set serves all of them: a host can convert ids between providers, so an Anthropic `tool_use_id` can hold an OpenAI `call_` id. */
 

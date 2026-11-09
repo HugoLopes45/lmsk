@@ -1,4 +1,4 @@
-import { isRecord } from "@lmsk/core";
+import { isRecord } from "@hugolopes45/lmsk-core";
 import type { ToolTurns, TurnEdit } from "./stream.ts";
 
 function editBlock(block: unknown, edit: TurnEdit): unknown {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Scanner } from "@lmsk/core";
+import { Scanner } from "@hugolopes45/lmsk-core";
 import {
   buildCanaries,
   countSink,

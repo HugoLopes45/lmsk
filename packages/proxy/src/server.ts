@@ -6,7 +6,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { pipeline } from "node:stream/promises";
-import { errorCode, type Guard, type GuardHost } from "@lmsk/core";
+import { errorCode, type Guard, type GuardHost } from "@hugolopes45/lmsk-core";
 import { decodeJson, readBody } from "./body.ts";
 import {
   HIDDEN,

@@ -14,7 +14,7 @@ import {
   type ScanPattern,
   validateConfig,
   Vault,
-} from "@lmsk/core";
+} from "@hugolopes45/lmsk-core";
 import { PI_DEFAULTS } from "../src/profile.ts";
 
 export const CLASS_IDS = [

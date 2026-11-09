@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import type { GuardHost } from "@lmsk/core";
-import { allFormats } from "@lmsk/formats";
+import type { GuardHost } from "@hugolopes45/lmsk-core";
+import { allFormats } from "@hugolopes45/lmsk-formats";
 
 /** Starts every notice and names the extension's files. */
 export const NAME = "lmsk";

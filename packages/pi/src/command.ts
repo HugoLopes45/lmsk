@@ -3,7 +3,7 @@ import {
   type Guard,
   type HostContext,
   type Redaction,
-} from "@lmsk/core";
+} from "@hugolopes45/lmsk-core";
 import { NAME } from "./profile.ts";
 
 export const COMMAND = NAME;

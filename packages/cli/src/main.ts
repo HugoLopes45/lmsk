@@ -1,6 +1,6 @@
 import { text } from "node:stream/consumers";
-import { claudeHook, launchClaude } from "@lmsk/claude-code";
-import { errorCode } from "@lmsk/core";
+import { claudeHook, launchClaude } from "@hugolopes45/lmsk-claude-code";
+import { errorCode } from "@hugolopes45/lmsk-core";
 
 export interface Io {
   cwd: string;

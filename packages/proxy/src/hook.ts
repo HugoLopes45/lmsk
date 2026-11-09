@@ -4,7 +4,7 @@ import {
   isProtectedPath,
   isRecord,
   protectedPatterns,
-} from "@lmsk/core";
+} from "@hugolopes45/lmsk-core";
 
 export interface HookOptions {
   configPath: string;

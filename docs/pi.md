@@ -19,7 +19,7 @@ You work as usual. You do not type anything special in your messages.
 2. Open a terminal and run this command:
 
    ```bash
-   pi install npm:@lmsk/pi
+   pi install npm:@hugolopes45/lmsk-pi
    ```
 
 3. Start pi:
@@ -110,7 +110,7 @@ The limits that apply to each agent are in [What lmsk does not protect](GUIDE.md
 1. Run this command in a terminal:
 
    ```bash
-   pi remove npm:@lmsk/pi
+   pi remove npm:@hugolopes45/lmsk-pi
    ```
 
 2. Type `/reload` in pi, or start pi again.

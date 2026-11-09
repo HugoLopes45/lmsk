@@ -1,5 +1,5 @@
-import { allFormats, anthropicStream, anthropicTurns } from "@lmsk/formats";
-import type { ProxyProfile } from "@lmsk/proxy";
+import { allFormats, anthropicStream, anthropicTurns } from "@hugolopes45/lmsk-formats";
+import type { ProxyProfile } from "@hugolopes45/lmsk-proxy";
 
 /** The input field of each built-in tool that holds the path it opens. */
 const PATH_KEYS = new Map([

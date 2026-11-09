@@ -1,4 +1,4 @@
-import { isRecord } from "@lmsk/core";
+import { isRecord } from "@hugolopes45/lmsk-core";
 
 /** One server-sent event. Its `data` is the joined data lines. */
 export interface SseEvent {

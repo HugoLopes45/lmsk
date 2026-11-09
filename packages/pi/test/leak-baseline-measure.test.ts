@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { isRecord, Scanner } from "@lmsk/core";
+import { isRecord, Scanner } from "@hugolopes45/lmsk-core";
 import { type Harness, type HarnessOptions, harness } from "./harness.ts";
 import {
   type CanaryClass,

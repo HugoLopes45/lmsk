@@ -2,14 +2,14 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isRecord, protectedPatterns } from "@lmsk/core";
+import { isRecord, protectedPatterns } from "@hugolopes45/lmsk-core";
 import {
   type ProxyOptions,
   type ProxyPaths,
   proxyPaths,
   runAgent,
   startProxy,
-} from "@lmsk/proxy";
+} from "@hugolopes45/lmsk-proxy";
 import { claudeProfile, TOOLS } from "./profile.ts";
 
 export interface LaunchOptions {
