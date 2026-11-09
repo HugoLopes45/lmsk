@@ -1,6 +1,6 @@
 {
   "name": "@hugolopes45/lmsk-claude-code",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Runs Claude Code behind the lmsk proxy, so that requests reach Anthropic with secrets masked.",
   "type": "module",
   "license": "MIT",
@@ -32,8 +32,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@hugolopes45/lmsk-core": "0.1.1",
-    "@hugolopes45/lmsk-formats": "0.1.1",
-    "@hugolopes45/lmsk-proxy": "0.1.1"
+    "@hugolopes45/lmsk-core": "0.1.2",
+    "@hugolopes45/lmsk-formats": "0.1.2",
+    "@hugolopes45/lmsk-proxy": "0.1.2"
   }
 }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.2
+
 - The release workflow failed before it published 0.1.1, so npm has no 0.1.1. This release publishes the changes of 0.1.1.
 
 ## 0.1.1

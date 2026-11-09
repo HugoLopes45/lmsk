@@ -1,6 +1,6 @@
 {
   "name": "lmsk",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Reversible masking of secrets, IDs and emails before a coding agent sends anything to the LLM provider. Monorepo of the engine and its harness adapters.",
   "type": "module",
