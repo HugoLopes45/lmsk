@@ -227,6 +227,41 @@
     </div>
   </section>
 
+  <section id="handles" aria-labelledby="handles-title">
+    <div class="row cross">
+      <div class="you"><h2 id="handles-title">What lmsk handles</h2></div>
+      <div class="them" aria-hidden="true"><p>What lmsk handles</p></div>
+    </div>
+    <div class="row step">
+      <div class="you"><h3>You paste a Stripe key so that the agent can set up payments.</h3></div>
+      <div class="them"><p class="muted">The model gets a fake. The file that the agent writes gets the real key.</p></div>
+    </div>
+    <div class="row step">
+      <div class="you"><h3>The agent tries to open <code>.env</code> to debug a config problem.</h3></div>
+      <div class="them"><p class="muted"><code>lmsk</code> refuses the read and tells the agent why.</p></div>
+    </div>
+    <div class="row step">
+      <div class="you"><h3>A command prints <code>DATABASE_URL</code> with its password.</h3></div>
+      <div class="them"><p class="muted">The model gets the URL with a fake password.</p></div>
+    </div>
+    <div class="row step">
+      <div class="you"><h3>The agent runs your tests, which need the real password.</h3></div>
+      <div class="them"><p class="muted">The test command gets the real password. Its output goes back to the model masked.</p></div>
+    </div>
+    <div class="row step">
+      <div class="you"><h3>A log holds customer emails, phone numbers and card numbers.</h3></div>
+      <div class="them"><p class="muted">The model gets fakes.</p></div>
+    </div>
+    <div class="row step">
+      <div class="you"><h3>You work for a client under NDA.</h3></div>
+      <div class="them"><p class="muted">Add the client name once. The model gets a name such as <code>Client 1</code>.</p></div>
+    </div>
+    <div class="row step">
+      <div class="you"><h3>Your file paths and commits show your name and your computer.</h3></div>
+      <div class="them"><p class="muted">The model gets fakes for your user name, host name and git identity.</p></div>
+    </div>
+  </section>
+
   <section id="how" aria-labelledby="how-title">
     <div class="row cross">
       <div class="you"><h2 id="how-title">How it works</h2></div>
