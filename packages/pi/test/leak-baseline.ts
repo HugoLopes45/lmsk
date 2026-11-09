@@ -1,21 +1,15 @@
-// Helpers for the leak baseline. Test-only: no product code is changed.
-import { createHash, randomBytes } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
 import {
   envValues,
   keyedPattern,
   literalPattern,
-  Masker,
   mergeConfigs,
   type RawConfig,
   type Rule,
-  Scanner,
+  type Scanner,
   type ScanPattern,
   validateConfig,
-  Vault,
 } from "@hugolopes45/lmsk-core";
-import { PI_DEFAULTS } from "../src/profile.ts";
 
 export const CLASS_IDS = [
   "C01",
@@ -180,10 +174,6 @@ export function buildCanaries(): CanaryClass[] {
   });
 }
 
-export function sha256Hex(text: string | Uint8Array): string {
-  return createHash("sha256").update(text).digest("hex");
-}
-
 /** Full text of one canary as it appears in a prompt, file or tool output. */
 export function lineFor(canary: CanaryClass): string {
   return `marker ${canary.id} ${canary.template.replace("{v}", () => canary.value)}`;
@@ -265,20 +255,6 @@ export async function scanAttributed(
   );
 }
 
-export function newMasker(
-  rules: Rule[],
-  scanner: Scanner,
-  env: Record<string, string | undefined>,
-): Masker {
-  return new Masker(
-    rules,
-    scanner,
-    new Vault(randomBytes),
-    env,
-    PI_DEFAULTS.format,
-  );
-}
-
 /** Non-overlapping occurrences of `needle` in `haystack`. */
 export function occurrences(haystack: Buffer, needle: Buffer): number {
   if (needle.length === 0) throw new Error("empty needle");
@@ -341,78 +317,4 @@ export function countAll(
   return Object.fromEntries(
     canaries.map((canary) => [canary.id, countSink(buffer, canary)]),
   ) as Record<ClassId, SinkCounts>;
-}
-
-/** Concatenated bytes of every regular file directly under a directory. Missing directory is empty. */
-export function readDirBytes(dir: string): { buffer: Buffer; files: string[] } {
-  let names: string[];
-  try {
-    names = readdirSync(dir).sort();
-  } catch {
-    return { buffer: Buffer.alloc(0), files: [] };
-  }
-  const chunks = names.map((name) => readFileSync(join(dir, name)));
-  return { buffer: Buffer.concat(chunks), files: names };
-}
-
-/** Clean source corpus: no real secrets, only look-alikes that must not be masked. */
-export const CLEAN_CORPUS: Record<string, string> = {
-  "clean/src/app.ts":
-    "export function add(left: number, right: number): number {\n  return left + right;\n}\n// build id 3f2a9c1d8e7b6a5f4e3d2c1b0a9f8e7d6c5b4a39\n",
-  "clean/config/example.env":
-    "DB_PASSWORD=${DB_PASSWORD}\nAPI_KEY=changeme\nLOG_LEVEL=info\n",
-  "clean/README.md":
-    "# Sample\n\nVersion 1.2.3.4 is the first release.\nContact support@example.test for help.\nSample id 123e4567-e89b-12d3-a456-426614174000.\n",
-  "clean/ci/workflow.yml":
-    "steps:\n  - run: npm publish\n    env:\n      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}\n",
-  "clean/data/orders.txt":
-    "order ORD-123456 shipped\norder ORD-654321 pending\n",
-};
-
-export interface FileFinding {
-  path: string;
-  bytes: number;
-  spans: number;
-  byRule: Record<string, number>;
-  maskerChanged: boolean;
-}
-
-/** Raw span count per rule, per file, plus whether the masker changed the file. */
-export async function corpusFindings(
-  files: Record<string, string>,
-  rules: Rule[],
-  scanner: Scanner,
-  env: Record<string, string | undefined>,
-): Promise<{
-  files: FileFinding[];
-  totalSpans: number;
-  byRule: Record<string, number>;
-}> {
-  const entries = Object.entries(files);
-  const spansPerFile = await scanAttributed(
-    scanner,
-    rulePatterns(rules, env),
-    entries.map(([, text]) => text),
-  );
-  const masker = newMasker(rules, scanner, env);
-  const totals: Record<string, number> = {};
-  let totalSpans = 0;
-  const out: FileFinding[] = [];
-  for (const [index, [path, text]] of entries.entries()) {
-    const byRule: Record<string, number> = {};
-    for (const span of spansPerFile[index]) {
-      byRule[span.ruleId] = (byRule[span.ruleId] ?? 0) + 1;
-      totals[span.ruleId] = (totals[span.ruleId] ?? 0) + 1;
-    }
-    totalSpans += spansPerFile[index].length;
-    const [masked] = await masker.mask([text]);
-    out.push({
-      path,
-      bytes: Buffer.byteLength(text, "utf8"),
-      spans: spansPerFile[index].length,
-      byRule,
-      maskerChanged: masked !== text,
-    });
-  }
-  return { files: out, totalSpans, byRule: totals };
 }

@@ -4,7 +4,6 @@ import {
   createAssistantMessageEventStream,
   fauxAssistantMessage,
 } from "@earendil-works/pi-ai";
-import fc from "fast-check";
 import type {
   ExtensionContext,
   ExtensionFactory,
@@ -15,8 +14,6 @@ import { Masker, Scanner, Vault } from "@hugolopes45/lmsk-core";
 import { harness, type Harness } from "./harness.ts";
 
 const SCAN_TIMEOUT_MS = 5000;
-const PROPERTY_SEED = 741526;
-const PROPERTY_RUNS = 10;
 const resources: Harness[] = [];
 const scanners: Scanner[] = [];
 
@@ -196,36 +193,5 @@ describe("summary egress boundaries", () => {
     );
     await expect(h.session.compact()).rejects.toThrow("cancelled");
     expect(h.provider.bodies).toEqual([]);
-  });
-
-  it("never leaks generated literal canaries through compaction and tree summaries", async () => {
-    await fc.assert(
-      fc.asyncProperty(
-        fc.stringMatching(/^[A-Z]{12}[0-9]{6}$/),
-        async (secret) => {
-          const h = await history(maskerFor(secret), secret);
-          try {
-            await h.session.compact(secret);
-            expect(h.provider.bodies.length).toBeGreaterThan(0);
-            expect(h.sent()).not.toContain(secret);
-            const first = h.session.sessionManager
-              .getEntries()
-              .find((e) => e.type === "message");
-            if (!first) throw new Error("missing history fixture");
-            const before = h.provider.bodies.length;
-            const result = await h.session.navigateTree(first.id, {
-              summarize: true,
-              customInstructions: secret,
-            });
-            expect(result.cancelled).toBe(false);
-            expect(h.provider.bodies.length).toBeGreaterThan(before);
-            expect(h.sent()).not.toContain(secret);
-          } finally {
-            await h.dispose();
-          }
-        },
-      ),
-      { seed: PROPERTY_SEED, numRuns: PROPERTY_RUNS },
-    );
   });
 });

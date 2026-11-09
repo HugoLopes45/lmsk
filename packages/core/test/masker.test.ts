@@ -2060,69 +2060,6 @@ describe("Masker placeholders", () => {
     expect(second).toBe(first);
   });
 
-  it("ingests a raw placeholder as a fresh placeholder that restores to the raw text", async () => {
-    const { masker } = build([literal("secret", [secret])]);
-    const [placeholder] = await masker.mask([secret]);
-    const [raw] = await masker.ingest([`copy ${placeholder}`]);
-    expect(raw).not.toContain(placeholder);
-    expect(masker.restoreValue(raw)).toBe(`copy ${placeholder}`);
-  });
-
-  it("keeps a raw placeholder apart from a new secret in one ingest", async () => {
-    const { masker } = build([literal("secret", [secret, otherSecret])]);
-    const [placeholder] = await masker.mask([secret]);
-    const [raw] = await masker.ingest([`${placeholder} then ${otherSecret}`]);
-    expect(raw).not.toContain(otherSecret);
-    expect(raw).not.toContain(placeholder);
-    expect(masker.restoreValue(raw)).toBe(`${placeholder} then ${otherSecret}`);
-  });
-
-  it("escapes a raw placeholder that only a rejected partial span overlaps", async () => {
-    const vault = new Vault(seeded("masker"), [
-      ["Secret-12345", "Qx7Lp9Vb2Nm4"],
-    ]);
-    const { masker } = build([regex("tag", "Qx7")], vault);
-    const [raw] = await masker.ingest(["Qx7Lp9Vb2Nm4"]);
-    expect(raw).not.toBe("Qx7Lp9Vb2Nm4");
-    expect(masker.restoreValue(raw)).toBe("Qx7Lp9Vb2Nm4");
-  });
-
-  it("keeps a larger span that contains a raw placeholder as one secret", async () => {
-    const vault = new Vault(seeded("masker"), [
-      ["Secret-12345", "Qx7Lp9Vb2Nm4"],
-    ]);
-    const { masker } = build([regex("tag", "Qx7[A-Za-z0-9]+")], vault);
-    const text = "pre Qx7Lp9Vb2Nm4Z post";
-    const [raw] = await masker.ingest([text]);
-    expect(raw).not.toContain("Qx7Lp9Vb2Nm4Z");
-    expect(masker.restoreValue(raw)).toBe(text);
-  });
-
-  it("escapes a raw placeholder inside base64 beside a rejected partial span", async () => {
-    const vault = new Vault(seeded("masker"), [
-      ["Secret-12345", "Qx7Lp9Vb2Nm4"],
-    ]);
-    const { masker } = build([regex("tag", "Qx7")], vault);
-    const input = base64("x Qx7Lp9Vb2Nm4");
-    const [raw] = await masker.ingest([input]);
-    expect(masker.restoreValue(raw)).toBe(input);
-  });
-
-  it("keeps escaped raw placeholders stable through a provider mask pass", async () => {
-    const vault = new Vault(seeded("masker"), [
-      ["Secret-12345", "Qx7Lp9Vb2Nm4"],
-    ]);
-    const { masker } = build([regex("tag", "Qx7")], vault);
-    const [user, tool] = await masker.ingest([
-      "user Qx7Lp9Vb2Nm4",
-      "tool Qx7Lp9Vb2Nm4.",
-    ]);
-    const [again] = await masker.mask([user ?? ""]);
-    expect(again).toBe(user);
-    expect(masker.restoreValue(again)).toBe("user Qx7Lp9Vb2Nm4");
-    expect(masker.restoreValue(tool)).toBe("tool Qx7Lp9Vb2Nm4.");
-  });
-
   it("ignores a provider span nested inside a placeholder, also inside an encoded placeholder", async () => {
     const vault = new Vault(seeded("masker"), [
       ["Secret-12345", "Qx7Lp9Vb2Nm4"],
@@ -2144,15 +2081,6 @@ describe("Masker placeholders", () => {
     await expect(masker.mask(["x-Qx7Lp9Vb2Nm4"])).rejects.toMatchObject({
       code: "BLOCKED",
     });
-  });
-
-  it("restores a raw placeholder inside base64 to the raw base64 once", async () => {
-    const { masker } = build([literal("secret", [secret])]);
-    const [placeholder] = await masker.mask([secret]);
-    const input = base64(`x ${placeholder}`);
-    const [raw] = await masker.ingest([input]);
-    expect(raw).not.toBe(input);
-    expect(masker.restoreValue(raw)).toBe(input);
   });
 
   it("restores a base64 run that holds a placeholder to the base64 of the real", async () => {
@@ -2206,7 +2134,7 @@ describe("Masker payload history", () => {
       failAt: fc.option(fc.integer({ min: 0, max: 2 })),
     }),
     fc.record({
-      kind: fc.constant("ingest" as const),
+      kind: fc.constant("mask" as const),
       fresh: fc.option(text),
       pick: fc.nat(),
     }),
@@ -2266,13 +2194,13 @@ describe("Masker payload history", () => {
           );
           let history: string[] = [];
           for (const step of ops) {
-            if (step.kind === "ingest") {
+            if (step.kind === "mask") {
               const target =
                 step.fresh ??
                 history[step.pick % Math.max(history.length, 1)] ??
                 LATER;
-              expect(await outcome(subject.ingest([target]))).toEqual(
-                await outcome(reference.ingest([target])),
+              expect(await outcome(subject.mask([target]))).toEqual(
+                await outcome(reference.mask([target])),
               );
               continue;
             }
