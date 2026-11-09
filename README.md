@@ -9,7 +9,7 @@
 
 ## Real keys for your agent. Fakes for the model.
 
-`lmsk` swaps API keys, passwords, tokens and emails for fakes before your coding agent sends a request. Tool calls get the real values back, so your commands still run.
+`lmsk` swaps API keys, passwords, tokens and emails for fakes before Claude Code or pi sends a request to the LLM provider. Tool calls get the real values back, so your commands still run.
 
 [Website](https://hugolopes45.github.io/lmsk/) &nbsp;·&nbsp; [Install](#install) &nbsp;·&nbsp; [Agents](#agents) &nbsp;·&nbsp; [FAQ](#faq) &nbsp;·&nbsp; [Limits](#limits)
 
@@ -133,6 +133,12 @@ A little. In our test, masking a 20 kB tool result took about 17 ms (median of 3
 
 **Where are the real values stored?**
 In the local vault on your computer, a JSON file that only your user account can read. It is not encrypted. Exclude it from cloud backups.
+
+**How do I stop Claude Code from sending my API keys and .env values to the model?**
+Run Claude Code with `lmsk claude`. `lmsk` masks the secrets in each request before it leaves your computer, also in the text that you paste and in command output. It also refuses the tool calls that open `.env`, keys and other secret files. A `Read` deny rule in the Claude Code settings stops a file read, but it does not mask what you paste or what a command prints. In pi, install the extension.
+
+**How is it different from gitleaks or a redaction hook?**
+gitleaks finds secrets in files and commits, so that you can remove them. `lmsk` uses the gitleaks default rules, and its own rules, on each request that the agent sends. A hook that replaces a secret with `[REDACTED]` gives that tag to your commands. `lmsk` gives a fake of the same length to the model, and the real value to the tool calls.
 
 **Which agents does it work with?**
 Claude Code (preview) and pi today. More agents are planned. [Install](#install) shows the command for each one.
