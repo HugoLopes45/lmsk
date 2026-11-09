@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The release workflow failed before it published 0.1.1, so npm has no 0.1.1. This release publishes the changes of 0.1.1.
+
 ## 0.1.1
 
 - Keyed secrets: an unquoted value that holds `.`, `:`, `&`, `(`, `<`, `,` or `@` is masked in full. Before, it was cut at the first such character, or not masked at all.
