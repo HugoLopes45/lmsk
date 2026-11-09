@@ -4,6 +4,9 @@
   "description": "Harness-agnostic engine of lmsk: reversible, fail-closed masking of secrets, IDs and emails.",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "node": ">=22.19"
+  },
   "author": "HugoLopes45 (https://github.com/HugoLopes45)",
   "repository": {
     "type": "git",

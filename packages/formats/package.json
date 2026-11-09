@@ -4,6 +4,9 @@
   "description": "Provider wire format rules for the lmsk masking engine: the payload fields a provider needs byte-exact.",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "node": ">=22.19"
+  },
   "author": "HugoLopes45 (https://github.com/HugoLopes45)",
   "repository": {
     "type": "git",
