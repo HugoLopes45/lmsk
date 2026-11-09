@@ -1,4 +1,4 @@
-import { CodedError, type Guard, isRecord } from "@lmsk/core";
+import { CodedError, type Guard, isRecord } from "@hugolopes45/lmsk-core";
 import { readJson, writeJson } from "./private-file.ts";
 
 /** A tool call as the provider sent it: its input holds fakes only, so the file holds no real. */

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { Masker, type Rule, Scanner, Vault } from "@lmsk/core";
+import { Masker, type Rule, Scanner, Vault } from "@hugolopes45/lmsk-core";
 import { afterEach, describe, expect, it } from "vitest";
 import { allFormats } from "../src/index.ts";
 

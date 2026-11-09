@@ -16,7 +16,7 @@ import {
   DEFAULT_MASK,
   type TextMap,
   textsOf,
-} from "@lmsk/core";
+} from "@hugolopes45/lmsk-core";
 
 /** The decisions that pi reads from an assistant error text. */
 interface ErrorDecisions {

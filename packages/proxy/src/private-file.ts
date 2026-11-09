@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
-import { CodedError } from "@lmsk/core";
+import { CodedError } from "@hugolopes45/lmsk-core";
 
 /** The parsed JSON in `path`, or `undefined` when there is no file. A file that is not JSON throws `code`. */
 export function readJson(path: string, code: string): unknown {

@@ -24,7 +24,7 @@ Your Claude Code configuration does not change. `claude` started alone, without 
 3. Run this command in a terminal:
 
    ```bash
-   npm install -g lmsk
+   npm install -g @hugolopes45/lmsk
    ```
 
 ## Start Claude Code through lmsk
@@ -117,5 +117,5 @@ The limits that apply to each agent are in [What lmsk does not protect](GUIDE.md
 
 ## Uninstall
 
-1. Run `npm uninstall -g lmsk`.
+1. Run `npm uninstall -g @hugolopes45/lmsk`.
 2. Delete the folder `~/.local/state/lmsk/`. It holds the vaults and the tool calls of each session. If you do not need your rules, delete `~/.config/lmsk/` too.

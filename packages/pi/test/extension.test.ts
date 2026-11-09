@@ -42,7 +42,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import lmsk from "../extensions/index.ts";
 import { installModelGuard } from "../src/guard-runtime.ts";
 import type { BranchRecord } from "../src/host.ts";
-import { loadVaultStore, Scanner } from "@lmsk/core";
+import { loadVaultStore, Scanner } from "@hugolopes45/lmsk-core";
 
 /** Fault hook at the fs boundary; unset hooks call the real functions. */
 const faults = vi.hoisted(() => ({ directoryFlushFails: false }));

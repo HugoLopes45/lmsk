@@ -11,7 +11,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { compactMasked, summarizeTreeMasked } from "../src/compaction.ts";
 import { PI_DEFAULTS } from "../src/profile.ts";
-import { Masker, Scanner, Vault } from "@lmsk/core";
+import { Masker, Scanner, Vault } from "@hugolopes45/lmsk-core";
 import { harness, type Harness } from "./harness.ts";
 
 const SCAN_TIMEOUT_MS = 5000;

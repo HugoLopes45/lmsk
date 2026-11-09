@@ -1,5 +1,5 @@
 {
-  "name": "@lmsk/core",
+  "name": "@hugolopes45/lmsk-core",
   "version": "0.1.0",
   "description": "Harness-agnostic engine of lmsk: reversible, fail-closed masking of secrets, IDs and emails.",
   "type": "module",

@@ -58,8 +58,8 @@ CONTACT=ptfe.rol@dweervr.xtw
 
 | Agent | Status | Install |
 |---|---|---|
-| Pi | Supported | `pi install npm:@lmsk/pi`. See [lmsk with pi](docs/pi.md). |
-| Claude Code | Preview | `npm install -g lmsk`, then start it with `lmsk claude`. See [lmsk with Claude Code](docs/claude-code.md). |
+| Pi | Supported | `pi install npm:@hugolopes45/lmsk-pi`. See [lmsk with pi](docs/pi.md). |
+| Claude Code | Preview | `npm install -g @hugolopes45/lmsk`, then start it with `lmsk claude`. See [lmsk with Claude Code](docs/claude-code.md). |
 
 ## Quick start
 
@@ -69,7 +69,7 @@ With pi:
 2. Install `lmsk`:
 
    ```bash
-   pi install npm:@lmsk/pi
+   pi install npm:@hugolopes45/lmsk-pi
    ```
 
 3. Start pi, or type `/reload` in an open pi.
@@ -79,7 +79,7 @@ With Claude Code:
 1. Install `lmsk`:
 
    ```bash
-   npm install -g lmsk
+   npm install -g @hugolopes45/lmsk
    ```
 
 2. Start Claude Code with `lmsk claude` in place of `claude`.

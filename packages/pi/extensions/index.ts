@@ -10,7 +10,7 @@ import {
   type HostContext,
   localIdentityRules,
   type ReferenceRecords,
-} from "@lmsk/core";
+} from "@hugolopes45/lmsk-core";
 import { COMMAND, runCommand } from "../src/command.ts";
 import { compactMasked, summarizeTreeMasked } from "../src/compaction.ts";
 import { installModelGuard } from "../src/guard-runtime.ts";

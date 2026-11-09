@@ -7,7 +7,7 @@ import {
   type SessionBeforeTreeEvent,
   type SessionBeforeTreeResult,
 } from "@earendil-works/pi-coding-agent";
-import { isRecord, type Masker } from "@lmsk/core";
+import { isRecord, type Masker } from "@hugolopes45/lmsk-core";
 
 type PayloadMasker = Pick<Masker, "maskPayload">;
 type SummaryStream = NonNullable<Parameters<typeof compact>[7]>;

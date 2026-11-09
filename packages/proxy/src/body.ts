@@ -4,7 +4,7 @@ import {
   inflateSync,
   zstdDecompressSync,
 } from "node:zlib";
-import { CodedError } from "@lmsk/core";
+import { CodedError } from "@hugolopes45/lmsk-core";
 
 /** Above any request an agent sends; it bounds memory against a compressed body that expands without end. */
 export const MAX_BODY_BYTES = 64 * 1024 * 1024;

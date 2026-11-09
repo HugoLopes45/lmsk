@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { constants } from "node:os";
-import type { HostContext } from "@lmsk/core";
+import type { HostContext } from "@hugolopes45/lmsk-core";
 
 export interface AgentOptions {
   cwd: string;

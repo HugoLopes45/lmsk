@@ -8,7 +8,7 @@ import {
   type HostContext,
   localIdentityRules,
   type ReferenceRecords,
-} from "@lmsk/core";
+} from "@hugolopes45/lmsk-core";
 import {
   fileCalls,
   memoryCalls,
