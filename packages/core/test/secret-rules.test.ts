@@ -46,6 +46,24 @@ function random(length: number, seed: number, alphabet = ALNUM): string {
 const VALUE = random(20, 1);
 const BASIC = `${random(24, 9)}=`;
 
+/** Unquoted values with one punctuation class each, built at run time. */
+const PUNCTUATED = [
+  `${random(6, 21)}.${random(4, 22)}!`,
+  `${random(8, 23)}&${random(4, 24)}!`,
+  `${random(6, 25)}:${random(4, 26)}`,
+  `${random(5, 27)}(${random(4, 28)})${random(2, 29)}`,
+  `${random(4, 30)}<${random(5, 31)}`,
+  `${random(4, 32)},${random(5, 33)}`,
+  `${random(4, 34)}@${random(4, 35)}!`,
+];
+const KEYED_FORMS = [
+  (value: string) => `DB_PASSWORD=${value}`,
+  (value: string) => `export DB_PASSWORD=${value}`,
+  (value: string) => `password: ${value}`,
+  (value: string) => `password=${value}`,
+  (value: string) => `pwd = ${value}`,
+];
+
 describe("keyed secrets", () => {
   it.each([
     ["env", `DB_PASSWORD=${VALUE}`],
@@ -108,6 +126,20 @@ describe("keyed secrets", () => {
     for (const text of standIns) expect(await found(text), text).toEqual([]);
   });
 
+  it("ignores a code reference or call that ends a line", async () => {
+    for (const text of [
+      `password: this.password`,
+      `apiKey: opts.apiKey`,
+      `password: process.env.PW`,
+      `password: getPassword()`,
+    ])
+      expect(await found(text), text).toEqual([]);
+  });
+
+  it("takes a quoted value with a dot, even when it is only words", async () => {
+    expect(await found(`password: "Summer.Night"`)).toEqual(["Summer.Night"]);
+  });
+
   it("ignores a keyed value made only of letters", async () => {
     for (const text of [
       `token: TOKEN`,
@@ -120,6 +152,42 @@ describe("keyed secrets", () => {
   it("takes a keyed value with a digit or a symbol", async () => {
     const mixed = ["Summer", "2024", "!"].join("");
     expect(await found(`password: ${mixed}`)).toEqual([mixed]);
+  });
+
+  it("takes an unquoted value with punctuation to the end of the text", async () => {
+    for (const value of PUNCTUATED)
+      for (const form of KEYED_FORMS) {
+        const text = form(value);
+        expect(await found(text), text).toEqual([value]);
+      }
+  });
+
+  it("takes an unquoted value with punctuation before a newline", async () => {
+    for (const value of PUNCTUATED)
+      for (const form of KEYED_FORMS) {
+        const text = `${form(value)}\nnext line`;
+        expect(await found(text), text).toEqual([value]);
+      }
+  });
+
+  it("takes an unquoted value with punctuation before a trailing comment", async () => {
+    for (const value of PUNCTUATED)
+      for (const form of KEYED_FORMS) {
+        const text = `${form(value)} # rotate later`;
+        expect(await found(text), text).toEqual([value]);
+      }
+  });
+
+  it("leaves a trailing comma or semicolon out of an unquoted value", async () => {
+    for (const value of PUNCTUATED)
+      for (const text of [`password: ${value},`, `password: ${value};`]) {
+        expect(await found(text), text).toEqual([value]);
+      }
+  });
+
+  it("keeps a query or connection string part out of an unquoted value", async () => {
+    expect(await found(`password=${VALUE}&ssl=true`)).toEqual([VALUE]);
+    expect(await found(`Password=${VALUE};Encrypt=True;`)).toEqual([VALUE]);
   });
 
   it("keeps a key after a backslash escape, tab, quote, %3D or =3D", async () => {

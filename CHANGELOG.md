@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Keyed secrets: an unquoted value that holds `.`, `:`, `&`, `(`, `<`, `,` or `@` is masked in full. Before, it was cut at the first such character, or not masked at all.
+
 ## 0.1.0
 
 First release.

@@ -96,6 +96,18 @@ describe("Masker rules", () => {
     expect(masker.restoreValue(masked)).toBe(text);
   });
 
+  it("masks an unquoted keyed value with punctuation in full", async () => {
+    const { masker } = build(DEFAULT_RULES);
+    const random = seeded("keyed-punctuation");
+    const value = `${word(random, 6)}.${word(random, 4)}!${word(random, 3)}`;
+    const text = `DB_PASSWORD=${value}`;
+    const [masked] = await masker.mask([text]);
+    expect(masked).not.toContain(value);
+    for (let i = 0; i + 4 <= value.length; i++)
+      expect(masked).not.toContain(value.slice(i, i + 4));
+    expect(masker.restoreValue(masked)).toBe(text);
+  });
+
   it("masks an email address so that the part after @ restores to the domain alone", async () => {
     const { masker } = build(DEFAULT_RULES);
     const [masked] = await masker.mask([
