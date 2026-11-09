@@ -4,6 +4,9 @@
   "description": "Local HTTP proxy that masks agent requests with the lmsk engine before they reach the provider.",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "node": ">=22.19"
+  },
   "author": "HugoLopes45 (https://github.com/HugoLopes45)",
   "repository": {
     "type": "git",

@@ -4,6 +4,9 @@
   "description": "lmsk adapter for pi: reversible masking of secrets, IDs and emails before pi sends anything to the LLM provider.",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "node": ">=22.19"
+  },
   "author": "HugoLopes45 (https://github.com/HugoLopes45)",
   "repository": {
     "type": "git",

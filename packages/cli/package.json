@@ -4,6 +4,9 @@
   "description": "Runs Claude Code behind the lmsk proxy, so that secrets, IDs and emails reach the LLM provider masked.",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "node": ">=22.19"
+  },
   "author": "HugoLopes45 (https://github.com/HugoLopes45)",
   "repository": {
     "type": "git",
