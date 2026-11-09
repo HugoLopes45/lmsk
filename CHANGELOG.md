@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The README lists the everyday cases that lmsk handles, and answers how to stop Claude Code from sending `.env` values and how lmsk differs from gitleaks.
+
 ## 0.2.0
 
 - lmsk is now one npm package, `@hugolopes45/lmsk`, for Claude Code and pi. The other `@hugolopes45/lmsk-*` packages get no more releases. If you use pi, run `pi remove npm:@hugolopes45/lmsk-pi`, then `pi install npm:@hugolopes45/lmsk`.
