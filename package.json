@@ -1,7 +1,7 @@
 {
   "name": "@hugolopes45/lmsk",
   "version": "0.1.1",
-  "description": "Reversible masking of secrets, IDs and emails before Claude Code or pi sends anything to the LLM provider.",
+  "description": "Mask API keys, passwords and emails before Claude Code or the pi coding agent sends them to the LLM, and restore them in tool calls.",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -20,16 +20,19 @@
     "pi-package",
     "pi-extension",
     "pi",
+    "pi-coding-agent",
     "claude-code",
+    "coding-agent",
+    "llm",
+    "secrets",
+    "api-keys",
+    "mask",
     "redact",
     "redaction",
-    "secrets",
-    "mask",
-    "pii",
     "privacy",
+    "pii",
     "dlp",
-    "llm",
-    "anonymize"
+    "gitleaks"
   ],
   "files": [
     "dist",

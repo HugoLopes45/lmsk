@@ -19,7 +19,7 @@ Your Claude Code configuration does not change. `claude` started alone, without 
 
 ## Install
 
-1. Install Node.js 22.20 or later.
+1. Install Node.js 22.19 or later.
 2. Install Claude Code 2.1.295 or later.
 3. Run this command in a terminal:
 
