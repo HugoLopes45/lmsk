@@ -1,6 +1,11 @@
 <div align="center">
 
-# lmsk
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-dark.svg">
+    <img src="docs/brand/logo.svg" alt="lmsk" width="320">
+  </picture>
+</h1>
 
 **Use AI on your code. Keep your passwords to yourself.**
 

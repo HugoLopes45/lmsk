@@ -680,7 +680,12 @@ describe("supplied extension wire integration", () => {
   it(
     "blocks a scanner timeout when worker delivery is lost",
     async () => {
-      const h = await integration();
+      const h = await integration({
+        globalConfig: JSON.stringify({
+          rules: [{ id: "e2e-canary", type: "literal", values: [CANARY] }],
+          scanTimeoutMs: 200,
+        }),
+      });
       const delivery = vi
         .spyOn(Worker.prototype, "postMessage")
         .mockImplementation(() => undefined);

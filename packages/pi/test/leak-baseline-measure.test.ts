@@ -32,6 +32,7 @@ const OUT_DIR =
   process.env.PMS_LEAK_OUT_DIR ?? join(tmpdir(), "pms-leak-baseline-out");
 const SCENARIO_TIMEOUT_MS = 120_000;
 const SCAN_TIMEOUT_MS = 5000;
+const SCAN_STALL_TIMEOUT_MS = 300;
 
 const canaries = buildCanaries();
 const canaryOf = (id: ClassId): CanaryClass => {
@@ -59,6 +60,7 @@ const SCAN_STALL_CONFIG = JSON.stringify({
     { id: ENV_RULE_ID, type: "env", vars: [ENV_VAR_NAME] },
     { id: "scan-stall", type: "regex", pattern: "(a+)+b" },
   ],
+  scanTimeoutMs: SCAN_STALL_TIMEOUT_MS,
 });
 const BLOCK_GLOBAL_CONFIG = JSON.stringify({
   rules: [
@@ -796,7 +798,7 @@ describe("leak baseline measurement", () => {
           },
           {
             name: "prompt returned only after the scanner deadline",
-            passed: elapsedMs >= SCAN_TIMEOUT_MS,
+            passed: elapsedMs >= SCAN_STALL_TIMEOUT_MS,
             detail: `${elapsedMs} ms`,
           },
         ],

@@ -16,14 +16,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  workflows:
+    name: Lint workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Lint workflows with actionlint and shellcheck
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 -color
+
   check:
-    name: Check (Node ${{ matrix.node }})
+    name: Check (Node ${{ matrix.node }}${{ matrix.pi == 'latest' && ', latest Pi' || '' }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         # Pi requires Node 22.19 or later.
         node: [22, 24]
+        pi: [locked]
+        include:
+          - node: 24
+            pi: latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -34,14 +48,12 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
+      - name: Install latest Pi
+        if: matrix.pi == 'latest'
+        run: npm install --no-save --package-lock=false @earendil-works/pi-ai@latest @earendil-works/pi-coding-agent@latest
       - run: npm run check
       - name: Validate version change
         if: github.event_name == 'pull_request'
         run: node scripts/release.ts check "$BASE_SHA"
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      - name: Check latest Pi
-        if: matrix.node == 24
-        run: |
-          npm install --no-save --package-lock=false @earendil-works/pi-ai@latest @earendil-works/pi-coding-agent@latest
-          npm run check

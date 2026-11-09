@@ -4,7 +4,7 @@ import { isIPv4 } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import fc from "fast-check";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { DEFAULT_RULES, type Rule } from "../src/config.ts";
 import { Masker } from "../src/masker.ts";
 import type { PayloadFormat } from "../src/payload.ts";
@@ -1311,42 +1311,39 @@ const percentEach = (text: string): string =>
 
 describe("Masker property", () => {
   it("rematches new contextual values throughout an ordered payload batch", async () => {
+    const worker = new Scanner(2000);
+    onTestFinished(() => worker.close());
     await fc.assert(
       fc.asyncProperty(
         fc.stringMatching(/^[A-Z]{12}$/),
         fc.boolean(),
         fc.integer({ min: 1, max: 4 }),
         async (value, reverse, count) => {
-          const worker = new Scanner(2000);
-          try {
-            const masker = new Masker(
-              [
-                {
-                  id: "context",
-                  type: "regex",
-                  enabled: true,
-                  strategy: "opaque",
-                  pattern: "password=([A-Z]{12})",
-                  flags: "",
-                  group: 1,
-                },
-              ],
-              worker,
-              new Vault(seeded(value)),
-              {},
-              NO_FORMAT,
-            );
-            const texts = [
-              ...Array.from({ length: count }, () => value),
-              `password=${value}`,
-            ];
-            if (reverse) texts.reverse();
-            const masked = await masker.maskPayload({ texts });
-            expect(JSON.stringify(masked).includes(value)).toBe(false);
-            expect(masker.restoreValue(masked)).toEqual({ texts });
-          } finally {
-            worker.close();
-          }
+          const masker = new Masker(
+            [
+              {
+                id: "context",
+                type: "regex",
+                enabled: true,
+                strategy: "opaque",
+                pattern: "password=([A-Z]{12})",
+                flags: "",
+                group: 1,
+              },
+            ],
+            worker,
+            new Vault(seeded(value)),
+            {},
+            NO_FORMAT,
+          );
+          const texts = [
+            ...Array.from({ length: count }, () => value),
+            `password=${value}`,
+          ];
+          if (reverse) texts.reverse();
+          const masked = await masker.maskPayload({ texts });
+          expect(JSON.stringify(masked).includes(value)).toBe(false);
+          expect(masker.restoreValue(masked)).toEqual({ texts });
         },
       ),
       { seed: 741529, numRuns: 25 },
@@ -1365,34 +1362,31 @@ describe("Masker property", () => {
         secret.map(percentEach),
       );
       const payload = fc.array(segment, { minLength: 1, maxLength: 6 });
+      const scanner = new Scanner(2000);
+      onTestFinished(() => scanner.close());
       await fc.assert(
         fc.asyncProperty(payload, async (segments) => {
           const text = segments.join(" ");
           const vault = new Vault(seeded(text));
-          const scanner = new Scanner(2000);
-          try {
-            const masker = new Masker(
-              [regex("secret", SECRET_PATTERN)],
-              scanner,
-              vault,
-              {},
-              NO_FORMAT,
-            );
-            const [masked] = await masker.mask([text]);
-            for (const [real] of vault.entries())
-              expect(masked).not.toContain(real);
-            expect(masker.restoreValue(masked)).toBe(text);
-            const reloaded = new Masker(
-              [regex("secret", SECRET_PATTERN)],
-              scanner,
-              new Vault(seeded("reload"), vault.entries()),
-              {},
-              NO_FORMAT,
-            );
-            expect(reloaded.restoreValue(masked)).toBe(text);
-          } finally {
-            scanner.close();
-          }
+          const masker = new Masker(
+            [regex("secret", SECRET_PATTERN)],
+            scanner,
+            vault,
+            {},
+            NO_FORMAT,
+          );
+          const [masked] = await masker.mask([text]);
+          for (const [real] of vault.entries())
+            expect(masked).not.toContain(real);
+          expect(masker.restoreValue(masked)).toBe(text);
+          const reloaded = new Masker(
+            [regex("secret", SECRET_PATTERN)],
+            scanner,
+            new Vault(seeded("reload"), vault.entries()),
+            {},
+            NO_FORMAT,
+          );
+          expect(reloaded.restoreValue(masked)).toBe(text);
         }),
         { seed: PROPERTY_SEED, numRuns: PROPERTY_RUNS },
       );
@@ -2210,11 +2204,12 @@ describe("Masker payload history", () => {
   }
 
   it("masks each payload of a session as an uncached mask call does", async () => {
+    const worker = new Scanner(2000);
+    onTestFinished(() => worker.close());
     await fc.assert(
       fc.asyncProperty(
         fc.array(op, { minLength: 1, maxLength: 8 }),
         async (ops) => {
-          const worker = new Scanner(2000);
           const rules = [
             { ...regex("password", "password=([A-Z0-9]{10})"), group: 1 },
             literal("literal", ["LITERALXX9"], "shape"),
@@ -2237,37 +2232,33 @@ describe("Masker payload history", () => {
             {},
             NO_FORMAT,
           );
-          try {
-            let history: string[] = [];
-            for (const step of ops) {
-              if (step.kind === "ingest") {
-                const target =
-                  step.fresh ??
-                  history[step.pick % Math.max(history.length, 1)] ??
-                  LATER;
-                expect(await outcome(subject.ingest([target]))).toEqual(
-                  await outcome(reference.ingest([target])),
-                );
-                continue;
-              }
-              const payload = [...history, ...step.added];
-              cached.state.calls = oracle.state.calls = 0;
-              cached.state.failAt = oracle.state.failAt =
-                step.failAt ?? undefined;
-              const got = await outcome(subject.maskPayload(payload));
-              const want = await outcome(reference.mask(payload));
-              cached.state.failAt = oracle.state.failAt = undefined;
-              expect(got).toEqual(want);
-              expect(subjectVault.entries()).toEqual(referenceVault.entries());
-              if (Array.isArray(want))
-                history = payload.map((raw, index) =>
-                  step.keep[index] ? want[index] : raw,
-                );
+          let history: string[] = [];
+          for (const step of ops) {
+            if (step.kind === "ingest") {
+              const target =
+                step.fresh ??
+                history[step.pick % Math.max(history.length, 1)] ??
+                LATER;
+              expect(await outcome(subject.ingest([target]))).toEqual(
+                await outcome(reference.ingest([target])),
+              );
+              continue;
             }
+            const payload = [...history, ...step.added];
+            cached.state.calls = oracle.state.calls = 0;
+            cached.state.failAt = oracle.state.failAt =
+              step.failAt ?? undefined;
+            const got = await outcome(subject.maskPayload(payload));
+            const want = await outcome(reference.mask(payload));
+            cached.state.failAt = oracle.state.failAt = undefined;
+            expect(got).toEqual(want);
             expect(subjectVault.entries()).toEqual(referenceVault.entries());
-          } finally {
-            worker.close();
+            if (Array.isArray(want))
+              history = payload.map((raw, index) =>
+                step.keep[index] ? want[index] : raw,
+              );
           }
+          expect(subjectVault.entries()).toEqual(referenceVault.entries());
         },
       ),
       { seed: 20261106, numRuns: 200 },
