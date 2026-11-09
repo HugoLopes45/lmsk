@@ -3,94 +3,322 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>lmsk: use AI on your code, keep your passwords to yourself</title>
-<meta name="description" content="lmsk swaps your passwords, keys and emails for fakes before your AI coding assistant sends anything, and puts the real values back when it edits your files. Free and open source.">
+<title>lmsk: use AI on your code, your keys stay on your laptop</title>
+<meta name="description" content="lmsk swaps your keys, passwords and emails for fakes before your AI coding agent sends them, and puts the real values back in your files.">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="brand/icon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/anton.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/public-sans.woff2" as="font" type="font/woff2" crossorigin>
 <style>
-  body { margin: 0; font: 18px/1.6 system-ui, sans-serif; color: #1c1c28; background: #fafafc; }
-  main { width: min(760px, 100% - 2.5rem); margin: 0 auto; padding: 4rem 0; }
-  h1 { font-size: clamp(2.2rem, 6vw, 3.2rem); line-height: 1.15; margin: 0 0 1rem; }
-  h2 { margin-top: 3.5rem; }
-  .lead { font-size: 1.25rem; margin: 0 0 2rem; }
-  a { color: #5b21b6; }
-  .cta { display: inline-block; background: #5b21b6; color: #fff; padding: .8rem 1.4rem; border-radius: 8px; font-weight: 600; text-decoration: none; }
-  .cta:focus-visible { outline: 3px solid #1c1c28; outline-offset: 3px; }
-  pre { background: #1c1c28; color: #e6e6f0; padding: 1rem; border-radius: 8px; overflow-x: auto; }
-  .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
-  .pair p { margin: 0 0 .25rem; font-weight: 600; }
-  blockquote { margin: 0 0 1rem; padding-left: 1rem; border-left: 4px solid #5b21b6; font-size: 1.1rem; }
-  dt { font-weight: 600; margin-top: 1.2rem; }
-  dd { margin: .2rem 0 0; }
-  footer { margin-top: 4rem; font-size: .9rem; }
+  @font-face { font-family: "Anton"; src: url(fonts/anton.woff2) format("woff2"); font-display: swap; }
+  @font-face { font-family: "Public Sans"; src: url(fonts/public-sans.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+  @font-face { font-family: "IBM Plex Mono"; src: url(fonts/plex-mono-400.woff2) format("woff2"); font-weight: 400; font-display: swap; }
+  @font-face { font-family: "IBM Plex Mono"; src: url(fonts/plex-mono-600.woff2) format("woff2"); font-weight: 600; font-display: swap; }
+
+  :root {
+    --paper: oklch(0.975 0.004 255);
+    --paper-muted: oklch(0.44 0.015 255);
+    --paper-rule: oklch(0.86 0.006 255);
+    --ink: oklch(0.17 0.015 255);
+    --ink-muted: oklch(0.8 0.015 255);
+    --ink-raised: oklch(0.27 0.015 255);
+    --fake: oklch(0.72 0.18 33);
+    --edge: max(1.5rem, calc((100vw - 1440px) / 2 + 3rem));
+    --gap: 1.5rem;
+    --display: "Anton", "Impact", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-padding-top: 1rem; }
+  body { margin: 0; font: 400 1.125rem/1.55 "Public Sans", system-ui, sans-serif; color: var(--ink); background: var(--paper); }
+  a { color: inherit; text-underline-offset: 0.2em; }
+  a:focus-visible, button:focus-visible { outline: 3px solid var(--fake); outline-offset: 3px; }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+  code, pre { font-family: var(--mono); }
+  h3 { margin: 0 0 0.5rem; font-size: 1.375rem; line-height: 1.25; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+  /* The seam: every row is your laptop (paper, left) against the AI company's server (ink, right). */
+  .row { display: grid; grid-template-columns: 1fr 1fr; }
+  main { background: linear-gradient(90deg, var(--paper) 50%, var(--ink) 50%); }
+  .you, .them { padding: var(--gap) 3rem; }
+  .you { padding-left: var(--edge); background: var(--paper); }
+  .them { padding-right: var(--edge); background: var(--ink); color: var(--paper); }
+  .you.end { text-align: right; }
+  .tag { display: block; margin-bottom: 1rem; font: 600 0.8125rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--paper-muted); }
+  .them .tag { color: var(--ink-muted); }
+  .them .muted { color: var(--ink-muted); }
+  .fake { color: var(--fake); font-weight: 600; }
+
+  /* A title that crosses the seam: each half holds the full title, twice its width, so the two halves line up. */
+  .cross > div { overflow: hidden; padding: 2.5rem 0 1rem; }
+  .cross h1, .cross h2, .cross p { width: 200%; margin: 0; padding-inline: var(--edge); font: 400 clamp(3rem, 9vw, 9rem)/0.88 var(--display); text-transform: uppercase; text-align: center; text-wrap: balance; }
+  .cross .them p { margin-left: -100%; }
+  .cross.hero h1, .cross.hero p { font-size: clamp(4rem, 13vw, 13rem); }
+
+  .motion .cross h1, .motion .cross h2, .motion .cross p { transition: transform 700ms cubic-bezier(0.2, 0.7, 0.2, 1); }
+  .motion .cross:not(.in) .you > * { transform: translateX(-4vw); }
+  .motion .cross:not(.in) .them p { transform: translateX(4vw); }
+  .motion .step:not(.in) > div { opacity: 0; transform: translateY(1rem); }
+  .motion .step > div { transition: transform 500ms ease-out, opacity 500ms ease-out; }
+  .motion .step > .them { transition-delay: 150ms; }
+  .cmd button { transition: background-color 150ms; }
+  .cmd button:hover { background: var(--paper); }
+  .them .cmd button:hover { background: var(--ink); color: var(--paper); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+  header.row { align-items: center; }
+  header .them { display: flex; justify-content: flex-end; }
+  header img { display: block; }
+  nav ul { display: flex; flex-wrap: wrap; gap: 0.25rem 1.75rem; margin: 0; padding: 0; list-style: none; font-weight: 600; }
+  nav a { display: inline-block; padding-block: 0.5rem; text-decoration: none; }
+  nav a:hover { text-decoration: underline; }
+
+  .env { font: 400 clamp(1rem, 1.7vw, 1.5rem)/1.9 var(--mono); overflow-wrap: anywhere; }
+  .env .you, .env .them { padding-block: 2.5rem; }
+
+  .cmd { display: inline-flex; max-width: 100%; border-radius: 999px; background: var(--ink); color: var(--paper); overflow: hidden; text-align: left; }
+  .them .cmd { background: var(--paper); color: var(--ink); }
+  .cmd pre { margin: 0; padding: 1.1rem 1.5rem; font-weight: 600; font-size: 1.125rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .cmd.block { border-radius: 1rem; }
+  .cmd button { flex: none; min-width: 6rem; border: 0; padding: 0 1.5rem; font: 700 1rem "Public Sans", sans-serif; background: var(--fake); color: var(--ink); cursor: pointer; }
+  .note { margin-top: 1rem; font-size: 1rem; color: var(--paper-muted); }
+  .lead { font-size: clamp(1.125rem, 1.6vw, 1.375rem); }
+
+  .step { border-top: 1px solid var(--paper-rule); }
+  .step .them { border-top: 1px solid var(--ink-raised); }
+  .step .you, .step .them { padding-block: 2rem; }
+  .num { font: 400 2.5rem/1 var(--display); display: block; margin-bottom: 0.75rem; }
+  .line { display: inline-block; margin-top: 0.5rem; font: 400 1rem/1.4 var(--mono); overflow-wrap: anywhere; }
+
+  .limits ul { margin: 0; padding: 0; list-style: none; }
+  .limits li + li { margin-top: 1.5rem; }
+  .limits strong { display: block; font-size: 1.25rem; }
+
+  dl { margin: 0; }
+  dt { font-weight: 700; font-size: 1.125rem; }
+  dd { margin: 0.25rem 0 1.75rem; }
+  .button { display: inline-block; padding: 1.1rem 1.75rem; border-radius: 999px; background: var(--fake); color: var(--ink); font-weight: 700; text-decoration: none; }
+  .button:hover { background: var(--paper); }
+
+  footer .you, footer .them { padding-block: 2.5rem; font-size: 1rem; }
+  footer ul { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; margin: 0 0 1rem; padding: 0; list-style: none; }
+
+  @media (max-width: 760px) {
+    .row { grid-template-columns: minmax(0, 1fr); }
+    main { background: none; }
+    nav ul { column-gap: 1.25rem; font-size: 1rem; }
+    .cmd pre { padding-inline: 1.25rem; }
+    .cmd button { min-width: 5rem; padding-inline: 1rem; }
+    .you, .them { padding-inline: var(--edge); }
+    .you.end { text-align: left; }
+    header .them { justify-content: flex-start; }
+    .cross .them { display: none; }
+    .cross h1, .cross h2 { width: 100%; }
+    .cmd pre { font-size: 1rem; }
+  }
 </style>
 </head>
 <body>
+<header class="row">
+  <div class="you">
+    <a href="./" aria-label="lmsk home"><img src="brand/logo.svg" alt="lmsk" width="134" height="32"></a>
+  </div>
+  <nav class="them" aria-label="Main">
+    <ul>
+      <li><a href="#how">How it works</a></li>
+      <li><a href="#install">Install</a></li>
+      <li><a href="https://github.com/HugoLopes45/lmsk">GitHub</a></li>
+    </ul>
+  </nav>
+</header>
+
 <main>
-  <p><strong>lmsk</strong></p>
-  <h1>Use AI on your code. Keep your passwords to yourself.</h1>
-  <p class="lead">lmsk swaps your passwords, keys and emails for fakes before your AI coding assistant sends anything. When the AI edits a file or runs a command, lmsk puts the real values back, so your project keeps working. Free, and nothing to set up.</p>
-  <a class="cta" href="#install">Install in one command</a>
+  <div class="row cross hero">
+    <div class="you"><h1>Keys stay on this side.</h1></div>
+    <div class="them" aria-hidden="true"><p>Keys stay on this side.</p></div>
+  </div>
 
-  <h2>Sound familiar?</h2>
-  <blockquote>"The AI just read my <code>.env</code> file. Did my passwords just leave my laptop?"</blockquote>
-  <blockquote>"I paste error logs into the chat all day. They are full of customer emails."</blockquote>
-  <blockquote>"I can't put my client's name in a chat with an AI company."</blockquote>
-
-  <h2>What the AI company receives</h2>
-  <div class="pair">
-    <div>
-      <p>On your computer</p>
-      <pre>DB_PASSWORD=Tr0ub4dor-Horse-42
-CONTACT=jane.doe@example.com</pre>
+  <figure class="row env" style="margin: 0">
+    <div class="you end">
+      <span class="tag">Your laptop</span>
+      STRIPE_KEY=sk_live_51Hq8x2LmQ<br>
+      DB_PASSWORD=Tr0ub4dor-Horse-42<br>
+      CONTACT=jane.doe@acme.io
     </div>
-    <div>
-      <p>What the AI company gets</p>
-      <pre>DB_PASSWORD=6YPT4SfhOUbx6EEqx5
-CONTACT=ptfe.rol@dweervr.xtw</pre>
+    <div class="them">
+      <span class="tag">The AI company’s server</span>
+      STRIPE_KEY=<span class="fake">sk_live_9fKz0aPwT7</span><br>
+      DB_PASSWORD=<span class="fake">6YPT4SfhOUbx6EEqx5</span><br>
+      CONTACT=<span class="fake">ptfe.rol@dwee.xt</span>
+    </div>
+    <figcaption class="sr-only">Example: three real values on your laptop, and the fakes of the same length that the AI company receives.</figcaption>
+  </figure>
+
+  <div class="row">
+    <div class="you end">
+      <div class="cmd"><pre><code>pi install npm:@lmsk/pi</code></pre><button type="button" data-copy hidden>Copy</button></div>
+      <p class="note">Free, no account. Using Claude Code? <a href="#install">Try the preview</a>.</p>
+    </div>
+    <div class="them">
+      <p class="lead">Work with your AI agent at full speed. lmsk swaps your keys, passwords and emails for fakes before anything leaves your laptop. When the AI edits a file or runs a command, lmsk puts the real values back.</p>
     </div>
   </div>
-  <p>The fakes are random. Each fake keeps the length of its real value, and the same value gets the same fake for the whole session.</p>
 
-  <h2>How it works</h2>
-  <ol>
-    <li><strong>Install it once.</strong> One command, no account.</li>
-    <li><strong>Work as usual.</strong> Before each request leaves your computer, lmsk replaces passwords, keys, emails, phone numbers, IBANs and card numbers with fakes. Add your client's name once, and it becomes <code>Client 1</code>.</li>
-    <li><strong>Your files stay real.</strong> When the AI writes a file or runs a command, lmsk puts the real values back.</li>
-  </ol>
-  <p>If lmsk cannot hide a request safely, it cancels the request. It never sends a request that is only partly hidden.</p>
+  <section id="how" aria-labelledby="how-title">
+    <div class="row cross">
+      <div class="you"><h2 id="how-title">How it crosses</h2></div>
+      <div class="them" aria-hidden="true"><p>How it crosses</p></div>
+    </div>
+    <div class="row step">
+      <div class="you"><span class="num">1</span><h3>Install it once.</h3><p>One command, no account. lmsk uses no AI and runs on your laptop.</p></div>
+      <div class="them"><p class="muted">Nothing from lmsk itself. No telemetry.</p></div>
+    </div>
+    <div class="row step">
+      <div class="you"><span class="num">2</span><h3>Work as usual.</h3><p>The AI reads your <code>.env</code>. You paste a log full of customer emails. You type your client’s name.</p></div>
+      <div class="them"><p>Keys, passwords, emails, phone numbers, IBANs and card numbers arrive as fakes of the same length. A client name you list arrives as <code>Client 1</code>.</p><span class="line">sent: <span class="fake">6YPT4SfhOUbx6EEqx5</span></span></div>
+    </div>
+    <div class="row step">
+      <div class="you"><span class="num">3</span><h3>Your files stay real.</h3><p>When the AI writes a file or runs a command, lmsk puts the real values back. Your app keeps working.</p><span class="line">written: Tr0ub4dor-Horse-42</span></div>
+      <div class="them"><p>The AI works with the fakes. The same value gets the same fake for the whole session.</p></div>
+    </div>
+    <div class="row step">
+      <div class="you"><span class="num">4</span><h3>It fails closed.</h3><p>If lmsk cannot hide a request safely, it cancels it.</p></div>
+      <div class="them"><p>Nothing arrives. lmsk never sends a request that is only partly hidden.</p></div>
+    </div>
+  </section>
 
-  <h2 id="install">Try it in two minutes</h2>
-  <p>With <a href="https://github.com/earendil-works/pi">pi</a>:</p>
-  <pre>pi install npm:@hugolopes45/lmsk-pi</pre>
-  <p>With Claude Code (preview):</p>
-  <pre>npm install -g @hugolopes45/lmsk
-lmsk claude</pre>
-  <p>Then send this message. The key in it is a test value:</p>
-  <pre>Repeat this line exactly: API_KEY=Zq7Kp2Lm9Xw4Rt8Vb3Nc</pre>
-  <p>The reply shows a different value after <code>API_KEY=</code>. That is the fake that the AI company received.</p>
+  <section class="limits" aria-labelledby="limits-title">
+    <div class="row cross">
+      <div class="you"><h2 id="limits-title">What still crosses</h2></div>
+      <div class="them" aria-hidden="true"><p>What still crosses</p></div>
+    </div>
+    <div class="row">
+      <div class="you">
+        <p class="lead">lmsk is early (0.1). Here is what it does not do, so you know where to look.</p>
+        <p><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md#what-lmsk-does-not-protect">Read what lmsk does not protect</a></p>
+      </div>
+      <div class="them">
+        <ul>
+          <li><strong>Your code.</strong> lmsk hides secrets, names and ids, not code.</li>
+          <li><strong>Secrets with no pattern.</strong> lmsk finds secrets by their pattern, so a short password with no name next to it is not found.</li>
+          <li><strong>It is not a sandbox.</strong> A command that the AI runs gets the real values it needs. Use a sandbox as well.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
 
-  <h2>Questions</h2>
-  <dl>
-    <dt>Does my code still go to the AI company?</dt>
-    <dd>Yes. lmsk hides secrets, names and ids, not your code.</dd>
-    <dt>Does lmsk catch every secret?</dt>
-    <dd>No. It finds secrets by their pattern, so a short password with no name next to it is not found. Read <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md#what-lmsk-does-not-protect">what lmsk does not protect</a>.</dd>
-    <dt>Does lmsk send my data anywhere?</dt>
-    <dd>No. lmsk uses no AI, has no account and sends no telemetry. Your real values stay in a file that only your user account can read.</dd>
-    <dt>Is it a sandbox?</dt>
-    <dd>No. A command that the AI runs gets the real values it needs. Use a sandbox as well.</dd>
-    <dt>Which AI assistants does it work with?</dt>
-    <dd>pi, and Claude Code as a preview.</dd>
-  </dl>
+  <section id="install" aria-labelledby="install-title">
+    <div class="row cross">
+      <div class="you"><h2 id="install-title">Try it in two minutes</h2></div>
+      <div class="them" aria-hidden="true"><p>Try it in two minutes</p></div>
+    </div>
+    <div class="row step">
+      <div class="you">
+        <h3>With pi</h3>
+        <p>Install it, then start pi or type <code>/reload</code>.</p>
+        <div class="cmd"><pre><code>pi install npm:@lmsk/pi</code></pre><button type="button" data-copy hidden>Copy</button></div>
+      </div>
+      <div class="them">
+        <h3>With Claude Code (preview)</h3>
+        <p>Install it, then start Claude Code with <code>lmsk claude</code>.</p>
+        <div class="cmd block"><pre><code>npm install -g lmsk
+lmsk claude</code></pre><button type="button" data-copy hidden>Copy</button></div>
+      </div>
+    </div>
+    <div class="row step">
+      <div class="you">
+        <h3>Then send this message</h3>
+        <p>The key in it is a test value.</p>
+        <div class="cmd block"><pre><code>Repeat this line exactly: API_KEY=Zq7Kp2Lm9Xw4Rt8Vb3Nc</code></pre><button type="button" data-copy hidden>Copy</button></div>
+      </div>
+      <div class="them">
+        <h3>The reply shows a different value</h3>
+        <p>The value after <code>API_KEY=</code> in the reply is the fake that the AI company received.</p>
+      </div>
+    </div>
+  </section>
 
-  <h2>Free and open source</h2>
-  <p>MIT license. lmsk is early (0.1): test it on your own data before you trust it.</p>
-  <a class="cta" href="#install">Install in one command</a>
-
-  <footer>
-    <a href="https://github.com/HugoLopes45/lmsk">Source on GitHub</a> ·
-    <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/pi.md">pi guide</a> ·
-    <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/claude-code.md">Claude Code guide</a>
-  </footer>
+  <section aria-labelledby="questions-title">
+    <div class="row cross">
+      <div class="you"><h2 id="questions-title">Questions</h2></div>
+      <div class="them" aria-hidden="true"><p>Questions</p></div>
+    </div>
+    <div class="row">
+      <div class="you">
+        <dl>
+          <dt>Does lmsk send my data anywhere?</dt>
+          <dd>No. lmsk uses no AI, has no account and sends no telemetry.</dd>
+          <dt>Where are my real values?</dt>
+          <dd>In a plain JSON file on your laptop that only your user account can read. The file is not encrypted.</dd>
+          <dt>Which AI agents does it work with?</dt>
+          <dd>pi, and Claude Code as a preview.</dd>
+        </dl>
+      </div>
+      <div class="them">
+        <h3>Free and open source</h3>
+        <p class="muted">MIT license. Test it on your own data before you trust it.</p>
+        <a class="button" href="#install">Install in one command</a>
+      </div>
+    </div>
+  </section>
 </main>
+
+<footer class="row">
+  <div class="you">
+    <ul>
+      <li><a href="https://github.com/HugoLopes45/lmsk">Source on GitHub</a></li>
+      <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/pi.md">pi guide</a></li>
+      <li><a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/claude-code.md">Claude Code guide</a></li>
+    </ul>
+  </div>
+  <div class="them">
+    <p class="muted">Fonts: Anton, Public Sans and IBM Plex Mono, under the SIL Open Font License (<a href="fonts/OFL-Anton.txt">Anton</a>, <a href="fonts/OFL-PublicSans.txt">Public Sans</a>, <a href="fonts/OFL-IBMPlexMono.txt">IBM Plex Mono</a>).</p>
+  </div>
+</footer>
+
+<p class="sr-only" aria-live="polite" id="copy-status"></p>
+<script>
+  if (matchMedia('(prefers-reduced-motion: no-preference)').matches && 'IntersectionObserver' in window) {
+    document.documentElement.classList.add('motion');
+    const glyphs = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789';
+    const resolve = (el, delay) => {
+      const fake = el.textContent;
+      const start = performance.now() + delay;
+      const frame = (now) => {
+        const settled = Math.floor(Math.max(0, now - start) / 45);
+        el.textContent = [...fake].map((c, i) => i < settled || /[^A-Za-z0-9]/.test(c) ? c : glyphs[Math.floor(Math.random() * glyphs.length)]).join('');
+        if (settled < fake.length) requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+    };
+    const seen = new IntersectionObserver((entries) => {
+      for (const { target, isIntersecting } of entries) {
+        if (!isIntersecting) continue;
+        target.classList.add('in');
+        target.querySelectorAll('.them .fake').forEach((el, i) => resolve(el, 300 + i * 250));
+        seen.unobserve(target);
+      }
+    }, { rootMargin: '0px 0px -5% 0px' });
+    document.querySelectorAll('.cross, .step, .env').forEach((el) => seen.observe(el));
+  }
+
+  const status = document.getElementById('copy-status');
+  for (const button of document.querySelectorAll('[data-copy]')) {
+    button.hidden = false;
+    button.setAttribute('aria-label', 'Copy: ' + button.previousElementSibling.textContent.split('\n')[0]);
+    button.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(button.previousElementSibling.textContent);
+        button.textContent = 'Copied';
+        status.textContent = 'Copied to the clipboard.';
+      } catch {
+        button.textContent = 'Copy failed';
+        status.textContent = 'Copy failed. Select the text and copy it.';
+      }
+      setTimeout(() => { button.textContent = 'Copy'; }, 2000);
+    });
+  }
+</script>
 </body>
 </html>
