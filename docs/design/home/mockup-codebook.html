@@ -1,0 +1,30 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mockup: codebook</title>
+<style>
+@font-face{font-family:"Public Sans";src:url(../../fonts/public-sans.woff2) format("woff2");font-weight:100 900}
+@font-face{font-family:"IBM Plex Mono";src:url(../../fonts/plex-mono-400.woff2) format("woff2");font-weight:400}
+@font-face{font-family:"IBM Plex Mono";src:url(../../fonts/plex-mono-600.woff2) format("woff2");font-weight:600}
+:root{--paper:oklch(0.985 0.004 250);--ink:oklch(0.22 0.02 255);--muted:oklch(0.45 0.02 255);--red:oklch(0.52 0.19 27);--rule:oklch(0.86 0.01 255)}
+body{margin:0;background:var(--paper);color:var(--ink);font:18px/1.55 "Public Sans",system-ui,sans-serif}
+main{width:min(1120px,100% - 2.5rem);margin:0 auto;padding:2rem 0 4rem}
+header{display:flex;align-items:center;gap:.6rem;font-weight:800;font-size:1.4rem;margin-bottom:4rem}
+h1{font-size:clamp(2.4rem,1.6rem + 3.4vw,4.4rem);line-height:1.02;letter-spacing:-.02em;margin:0 0 1.25rem;max-width:14ch;text-wrap:balance}
+.lead{font-size:1.25rem;max-width:56ch;margin:0 0 2.5rem}
+.pad{font-family:"IBM Plex Mono",monospace;font-size:clamp(.85rem,.6rem + 1vw,1.15rem);border-top:2px solid var(--ink);border-bottom:2px solid var(--ink);padding:1rem 0}
+.row{display:grid;grid-template-columns:9rem 1fr;gap:1rem;padding:.35rem 0}
+.row+.row{border-top:1px dashed var(--rule)}
+.k{font:600 .8rem/1.6 "Public Sans";text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.real{color:var(--ink)} .fake{color:var(--red);font-weight:600}
+.cells span{display:inline-block;width:1ch;text-align:center;border-bottom:1px solid var(--rule)}
+code.cmd{display:inline-block;margin-top:2rem;background:var(--ink);color:var(--paper);padding:.8rem 1.1rem;font:1rem "IBM Plex Mono"}
+</style></head><body><main>
+<header><svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="oklch(0.22 0.02 255)"/><rect x="6" y="10" width="20" height="4" fill="#fff"/><rect x="6" y="18" width="5" height="4" fill="oklch(0.62 0.19 27)"/><rect x="13" y="18" width="8" height="4" fill="oklch(0.62 0.19 27)"/><rect x="23" y="18" width="3" height="4" fill="oklch(0.62 0.19 27)"/></svg>lmsk</header>
+<h1>Use AI on your code. Keep your passwords to yourself.</h1>
+<p class="lead">lmsk swaps your passwords, keys and emails for fakes of the same length before your AI assistant sends anything. The codebook stays on your computer, so the real values come back when the AI edits a file.</p>
+<div class="pad">
+<div class="row"><span class="k">Stays here</span><span class="real cells"><span>T</span><span>r</span><span>0</span><span>u</span><span>b</span><span>4</span><span>d</span><span>o</span><span>r</span><span>-</span><span>H</span><span>o</span><span>r</span><span>s</span><span>e</span><span>-</span><span>4</span><span>2</span></span></div>
+<div class="row"><span class="k">Sent to the AI</span><span class="fake cells"><span>6</span><span>Y</span><span>P</span><span>T</span><span>4</span><span>S</span><span>f</span><span>h</span><span>O</span><span>U</span><span>b</span><span>x</span><span>6</span><span>E</span><span>E</span><span>q</span><span>x</span><span>5</span></span></div>
+<div class="row"><span class="k">Stays here</span><span class="real">jane.doe@example.com</span></div>
+<div class="row"><span class="k">Sent to the AI</span><span class="fake">ptfe.rol@dweervr.xtw</span></div>
+</div>
+<code class="cmd">pi install npm:@lmsk/pi</code>
+</main></body></html>
