@@ -4,6 +4,10 @@
 
 - lmsk is now one npm package, `@hugolopes45/lmsk`, for Claude Code and pi. The other `@hugolopes45/lmsk-*` packages get no more releases. If you use pi, run `pi remove npm:@hugolopes45/lmsk-pi`, then `pi install npm:@hugolopes45/lmsk`.
 
+## 0.1.2
+
+- The release workflow failed before it published 0.1.1, so npm has no 0.1.1. This release publishes the changes of 0.1.1.
+
 ## 0.1.1
 
 - Keyed secrets: an unquoted value that holds `.`, `:`, `&`, `(`, `<`, `,` or `@` is masked in full. Before, it was cut at the first such character, or not masked at all.
