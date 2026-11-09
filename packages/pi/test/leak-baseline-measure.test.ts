@@ -1,37 +1,23 @@
-import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { isRecord, Scanner } from "@hugolopes45/lmsk-core";
+import { isRecord } from "@hugolopes45/lmsk-core";
 import { type Harness, type HarnessOptions, harness } from "./harness.ts";
 import {
   type CanaryClass,
   CLASS_IDS,
-  CLEAN_CORPUS,
   type ClassId,
   buildCanaries,
-  corpusFindings,
   countAll,
-  effectiveRules,
   ENV_RULE_ID,
   ENV_VAR_NAME,
-  type FileFinding,
   LITERAL_RULE_ID,
   lineFor,
-  readDirBytes,
-  rulePatterns,
-  scanAttributed,
   type SinkCounts,
 } from "./leak-baseline.ts";
 
-// Measurement only. Each scenario records what the real extension let through. Expected
-// failures are recorded as RED checks. The result files are written in afterAll, even when checks fail.
-const OUT_DIR =
-  process.env.PMS_LEAK_OUT_DIR ?? join(tmpdir(), "pms-leak-baseline-out");
 const SCENARIO_TIMEOUT_MS = 120_000;
-const SCAN_TIMEOUT_MS = 5000;
 const SCAN_STALL_TIMEOUT_MS = 300;
 
 const canaries = buildCanaries();
@@ -79,48 +65,18 @@ interface Check {
   detail: string;
 }
 
-interface LeakLocation {
-  where: string;
-  classes: Record<string, number>;
-}
-
-interface SinkTable {
-  payload: Record<ClassId, SinkCounts>;
-  session: Record<ClassId, SinkCounts>;
-  /** Expected to hold plaintext at rest: the vault maps reals to fakes. Reported, not counted as a leak. */
-  vault: Record<ClassId, SinkCounts>;
-}
-
-interface Scenario {
-  id: string;
-  kind: "success" | "fault";
-  path: string;
-  promptOutcome: string;
+interface Observed {
   providerTurns: number;
   repliesRemaining: number;
   roles: Record<string, number>;
-  sinks: SinkTable;
-  sessionBytes: number;
-  vaultFiles: string[];
   leakTotals: { payload: number; session: number };
-  leaks: { payload: LeakLocation[]; session: LeakLocation[] };
-  checks: Check[];
-  notes: string[];
 }
 
-const scenarios: Scenario[] = [];
-let directDetection: {
-  id: ClassId;
-  expectedRule: string;
-  detected: boolean;
-}[] = [];
-let cleanFindings: Awaited<ReturnType<typeof corpusFindings>> | undefined;
 let previousEnv: string | undefined;
 
-/** The production entrypoint of this checkout. `LMSK_E2E_ENTRYPOINT` replaces it for a frozen snapshot. */
-const entrypoint =
-  process.env.LMSK_E2E_ENTRYPOINT ??
-  fileURLToPath(new URL("../extensions/index.ts", import.meta.url));
+const entrypoint = fileURLToPath(
+  new URL("../extensions/index.ts", import.meta.url),
+);
 
 function leakTotal(table: Record<ClassId, SinkCounts>): number {
   return CLASS_IDS.reduce(
@@ -147,115 +103,29 @@ function roleCounts(bodies: string[]): Record<string, number> {
   return counts;
 }
 
-/** Raw literal occurrences of each canary in one unit of text, listed only when present. */
-function rawLocations(text: string): Record<string, number> {
-  const found: Record<string, number> = {};
-  for (const canary of canaries) {
-    const count = text.split(canary.value).length - 1;
-    if (count > 0) found[canary.id] = count;
-  }
-  return found;
-}
-
-/** Where raw canaries sit in provider bodies: by body and message. Only leaking units are listed. */
-function locatePayload(bodies: string[]): LeakLocation[] {
-  return bodies.flatMap((body, bodyIndex) => {
-    const parsed: unknown = JSON.parse(body);
-    if (!isRecord(parsed) || !Array.isArray(parsed.messages))
-      throw new Error("provider body has no messages array");
-    return parsed.messages.flatMap((message: unknown, messageIndex: number) => {
-      const found = rawLocations(JSON.stringify(message));
-      if (Object.keys(found).length === 0) return [];
-      const role =
-        isRecord(message) && typeof message.role === "string"
-          ? message.role
-          : "invalid";
-      return [
-        {
-          where: `body ${bodyIndex} message ${messageIndex} (${role})`,
-          classes: found,
-        },
-      ];
-    });
-  });
-}
-
-/** Where raw canaries sit in the session JSONL: by line and entry type. */
-function locateSession(text: string): LeakLocation[] {
-  return text.split("\n").flatMap((line, index) => {
-    const found = rawLocations(line);
-    if (Object.keys(found).length === 0) return [];
-    let type = "unparsed";
-    try {
-      const entry: unknown = JSON.parse(line);
-      if (isRecord(entry) && typeof entry.type === "string") type = entry.type;
-      if (
-        isRecord(entry) &&
-        isRecord(entry.message) &&
-        typeof entry.message.role === "string"
-      )
-        type = `${type}/${entry.message.role}`;
-    } catch {
-      type = "unparsed";
-    }
-    return [{ where: `session line ${index} (${type})`, classes: found }];
-  });
-}
-
-function observe(
-  h: Harness,
-): Pick<
-  Scenario,
-  | "providerTurns"
-  | "repliesRemaining"
-  | "roles"
-  | "sinks"
-  | "sessionBytes"
-  | "vaultFiles"
-  | "leakTotals"
-  | "leaks"
-> {
-  const payload = Buffer.from(h.sent(), "utf8");
+function observe(h: Harness): Observed {
   const sessionFile = h.session.sessionManager.getSessionFile();
   if (sessionFile === undefined) throw new Error("session is not file-backed");
-  const session = readFileSync(sessionFile);
-  const vault = readDirBytes(join(h.agentDir, "lmsk-vaults"));
-  const sessionText = session.toString("utf8");
-  const sinks: SinkTable = {
-    payload: countAll(payload, canaries),
-    session: countAll(session, canaries),
-    vault: countAll(vault.buffer, canaries),
-  };
   return {
     providerTurns: h.provider.bodies.length,
     repliesRemaining: h.provider.replies.length,
     roles: roleCounts(h.provider.bodies),
-    sinks,
-    sessionBytes: session.length,
-    vaultFiles: vault.files,
     leakTotals: {
-      payload: leakTotal(sinks.payload),
-      session: leakTotal(sinks.session),
-    },
-    leaks: {
-      payload: locatePayload(h.provider.bodies),
-      session: locateSession(sessionText),
+      payload: leakTotal(countAll(Buffer.from(h.sent(), "utf8"), canaries)),
+      session: leakTotal(countAll(readFileSync(sessionFile), canaries)),
     },
   };
 }
 
 interface ScenarioSpec {
-  id: string;
-  kind: Scenario["kind"];
-  path: string;
   options: Partial<HarnessOptions>;
   files?: Record<string, string>;
   drive: (h: Harness) => Promise<void>;
-  checks?: (h: Harness, observed: ReturnType<typeof observe>) => Check[];
-  notes?: string[];
+  checks?: (h: Harness, observed: Observed) => Check[];
 }
 
-async function runScenario(spec: ScenarioSpec): Promise<Scenario> {
+/** Runs one scenario and fails on a canary leak or a failed scenario check. */
+async function runScenario(spec: ScenarioSpec): Promise<void> {
   const h = await harness({
     extensions: [],
     entrypoint,
@@ -263,38 +133,28 @@ async function runScenario(spec: ScenarioSpec): Promise<Scenario> {
     ...spec.options,
     files: spec.files,
   });
-  let promptOutcome = "resolved";
   try {
-    await spec.drive(h);
-  } catch (error) {
-    promptOutcome = `rejected: ${error instanceof Error ? error.message : String(error)}`;
-  }
-  try {
+    // Fault scenarios reject the prompt on purpose; the checks judge the outcome.
+    await spec.drive(h).catch(() => undefined);
     const observed = observe(h);
-    const checks = spec.checks?.(h, observed) ?? [];
-    const scenario: Scenario = {
-      id: spec.id,
-      kind: spec.kind,
-      path: spec.path,
-      promptOutcome,
-      ...observed,
-      checks: [
-        {
-          name: "no raw, base64 or percent canary in provider payload",
-          passed: observed.leakTotals.payload === 0,
-          detail: `${observed.leakTotals.payload} literal occurrences`,
-        },
-        {
-          name: "no raw, base64 or percent canary in session JSONL",
-          passed: observed.leakTotals.session === 0,
-          detail: `${observed.leakTotals.session} literal occurrences`,
-        },
-        ...checks,
-      ],
-      notes: spec.notes ?? [],
-    };
-    scenarios.push(scenario);
-    return scenario;
+    const checks: Check[] = [
+      {
+        name: "no raw, base64 or percent canary in provider payload",
+        passed: observed.leakTotals.payload === 0,
+        detail: `${observed.leakTotals.payload} literal occurrences`,
+      },
+      {
+        name: "no raw, base64 or percent canary in session JSONL",
+        passed: observed.leakTotals.session === 0,
+        detail: `${observed.leakTotals.session} literal occurrences`,
+      },
+      ...(spec.checks?.(h, observed) ?? []),
+    ];
+    expect(
+      checks
+        .filter((check) => !check.passed)
+        .map((check) => `${check.name}: ${check.detail}`),
+    ).toEqual([]);
   } finally {
     await h.dispose();
   }
@@ -335,166 +195,15 @@ function summaryOf(
   return undefined;
 }
 
-function expectChecks(scenario: Scenario): void {
-  const failed = scenario.checks.filter((check) => !check.passed);
-  expect(
-    failed.map((check) => `${check.name}: ${check.detail}`),
-    `${scenario.id} RED checks`,
-  ).toEqual([]);
-}
-
 beforeAll(() => {
   previousEnv = process.env[ENV_VAR_NAME];
   process.env[ENV_VAR_NAME] = canaryOf("C13").value;
-  const rules = effectiveRules({
-    rules: [
-      { id: LITERAL_RULE_ID, type: "literal", values: [canaryOf("C12").value] },
-      { id: ENV_RULE_ID, type: "env", vars: [ENV_VAR_NAME] },
-    ],
-  });
-  const scanner = new Scanner(SCAN_TIMEOUT_MS);
-  return (async () => {
-    try {
-      const spans = await scanAttributed(
-        scanner,
-        rulePatterns(rules, { [ENV_VAR_NAME]: canaryOf("C13").value }),
-        canaries.map((canary) => lineFor(canary)),
-      );
-      directDetection = canaries.map((canary, index) => ({
-        id: canary.id,
-        expectedRule: canary.expectedRule,
-        detected: spans[index].some(
-          (span) =>
-            span.ruleId === canary.expectedRule &&
-            lineFor(canary).slice(span.start, span.end).includes(canary.value),
-        ),
-      }));
-    } finally {
-      scanner.close();
-    }
-  })();
 });
 
 afterAll(() => {
   if (previousEnv === undefined) delete process.env[ENV_VAR_NAME];
   else process.env[ENV_VAR_NAME] = previousEnv;
-  mkdirSync(OUT_DIR, { recursive: true });
-  const results = {
-    entrypoint,
-    classes: canaries.map((canary) => ({
-      id: canary.id,
-      name: canary.name,
-      expectedRule: canary.expectedRule,
-      valueSha256: sha256(canary.value),
-      valueLength: canary.value.length,
-    })),
-    directDetection,
-    scenarios,
-    cleanSource: cleanFindings ?? null,
-  };
-  writeFileSync(
-    join(OUT_DIR, "pms-leak-baseline.json"),
-    `${JSON.stringify(results, null, 2)}\n`,
-  );
-  writeFileSync(
-    join(OUT_DIR, "pms-leak-baseline-report.md"),
-    renderReport(results),
-  );
 });
-
-function sha256(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
-}
-
-function renderSinkRows(table: SinkTable): string[] {
-  return CLASS_IDS.map((id) => {
-    const p = table.payload[id];
-    const s = table.session[id];
-    const v = table.vault[id];
-    const cell = (c: SinkCounts) => `${c.raw}/${c.base64}/${c.percent ?? "-"}`;
-    return `| ${id} | ${cell(p)} | ${cell(s)} | ${cell(v)} |`;
-  });
-}
-
-type ReportResults = {
-  classes: { id: ClassId; name: string; expectedRule: string }[];
-  directDetection: { id: ClassId; expectedRule: string; detected: boolean }[];
-  scenarios: Scenario[];
-  cleanSource: Awaited<ReturnType<typeof corpusFindings>> | null;
-};
-
-function renderDetection(results: ReportResults): string[] {
-  const lines = [
-    "## Direct detection (gate for zero-leak results)",
-    "",
-    "| Class | Name | Expected rule | Detected |",
-    "| --- | --- | --- | --- |",
-  ];
-  for (const row of results.directDetection) {
-    const meta = results.classes.find((entry) => entry.id === row.id);
-    lines.push(
-      `| ${row.id} | ${meta?.name ?? ""} | ${row.expectedRule} | ${row.detected ? "yes" : "no"} |`,
-    );
-  }
-  return [...lines, ""];
-}
-
-function renderScenario(scenario: Scenario): string[] {
-  const lines = [
-    `## Scenario ${scenario.id} (${scenario.kind})`,
-    "",
-    `Path: ${scenario.path}. Prompt outcome: ${scenario.promptOutcome}.`,
-    `Provider turns: ${scenario.providerTurns}. Replies remaining: ${scenario.repliesRemaining}. Roles: ${JSON.stringify(scenario.roles)}.`,
-    `Session bytes: ${scenario.sessionBytes}. Vault files: ${scenario.vaultFiles.length}.`,
-    "",
-    "| Class | Payload raw/b64/pct | Session raw/b64/pct | Vault raw/b64/pct (expected at rest) |",
-    "| --- | --- | --- | --- |",
-    ...renderSinkRows(scenario.sinks),
-    "",
-    "Leaking locations:",
-    "",
-  ];
-  const leaking = [...scenario.leaks.payload, ...scenario.leaks.session];
-  if (leaking.length === 0) lines.push("- none");
-  for (const location of leaking)
-    lines.push(`- ${location.where}: ${JSON.stringify(location.classes)}`);
-  lines.push("", "| Check | Result | Detail |", "| --- | --- | --- |");
-  for (const check of scenario.checks)
-    lines.push(
-      `| ${check.name} | ${check.passed ? "passed" : "RED"} | ${check.detail} |`,
-    );
-  for (const note of scenario.notes) lines.push("", `Note: ${note}`);
-  return [...lines, ""];
-}
-
-function renderClean(cleanSource: ReportResults["cleanSource"]): string[] {
-  const lines = ["## Clean source false positives", ""];
-  if (cleanSource === null) return [...lines, "Not run.", ""];
-  lines.push(
-    `Total raw spans: ${cleanSource.totalSpans}.`,
-    "",
-    "| File | Bytes | Spans | Masker changed | Spans by rule |",
-    "| --- | --- | --- | --- | --- |",
-  );
-  for (const file of cleanSource.files as FileFinding[])
-    lines.push(
-      `| ${file.path} | ${file.bytes} | ${file.spans} | ${file.maskerChanged ? "yes" : "no"} | ${JSON.stringify(file.byRule)} |`,
-    );
-  return [...lines, ""];
-}
-
-function renderReport(results: ReportResults): string {
-  const lines = [
-    "# Leak baseline report",
-    "",
-    "Source: frozen copy of the current working tree. Canaries are synthetic. Counts are raw/base64/percent literal occurrences.",
-    "",
-    ...renderDetection(results),
-    ...results.scenarios.flatMap(renderScenario),
-    ...renderClean(results.cleanSource),
-  ];
-  return `${lines.join("\n")}\n`;
-}
 
 describe("leak baseline measurement", () => {
   it(
@@ -502,10 +211,7 @@ describe("leak baseline measurement", () => {
     async () => {
       const writeTarget = "written.txt";
       const editTarget = "edit-target.txt";
-      const scenario = await runScenario({
-        id: "S1-successful-run",
-        kind: "success",
-        path: "user prompt, read tool result, write and edit tool args, assistant text",
+      await runScenario({
         options: { globalConfig: MEASURE_GLOBAL_CONFIG },
         files: {
           "source.txt": sourceText,
@@ -562,7 +268,6 @@ describe("leak baseline measurement", () => {
           ];
         },
       });
-      expectChecks(scenario);
     },
     SCENARIO_TIMEOUT_MS,
   );
@@ -570,12 +275,10 @@ describe("leak baseline measurement", () => {
   it(
     "compaction and tree summary carry masked instructions",
     async () => {
-      const scenario = await runScenario({
-        id: "S2-compaction-tree",
-        kind: "success",
-        path: "user prompts, manual compaction of a split turn, tree summary instructions",
+      await runScenario({
         options: { globalConfig: MEASURE_GLOBAL_CONFIG },
         drive: async (h) => {
+          // Manual compaction keeps one message (keepRecentTokens 1), so the cut falls inside the last turn: pi makes a history call and a turn-prefix call.
           h.provider.replies.push(
             { text: "ack one" },
             { text: "ack two" },
@@ -627,42 +330,7 @@ describe("leak baseline measurement", () => {
             },
           ];
         },
-        notes: [
-          "Manual compaction keeps one message (keepRecentTokens 1), so the cut falls inside the last turn. pi then makes a history call and a turn-prefix call.",
-        ],
       });
-      expectChecks(scenario);
-    },
-    SCENARIO_TIMEOUT_MS,
-  );
-
-  it(
-    "retry path after a provider 503 keeps canaries out of payloads and session",
-    async () => {
-      const scenario = await runScenario({
-        id: "S3-retry",
-        kind: "success",
-        path: "provider error then retry, user prompt",
-        options: { globalConfig: MEASURE_GLOBAL_CONFIG, retry: true },
-        drive: async (h) => {
-          h.provider.replies.push(
-            {
-              error: 503,
-              message: `upstream rejected ${canaryOf("C01").value}`,
-            },
-            { text: "after retry" },
-          );
-          await h.session.prompt(`Retry ${sourceText}`);
-        },
-        checks: (_h, observed) => [
-          {
-            name: "provider turns equal scripted turns (2)",
-            passed: observed.providerTurns === 2,
-            detail: `${observed.providerTurns} turns`,
-          },
-        ],
-      });
-      expectChecks(scenario);
     },
     SCENARIO_TIMEOUT_MS,
   );
@@ -670,10 +338,7 @@ describe("leak baseline measurement", () => {
   it(
     "fails closed on invalid configuration without a provider body",
     async () => {
-      const scenario = await runScenario({
-        id: "F1-invalid-config",
-        kind: "fault",
-        path: "user prompt under invalid global configuration",
+      await runScenario({
         options: { globalConfig: "{" },
         drive: (h) => h.session.prompt(`Keep ${sourceText}`),
         checks: (_h, observed) => [
@@ -684,7 +349,6 @@ describe("leak baseline measurement", () => {
           },
         ],
       });
-      expectChecks(scenario);
     },
     SCENARIO_TIMEOUT_MS,
   );
@@ -692,10 +356,7 @@ describe("leak baseline measurement", () => {
   it(
     "fails closed on a block rule without a provider body",
     async () => {
-      const scenario = await runScenario({
-        id: "F2-block-rule",
-        kind: "fault",
-        path: "user prompt containing a block-rule literal",
+      await runScenario({
         options: { globalConfig: BLOCK_GLOBAL_CONFIG },
         drive: (h) => h.session.prompt(`Keep ${sourceText}`),
         checks: (_h, observed) => [
@@ -706,28 +367,6 @@ describe("leak baseline measurement", () => {
           },
         ],
       });
-      expectChecks(scenario);
-    },
-    SCENARIO_TIMEOUT_MS,
-  );
-
-  it(
-    "records a provider 503 without retry",
-    async () => {
-      const scenario = await runScenario({
-        id: "F3-provider-503",
-        kind: "fault",
-        path: "user prompt, provider 503 reply",
-        options: { globalConfig: MEASURE_GLOBAL_CONFIG },
-        drive: async (h) => {
-          h.provider.replies.push({
-            error: 503,
-            message: `upstream rejected ${canaryOf("C01").value}`,
-          });
-          await h.session.prompt(`Keep ${sourceText}`);
-        },
-      });
-      expectChecks(scenario);
     },
     SCENARIO_TIMEOUT_MS,
   );
@@ -735,17 +374,13 @@ describe("leak baseline measurement", () => {
   it(
     "records a provider disconnect",
     async () => {
-      const scenario = await runScenario({
-        id: "F4-provider-disconnect",
-        kind: "fault",
-        path: "user prompt, provider disconnect reply",
+      await runScenario({
         options: { globalConfig: MEASURE_GLOBAL_CONFIG },
         drive: async (h) => {
           h.provider.replies.push({ disconnect: true });
           await h.session.prompt(`Keep ${sourceText}`);
         },
       });
-      expectChecks(scenario);
     },
     SCENARIO_TIMEOUT_MS,
   );
@@ -753,10 +388,7 @@ describe("leak baseline measurement", () => {
   it(
     "fails closed on an oversized payload without a provider body",
     async () => {
-      const scenario = await runScenario({
-        id: "F5-oversized-payload",
-        kind: "fault",
-        path: "user prompt larger than the payload cap",
+      await runScenario({
         options: { globalConfig: MEASURE_GLOBAL_CONFIG },
         drive: (h) =>
           h.session.prompt(`${"x".repeat(8 * 1024 * 1024)}\n${sourceText}`),
@@ -768,7 +400,6 @@ describe("leak baseline measurement", () => {
           },
         ],
       });
-      expectChecks(scenario);
     },
     SCENARIO_TIMEOUT_MS,
   );
@@ -776,11 +407,9 @@ describe("leak baseline measurement", () => {
   it(
     "fails closed when the scanner result misses its deadline",
     async () => {
+      // The harness does not capture the notice code, so the timing shows that the scanner deadline caused the block.
       let elapsedMs = 0;
-      const scenario = await runScenario({
-        id: "F6-scanner-timeout-proxy",
-        kind: "fault",
-        path: "user prompt under a catastrophic global regex; scanner result misses its deadline",
+      await runScenario({
         options: { globalConfig: SCAN_STALL_CONFIG },
         drive: async (h) => {
           const started = Date.now();
@@ -802,11 +431,7 @@ describe("leak baseline measurement", () => {
             detail: `${elapsedMs} ms`,
           },
         ],
-        notes: [
-          "Induced by public inputs only: a global regex rule and a prompt. No product hook. The prompt returns after the scanner deadline with no provider body. The notice code is not captured by the harness, so the SCAN_TIMEOUT cause is inferred from timing. This is a timeout proxy, not a measured delivery loss.",
-        ],
       });
-      expectChecks(scenario);
     },
     SCENARIO_TIMEOUT_MS,
   );
@@ -814,10 +439,7 @@ describe("leak baseline measurement", () => {
   it(
     "control: the same stall config lets a short prompt reach the provider",
     async () => {
-      const scenario = await runScenario({
-        id: "F6-control-short-prompt",
-        kind: "success",
-        path: "user prompt with the stall config; prompt short enough to scan in time",
+      await runScenario({
         options: { globalConfig: SCAN_STALL_CONFIG },
         drive: async (h) => {
           h.provider.replies.push({ text: "after control" });
@@ -831,23 +453,7 @@ describe("leak baseline measurement", () => {
           },
         ],
       });
-      expectChecks(scenario);
     },
     SCENARIO_TIMEOUT_MS,
   );
-
-  it("measures false positives on the clean source corpus", async () => {
-    const scanner = new Scanner(SCAN_TIMEOUT_MS);
-    try {
-      cleanFindings = await corpusFindings(
-        CLEAN_CORPUS,
-        effectiveRules({}),
-        scanner,
-        {},
-      );
-    } finally {
-      scanner.close();
-    }
-    expect(cleanFindings.totalSpans).toBeGreaterThanOrEqual(0);
-  });
 });

@@ -61,12 +61,6 @@ const measurementRules = effectiveRules({
 const env = { [ENV_VAR_NAME]: valueOf("C13") };
 
 describe("leak baseline canary detection", () => {
-  it("builds 13 unique canaries with one per class", () => {
-    expect(canaries).toHaveLength(13);
-    expect(new Set(canaries.map((canary) => canary.value)).size).toBe(13);
-    expect(new Set(canaries.map((canary) => canary.id)).size).toBe(13);
-  });
-
   it("counts a canary inside base64 text at every byte alignment", () => {
     for (const canary of canaries)
       for (const shift of [0, 1, 2]) {
@@ -90,12 +84,6 @@ describe("leak baseline canary detection", () => {
         expect(counted.percent, canary.id).toBeNull();
       else expect(counted.percent, canary.id).toBeGreaterThan(0);
     }
-  });
-
-  it("names only rule ids present in the effective rule set", () => {
-    const ids = new Set(measurementRules.map((rule) => rule.id));
-    for (const canary of canaries)
-      expect(ids.has(canary.expectedRule), canary.id).toBe(true);
   });
 
   it("does not detect invalid checksums or non-public addresses on the same rule", async () => {

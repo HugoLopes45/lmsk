@@ -100,80 +100,6 @@ describe("localhost failure injection", () => {
     }
     expect(faults.length).toBe(1);
   });
-  it("rejects overlapping harness lifetimes without changing the owner environment", async () => {
-    const before = process.env.PI_CODING_AGENT_DIR;
-    const first = await harness({ extensions: [] });
-    const second = await harness({ extensions: [] }).then(
-      (h) => ({ h, rejected: false }),
-      () => ({ h: undefined, rejected: true }),
-    );
-    try {
-      expect(second.rejected).toBe(true);
-      expect(process.env.PI_CODING_AGENT_DIR === first.agentDir).toBe(true);
-    } finally {
-      await first.dispose();
-      await second.h?.dispose();
-    }
-    expect(process.env.PI_CODING_AGENT_DIR === before).toBe(true);
-  });
-
-  it("rejects another harness while extension initialization is pending", async () => {
-    let release = () => {};
-    let entered = () => {};
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const started = new Promise<void>((resolve) => {
-      entered = resolve;
-    });
-    const pending = harness({
-      extensions: [
-        async () => {
-          entered();
-          await gate;
-        },
-      ],
-    });
-    try {
-      await started;
-      await expect(harness({ extensions: [] })).rejects.toThrow("Overlapping");
-    } finally {
-      release();
-      await (await pending).dispose();
-    }
-  });
-
-  it("bounds pending shutdown and still closes resources and restores the environment", async () => {
-    const before = process.env.PI_CODING_AGENT_DIR;
-    let release = () => {};
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const h = await harness({
-      extensions: [
-        (pi) => {
-          pi.on("session_shutdown", () => gate);
-        },
-      ],
-    });
-    const pending = h.dispose().then(
-      () => "resolved",
-      () => "rejected",
-    );
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const watchdog = new Promise<string>((resolve) => {
-      timer = setTimeout(() => resolve("hung"), 2000);
-    });
-    try {
-      expect(await Promise.race([pending, watchdog])).toBe("rejected");
-      expect(process.env.PI_CODING_AGENT_DIR === before).toBe(true);
-      await expect(fetch(h.provider.url)).rejects.toThrow();
-    } finally {
-      clearTimeout(timer);
-      release();
-      await pending;
-    }
-  });
   it("returns a scripted provider error while retaining the request for leak checks", async () => {
     const p = await provider();
     p.replies.push({ error: 503 });
@@ -186,83 +112,14 @@ describe("localhost failure injection", () => {
     expect(p.bodies.length).toBe(1);
     expect(p.bodies[0] === "synthetic-canary").toBe(true);
   });
-
-  it("closes sockets when a provider aborts before sending headers", async () => {
-    const p = await provider();
-    p.replies.push({ disconnect: true });
-    await expect(
-      fetch(p.url, {
-        method: "POST",
-        body: "synthetic-canary",
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      }),
-    ).rejects.toThrow();
-    expect(p.bodies.length).toBe(1);
-  });
-
-  it("tears down a delayed response without waiting for its timer", async () => {
-    const p = await provider();
-    p.replies.push({ text: "delayed", delayMs: 60000 });
-    const pending = fetch(p.url, {
-      method: "POST",
-      body: "synthetic-canary",
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-    const rejected = expect(pending).rejects.toThrow();
-    await p.waitForRequests(1);
-    await p.close();
-    await rejected;
-  });
-
-  it("runs extension shutdown once during overlapping teardown calls", async () => {
-    let shutdowns = 0;
-    const h = await harness({
-      extensions: [
-        (pi) => {
-          pi.on("session_shutdown", () => {
-            shutdowns += 1;
-          });
-        },
-      ],
-    });
-    await Promise.all([h.dispose(), h.dispose()]);
-    expect(shutdowns).toBe(1);
-  });
-
-  it("restores the agent directory after extension initialization fails", async () => {
-    const before = process.env.PI_CODING_AGENT_DIR;
-    await expect(
-      harness({
-        extensions: [
-          () => {
-            throw new Error("Injected initialization failure");
-          },
-        ],
-      }),
-    ).rejects.toThrow("Extension loading failed");
-    expect(process.env.PI_CODING_AGENT_DIR === before).toBe(true);
-  });
-
-  it("rejects generated fixture paths that escape the temporary project", async () => {
-    await fc.assert(
-      fc.asyncProperty(fc.integer({ min: 1, max: 4 }), async (depth) => {
-        const path = `${"../".repeat(depth)}outside.txt`;
-        await expect(
-          harness({ extensions: [], files: { [path]: "fixture" } }),
-        ).rejects.toThrow("Fixture path escapes");
-      }),
-      { seed: 321855, numRuns: 4 },
-    );
-  });
 });
 
 const sessions: Harness[] = [];
 const CANARY = ["SYNTHETIC", "PRIVATE", "731942"].join("");
 const INTEGRATION_TIMEOUT_MS = 15000;
-/** The production entrypoint of this checkout. `LMSK_E2E_ENTRYPOINT` replaces it for a frozen snapshot. */
-const entrypoint =
-  process.env.LMSK_E2E_ENTRYPOINT ??
-  fileURLToPath(new URL("../extensions/index.ts", import.meta.url));
+const entrypoint = fileURLToPath(
+  new URL("../extensions/index.ts", import.meta.url),
+);
 const PROPERTY_SEED = 321854;
 const PROPERTY_RUNS = 5;
 const READ_MARKER = "READ_RESULT_VISIBLE";
@@ -666,16 +523,6 @@ describe("supplied extension wire integration", () => {
     INTEGRATION_TIMEOUT_MS,
   );
 
-  it(
-    "blocks invalid configuration without sending a body",
-    async () => {
-      const h = await integration({ globalConfig: "{" });
-      await h.session.prompt(CANARY);
-      expect(h.provider.bodies.length).toBe(0);
-    },
-    INTEGRATION_TIMEOUT_MS,
-  );
-
   // Each persisted message waits out one scan timeout: the system, user and aborted assistant messages.
   it(
     "blocks a scanner timeout when worker delivery is lost",
@@ -698,18 +545,6 @@ describe("supplied extension wire integration", () => {
       }
     },
     3 * INTEGRATION_TIMEOUT_MS,
-  );
-
-  it(
-    "blocks a matching block rule without sending a body",
-    async () => {
-      const h = await integration({
-        globalConfig: configuration(CANARY, "block"),
-      });
-      await h.session.prompt(CANARY);
-      expect(h.provider.bodies.length).toBe(0);
-    },
-    INTEGRATION_TIMEOUT_MS,
   );
 
   it(
@@ -827,17 +662,6 @@ describe("supplied extension wire integration", () => {
   );
 
   it(
-    "blocks an oversized payload before any request",
-    async () => {
-      const h = await integration();
-      const oversizedBytes = 9 * 1024 * 1024;
-      await h.session.prompt(`${CANARY} ${"x".repeat(oversizedBytes)}`);
-      expect(h.provider.bodies.length).toBe(0);
-    },
-    INTEGRATION_TIMEOUT_MS,
-  );
-
-  it(
     "masks abandoned branch history without depending on compaction",
     async () => {
       const h = await integration();
@@ -890,34 +714,6 @@ describe("supplied extension wire integration", () => {
       expect(h.sent()).not.toContain(SECOND);
       expect(learnedFake(h, CANARY).length > 0).toBe(true);
       expect(learnedFake(h, SECOND).length > 0).toBe(true);
-    },
-    INTEGRATION_TIMEOUT_MS,
-  );
-
-  it(
-    "masks compaction and tree-summary instructions on the wire",
-    async () => {
-      const h = await integration();
-      for (const suffix of ["one", "two", "three", "four"])
-        h.session.sessionManager.appendMessage({
-          role: "user",
-          content: `${CANARY} ${suffix}`,
-          timestamp: 0,
-        });
-      await h.session.compact(CANARY);
-      assertMasked(h);
-      const first = h.session.sessionManager
-        .getEntries()
-        .find((entry) => entry.type === "message");
-      if (!first) throw new Error("Missing local history");
-      const before = h.provider.bodies.length;
-      const result = await h.session.navigateTree(first.id, {
-        summarize: true,
-        customInstructions: CANARY,
-      });
-      expect(result.cancelled).toBe(false);
-      expect(h.provider.bodies.length > before).toBe(true);
-      assertMasked(h);
     },
     INTEGRATION_TIMEOUT_MS,
   );

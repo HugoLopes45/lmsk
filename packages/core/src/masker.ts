@@ -376,14 +376,14 @@ export class Masker {
   ): Promise<string[]> {
     const reals = [...new Set([...restored, ...this.derivedReals(texts)])];
     const copies = this.hiddenCopies(texts);
-    const masked = await this.maskBatch(texts, reals, false, false, copies);
+    const masked = await this.maskBatch(texts, reals, false, copies);
     // A real that these texts teach can have its own copies in them.
     const later = this.hiddenCopies(texts).filter(
       (copy) => !copies.includes(copy),
     );
     return later.length === 0
       ? masked
-      : this.maskBatch(texts, reals, false, false, [...copies, ...later]);
+      : this.maskBatch(texts, reals, false, [...copies, ...later]);
   }
 
   /**
@@ -439,11 +439,6 @@ export class Masker {
       )
       .map(([real]) => real);
     return [...parts, ...paired];
-  }
-
-  /** Masks raw untrusted text. A placeholder spelled in it is masked too, so it restores to that spelling, not to its real. */
-  async ingest(texts: string[]): Promise<string[]> {
-    return this.maskBatch(texts, [], true, false);
   }
 
   /** The reals to mask as literals: learned reals of learnable length, and the call's restored reals with their parts. */
@@ -517,7 +512,6 @@ export class Masker {
   private async maskBatch(
     texts: string[],
     restored: readonly string[],
-    ingress: boolean,
     remember: boolean,
     copies: readonly string[] = [],
   ): Promise<string[]> {
@@ -538,7 +532,7 @@ export class Masker {
     ];
     const raw = layout((text) => text.raw);
     const placeholders = layout((text) => text.placeholders);
-    const found = this.placed(raw, placeholders, ingress);
+    const found = this.placed(raw, placeholders);
     // Checked on every raw span: the overlap and token filters in `plan` can drop a block span.
     const blocked = found.some((spans) =>
       spans.some(
@@ -557,7 +551,6 @@ export class Masker {
               inputs,
             ),
             placeholders,
-            ingress,
           )
         : found;
     const plans = this.plan(texts, views, rematched, discovered);
@@ -587,10 +580,9 @@ export class Masker {
   private placed(
     found: Span[][],
     placeholders: [start: number, end: number][][],
-    ingress: boolean,
   ): Span[][] {
     return found.map((spans, index) =>
-      this.withPlaceholders(placeholders[index], spans, ingress),
+      this.withPlaceholders(placeholders[index], spans),
     );
   }
 
@@ -617,32 +609,20 @@ export class Masker {
   }
 
   /**
-   * Provider-bound text keeps each placeholder, so a scanned span inside one is the placeholder itself,
+   * Each placeholder stays, so a scanned span inside one is the placeholder itself,
    * and a span that only partly overlaps one is refused.
-   * Raw text masks each placeholder as a new value. `keptSpans` decides overlaps: a span that
-   * contains the placeholder wins, and a partial one that splits the token is rejected.
    */
   private withPlaceholders(
     placeholders: [start: number, end: number][],
     spans: Span[],
-    ingress: boolean,
   ): Span[] {
-    if (!ingress) {
-      const inside = ([start, end]: Span): boolean =>
-        placeholders.some(([from, to]) => from <= start && end <= to);
-      const partly = ([start, end]: Span): boolean =>
-        placeholders.some(([from, to]) => start < to && from < end);
-      if (spans.some((span) => !inside(span) && partly(span)))
-        throw new MaskError("BLOCKED", "a match overlaps a placeholder");
-      return spans.filter((span) => !inside(span));
-    }
-    // No rule has this index, so the hit takes its `discovered` rule or the default fake.
-    const added = placeholders.map(([from, to]): Span => [
-      from,
-      to,
-      this.targets.length,
-    ]);
-    return [...spans, ...added].sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+    const inside = ([start, end]: Span): boolean =>
+      placeholders.some(([from, to]) => from <= start && end <= to);
+    const partly = ([start, end]: Span): boolean =>
+      placeholders.some(([from, to]) => start < to && from < end);
+    if (spans.some((span) => !inside(span) && partly(span)))
+      throw new MaskError("BLOCKED", "a match overlaps a placeholder");
+    return spans.filter((span) => !inside(span));
   }
 
   /** The texts of `payload` that `maskPayload` masks, in order. */
@@ -660,12 +640,7 @@ export class Masker {
     const texts = this.payloadTexts(payload);
     assertPayloadSize(texts);
     // A remembered scan ran without the literals of `restored`, so a text that holds one is scanned again.
-    const masked = await this.maskBatch(
-      texts,
-      restored,
-      false,
-      restored.length === 0,
-    );
+    const masked = await this.maskBatch(texts, restored, restored.length === 0);
     let next = 0;
     return mapPayload(payload, () => masked[next++], this.format);
   }
