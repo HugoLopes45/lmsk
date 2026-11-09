@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "types": ["node"],
+    "strict": true,
+    "skipLibCheck": true,
+    "allowJs": true,
+    "composite": true,
+    "rewriteRelativeImportExtensions": true,
+    "erasableSyntaxOnly": true
+  }
+}

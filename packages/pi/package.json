@@ -1,0 +1,51 @@
+{
+  "name": "@lmsk/pi",
+  "version": "0.1.0",
+  "description": "lmsk adapter for pi: reversible masking of secrets, IDs and emails before pi sends anything to the LLM provider.",
+  "type": "module",
+  "license": "MIT",
+  "author": "HugoLopes45 (https://github.com/HugoLopes45)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HugoLopes45/lmsk.git",
+    "directory": "packages/pi"
+  },
+  "homepage": "https://github.com/HugoLopes45/lmsk#readme",
+  "bugs": {
+    "url": "https://github.com/HugoLopes45/lmsk/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi",
+    "redact",
+    "redaction",
+    "secrets",
+    "mask",
+    "pii",
+    "privacy",
+    "dlp",
+    "llm",
+    "anonymize"
+  ],
+  "files": [
+    "extensions",
+    "src"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/index.ts"
+    ]
+  },
+  "dependencies": {
+    "@lmsk/core": "0.1.0",
+    "@lmsk/formats": "0.1.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}

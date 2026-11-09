@@ -1,0 +1,29 @@
+name: Bug report
+description: Report a reproducible problem with lmsk.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For vulnerabilities, use [private reporting](https://github.com/HugoLopes45/lmsk/security/advisories/new).
+        Do not paste tokens, credentials, private conversations, or session files.
+  - type: textarea
+    id: versions
+    attributes:
+      label: Environment
+      description: Include the package, Pi, Node.js, operating system, and model versions, and your lmsk configuration with every real value replaced by a synthetic one.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Give a minimal example using synthetic data. Mention relevant extensions, without sharing your private configuration.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+      description: Describe the expected result and the failure. Include sanitized error text or warnings if available.
+    validations:
+      required: true

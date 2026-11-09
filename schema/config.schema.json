@@ -1,0 +1,386 @@
+{
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type",
+              "enabled",
+              "strategy",
+              "values"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "type": {
+                "type": "string",
+                "const": "literal"
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "strategy": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "opaque"
+                  },
+                  {
+                    "type": "string",
+                    "const": "shape"
+                  },
+                  {
+                    "type": "string",
+                    "const": "fixed"
+                  },
+                  {
+                    "type": "string",
+                    "const": "mask"
+                  },
+                  {
+                    "type": "string",
+                    "const": "block"
+                  }
+                ],
+                "default": "opaque"
+              },
+              "replacement": {
+                "type": "string",
+                "minLength": 1
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type",
+              "enabled",
+              "strategy"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "type": {
+                "type": "string",
+                "const": "env"
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "strategy": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "opaque"
+                  },
+                  {
+                    "type": "string",
+                    "const": "shape"
+                  },
+                  {
+                    "type": "string",
+                    "const": "fixed"
+                  },
+                  {
+                    "type": "string",
+                    "const": "mask"
+                  },
+                  {
+                    "type": "string",
+                    "const": "block"
+                  }
+                ],
+                "default": "opaque"
+              },
+              "replacement": {
+                "type": "string",
+                "minLength": 1
+              },
+              "vars": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              },
+              "namePattern": {
+                "type": "string",
+                "minLength": 1
+              },
+              "locationNamePattern": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type",
+              "enabled",
+              "strategy",
+              "pattern",
+              "flags",
+              "group"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "type": {
+                "type": "string",
+                "const": "regex"
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "strategy": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "opaque"
+                  },
+                  {
+                    "type": "string",
+                    "const": "shape"
+                  },
+                  {
+                    "type": "string",
+                    "const": "fixed"
+                  },
+                  {
+                    "type": "string",
+                    "const": "mask"
+                  },
+                  {
+                    "type": "string",
+                    "const": "block"
+                  }
+                ],
+                "default": "opaque"
+              },
+              "replacement": {
+                "type": "string",
+                "minLength": 1
+              },
+              "pattern": {
+                "type": "string",
+                "minLength": 1
+              },
+              "flags": {
+                "type": "string",
+                "pattern": "^[imsu]*$",
+                "default": ""
+              },
+              "group": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "string",
+                    "const": "auto"
+                  }
+                ],
+                "default": 0
+              },
+              "keywords": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "entropy": {
+                "type": "number",
+                "minimum": 0
+              },
+              "validate": {
+                "enum": [
+                  "fr-nir",
+                  "iban",
+                  "luhn",
+                  "public-ipv4",
+                  "public-ipv6"
+                ]
+              },
+              "allow": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "target",
+                    "regexes",
+                    "stopwords",
+                    "all"
+                  ],
+                  "properties": {
+                    "target": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "const": "secret"
+                        },
+                        {
+                          "type": "string",
+                          "const": "match"
+                        },
+                        {
+                          "type": "string",
+                          "const": "line"
+                        }
+                      ]
+                    },
+                    "regexes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "stopwords": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "all": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type",
+              "enabled",
+              "strategy",
+              "keys",
+              "value"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+              },
+              "type": {
+                "type": "string",
+                "const": "keyed"
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              },
+              "strategy": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "opaque"
+                  },
+                  {
+                    "type": "string",
+                    "const": "shape"
+                  },
+                  {
+                    "type": "string",
+                    "const": "fixed"
+                  },
+                  {
+                    "type": "string",
+                    "const": "mask"
+                  },
+                  {
+                    "type": "string",
+                    "const": "block"
+                  }
+                ],
+                "default": "opaque"
+              },
+              "replacement": {
+                "type": "string",
+                "minLength": 1
+              },
+              "keys": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9]+$"
+                },
+                "minItems": 1
+              },
+              "value": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "protectedPaths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "networkCommands": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^\\S(?:.*\\S)?$"
+      }
+    },
+    "restoredTools": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "withholdHiddenCopies": {
+      "type": "boolean"
+    },
+    "scanTimeoutMs": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lmsk: use AI on your code, keep your passwords to yourself</title>
+<meta name="description" content="lmsk swaps your passwords, keys and emails for fakes before your AI coding assistant sends anything, and puts the real values back when it edits your files. Free and open source.">
+<style>
+  body { margin: 0; font: 18px/1.6 system-ui, sans-serif; color: #1c1c28; background: #fafafc; }
+  main { width: min(760px, 100% - 2.5rem); margin: 0 auto; padding: 4rem 0; }
+  h1 { font-size: clamp(2.2rem, 6vw, 3.2rem); line-height: 1.15; margin: 0 0 1rem; }
+  h2 { margin-top: 3.5rem; }
+  .lead { font-size: 1.25rem; margin: 0 0 2rem; }
+  a { color: #5b21b6; }
+  .cta { display: inline-block; background: #5b21b6; color: #fff; padding: .8rem 1.4rem; border-radius: 8px; font-weight: 600; text-decoration: none; }
+  .cta:focus-visible { outline: 3px solid #1c1c28; outline-offset: 3px; }
+  pre { background: #1c1c28; color: #e6e6f0; padding: 1rem; border-radius: 8px; overflow-x: auto; }
+  .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+  .pair p { margin: 0 0 .25rem; font-weight: 600; }
+  blockquote { margin: 0 0 1rem; padding-left: 1rem; border-left: 4px solid #5b21b6; font-size: 1.1rem; }
+  dt { font-weight: 600; margin-top: 1.2rem; }
+  dd { margin: .2rem 0 0; }
+  footer { margin-top: 4rem; font-size: .9rem; }
+</style>
+</head>
+<body>
+<main>
+  <p><strong>lmsk</strong></p>
+  <h1>Use AI on your code. Keep your passwords to yourself.</h1>
+  <p class="lead">lmsk swaps your passwords, keys and emails for fakes before your AI coding assistant sends anything. When the AI edits a file or runs a command, lmsk puts the real values back, so your project keeps working. Free, and nothing to set up.</p>
+  <a class="cta" href="#install">Install in one command</a>
+
+  <h2>Sound familiar?</h2>
+  <blockquote>"The AI just read my <code>.env</code> file. Did my passwords just leave my laptop?"</blockquote>
+  <blockquote>"I paste error logs into the chat all day. They are full of customer emails."</blockquote>
+  <blockquote>"I can't put my client's name in a chat with an AI company."</blockquote>
+
+  <h2>What the AI company receives</h2>
+  <div class="pair">
+    <div>
+      <p>On your computer</p>
+      <pre>DB_PASSWORD=Tr0ub4dor-Horse-42
+CONTACT=jane.doe@example.com</pre>
+    </div>
+    <div>
+      <p>What the AI company gets</p>
+      <pre>DB_PASSWORD=6YPT4SfhOUbx6EEqx5
+CONTACT=ptfe.rol@dweervr.xtw</pre>
+    </div>
+  </div>
+  <p>The fakes are random. Each fake keeps the length of its real value, and the same value gets the same fake for the whole session.</p>
+
+  <h2>How it works</h2>
+  <ol>
+    <li><strong>Install it once.</strong> One command, no account.</li>
+    <li><strong>Work as usual.</strong> Before each request leaves your computer, lmsk replaces passwords, keys, emails, phone numbers, IBANs and card numbers with fakes. Add your client's name once, and it becomes <code>Client 1</code>.</li>
+    <li><strong>Your files stay real.</strong> When the AI writes a file or runs a command, lmsk puts the real values back.</li>
+  </ol>
+  <p>If lmsk cannot hide a request safely, it cancels the request. It never sends a request that is only partly hidden.</p>
+
+  <h2 id="install">Try it in two minutes</h2>
+  <p>With <a href="https://github.com/earendil-works/pi">pi</a>:</p>
+  <pre>pi install npm:@lmsk/pi</pre>
+  <p>With Claude Code (preview):</p>
+  <pre>npm install -g lmsk
+lmsk claude</pre>
+  <p>Then send this message. The key in it is a test value:</p>
+  <pre>Repeat this line exactly: API_KEY=Zq7Kp2Lm9Xw4Rt8Vb3Nc</pre>
+  <p>The reply shows a different value after <code>API_KEY=</code>. That is the fake that the AI company received.</p>
+
+  <h2>Questions</h2>
+  <dl>
+    <dt>Does my code still go to the AI company?</dt>
+    <dd>Yes. lmsk hides secrets, names and ids, not your code.</dd>
+    <dt>Does lmsk catch every secret?</dt>
+    <dd>No. It finds secrets by their pattern, so a short password with no name next to it is not found. Read <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md#what-lmsk-does-not-protect">what lmsk does not protect</a>.</dd>
+    <dt>Does lmsk send my data anywhere?</dt>
+    <dd>No. lmsk uses no AI, has no account and sends no telemetry. Your real values stay in a file that only your user account can read.</dd>
+    <dt>Is it a sandbox?</dt>
+    <dd>No. A command that the AI runs gets the real values it needs. Use a sandbox as well.</dd>
+    <dt>Which AI assistants does it work with?</dt>
+    <dd>pi, and Claude Code as a preview.</dd>
+  </dl>
+
+  <h2>Free and open source</h2>
+  <p>MIT license. lmsk is early (0.1): test it on your own data before you trust it.</p>
+  <a class="cta" href="#install">Install in one command</a>
+
+  <footer>
+    <a href="https://github.com/HugoLopes45/lmsk">Source on GitHub</a> ·
+    <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/pi.md">pi guide</a> ·
+    <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/claude-code.md">Claude Code guide</a>
+  </footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,28 @@
+{
+  "name": "lmsk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reversible masking of secrets, IDs and emails before a coding agent sends anything to the LLM provider. Monorepo of the engine and its harness adapters.",
+  "type": "module",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "check": "node scripts/release.ts check && oxlint --deny-warnings && tsc --noEmit && npm run build && vitest --run",
+    "build": "tsc -b packages/cli/tsconfig.build.json",
+    "lint": "oxlint --deny-warnings",
+    "test": "vitest --run",
+    "release": "node scripts/release.ts prepare",
+    "schema": "node scripts/write-schema.ts"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^1.0.3",
+    "@earendil-works/pi-coding-agent": "^1.0.3",
+    "@types/node": "^26.6.4",
+    "fast-check": "^4.10.2",
+    "oxlint": "^1.91.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}

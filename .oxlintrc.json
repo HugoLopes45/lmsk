@@ -1,0 +1,98 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "rules": {
+    "complexity": ["error", { "max": 10 }]
+  },
+  "overrides": [
+    {
+      "files": ["packages/core/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@earendil-works/**", "@lmsk/**", "../../**"],
+                "message": "The engine depends on no harness, adapter or other package."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/pi/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "@lmsk/claude-code",
+                  "@lmsk/*/**",
+                  "../../**"
+                ],
+                "message": "An adapter imports no other adapter and uses only the public API of other packages."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/formats/**", "packages/proxy/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@earendil-works/**", "@lmsk/*/**", "../../**"],
+                "message": "Formats and the proxy depend only on the public API of the engine, and on no harness."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/claude-code/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "@earendil-works/**",
+                  "@lmsk/pi",
+                  "@lmsk/claude-code",
+                  "@lmsk/*/**",
+                  "../../**"
+                ],
+                "message": "An adapter imports no harness SDK and no other adapter, and uses only the public API of other packages."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/cli/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@earendil-works/**", "@lmsk/pi", "@lmsk/*/**", "../../**"],
+                "message": "The CLI parses and dispatches only, through the public API of the Claude Code adapter."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
