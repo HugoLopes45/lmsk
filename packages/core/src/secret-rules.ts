@@ -16,20 +16,20 @@ const BARE_VALUE =
  * exclude `:` and `.` (URN and dotted names) and a leading operator (`==`, `!`).
  */
 const VALUE = `(?:${QUOTE}${QUOTED_VALUE}${QUOTE}|${BARE_VALUE})`;
-/** The end of an unquoted line value: an optional `,` or `;`, then an optional `# comment`. */
-const LINE_END = /[,;]?[ \t]*(?:#[^\n]*)?$/.source;
-/** A dotted path of words, or a call, that fills its line: a code reference, not a secret. */
+/** The end of an unquoted word value: an optional `,` or `;`, then a space, a quote or the end. */
+const WORD_END = /[,;]?(?:[\s"'`]|$)/.source;
+/** A dotted path of words, or a call, that fills the value: a code reference, not a secret. */
 const CODE_REFERENCE =
   /(?:[A-Za-z_$][\w$.]{0,200}\([^)\n]{0,200}\)|[A-Za-z_$]+(?:\??\.[A-Za-z_$]+)+)/
     .source;
 /**
- * An unquoted value that runs to the end of its line, so it may hold `.`, `:`,
+ * An unquoted value up to the next space or quote, so it may hold `.`, `:`,
  * `&`, `(` and `<`. It stops before a `&name=` or `;name=` (a query or
- * connection string part), and it is not a code reference. Needs the `m` flag.
+ * connection string part), and it is not a code reference or a word that ends a sentence.
  */
-const LINE_VALUE = `(?![=!?|*+])(?![^\\s"'\`]{0,200}[&;][A-Za-z][A-Za-z0-9_]*=)(?!${CODE_REFERENCE}${LINE_END})([^\\s"'\`]{3,199}[^\\s"'\`,;])(?=${LINE_END})`;
-/** A keyed value: quoted, the rest of its line, or unquoted up to a delimiter. */
-const KEYED_VALUE = `(?:${QUOTE}${QUOTED_VALUE}${QUOTE}|${LINE_VALUE}|${BARE_VALUE})`;
+const WORD_VALUE = `(?![=!?|*+])(?![^\\s"'\`]{0,200}[&;][A-Za-z][A-Za-z0-9_]*=)(?!(?:${CODE_REFERENCE}|[A-Za-z]+\\.)${WORD_END})([^\\s"'\`]{3,199}[^\\s"'\`,;])(?=${WORD_END})`;
+/** A keyed value: quoted, unquoted up to a space or quote, or unquoted up to a delimiter. */
+const KEYED_VALUE = `(?:${QUOTE}${QUOTED_VALUE}${QUOTE}|${WORD_VALUE}|${BARE_VALUE})`;
 const UUID = /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/.source;
 /** Base64 text in lines, such as a PEM or PuTTY key body. */
 const BASE64_LINES = /[A-Za-z0-9+/=]{1,4000}(?:\n[A-Za-z0-9+/=]{1,4000}){0,400}/.source;
@@ -106,7 +106,7 @@ export const SECRET_RULES: Rule[] = [
   regexRule(
     "keyed-secret",
     `${START}${SECRET_KEY}(?:${QUOTE})?${SEPARATOR}${KEYED_VALUE}`,
-    { group: "auto", flags: "im", allow: [STAND_IN] },
+    { group: "auto", flags: "i", allow: [STAND_IN] },
   ),
   regexRule(
     "connection-password",

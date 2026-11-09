@@ -108,6 +108,26 @@ describe("Masker rules", () => {
     expect(masker.restoreValue(masked)).toBe(text);
   });
 
+  it("masks only the keyed value in a command line or a sentence", async () => {
+    const { masker } = build(DEFAULT_RULES);
+    const random = seeded("keyed-mid-line");
+    for (const [head, tail] of [
+      ["DB_PASSWORD=", " psql -h db app"],
+      ["export DB_PASSWORD=", "; echo ok"],
+      ["The password: ", " works, see the docs."],
+    ]) {
+      const value = `${word(random, 6)}.${word(random, 4)}!${word(random, 3)}`;
+      const text = `${head}${value}${tail}`;
+      const [masked] = await masker.mask([text]);
+      expect(masked.startsWith(head), masked).toBe(true);
+      expect(masked.endsWith(tail), masked).toBe(true);
+      expect(masked).toHaveLength(text.length);
+      for (let i = 0; i + 4 <= value.length; i++)
+        expect(masked).not.toContain(value.slice(i, i + 4));
+      expect(masker.restoreValue(masked)).toBe(text);
+    }
+  });
+
   it("masks an email address so that the part after @ restores to the domain alone", async () => {
     const { masker } = build(DEFAULT_RULES);
     const [masked] = await masker.mask([
