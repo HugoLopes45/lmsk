@@ -4,25 +4,25 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>lmsk: mask secrets and API keys for Claude Code and pi</title>
-<meta name="description" content="Masks API keys, passwords and emails before your coding agent sends them to the LLM, and puts the real values back in tool calls.">
+<meta name="description" content="Masks API keys, passwords and emails before Claude Code or pi sends them to the LLM, and puts the real values back in tool calls.">
 <link rel="canonical" href="https://hugolopes45.github.io/lmsk/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="lmsk">
 <meta property="og:url" content="https://hugolopes45.github.io/lmsk/">
 <meta property="og:title" content="lmsk: mask secrets and API keys for Claude Code and pi">
-<meta property="og:description" content="Real keys for your agent. Fakes for the model. lmsk swaps secrets for fakes before your coding agent sends a request, and tool calls get the real values back.">
+<meta property="og:description" content="Real keys for your agent. Fakes for the model. lmsk swaps secrets for fakes before Claude Code or pi sends a request, and tool calls get the real values back.">
 <meta property="og:image" content="https://hugolopes45.github.io/lmsk/brand/logo.svg">
 <meta property="og:image:alt" content="lmsk logo">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="lmsk: mask secrets and API keys for Claude Code and pi">
-<meta name="twitter:description" content="Real keys for your agent. Fakes for the model. lmsk swaps secrets for fakes before your coding agent sends a request, and tool calls get the real values back.">
+<meta name="twitter:description" content="Real keys for your agent. Fakes for the model. lmsk swaps secrets for fakes before Claude Code or pi sends a request, and tool calls get the real values back.">
 <meta name="twitter:image" content="https://hugolopes45.github.io/lmsk/brand/logo.svg">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "lmsk",
-  "description": "Masks API keys, passwords, IDs and emails before your coding agent sends a request to the LLM provider, and puts the real values back in tool calls.",
+  "description": "Masks API keys, passwords, IDs and emails before Claude Code or pi sends a request to the LLM provider, and puts the real values back in tool calls.",
   "url": "https://hugolopes45.github.io/lmsk/",
   "downloadUrl": "https://www.npmjs.com/package/@hugolopes45/lmsk",
   "applicationCategory": "DeveloperApplication",
@@ -188,7 +188,7 @@
 
   <div class="row">
     <div class="you end">
-      <p class="lead">lmsk swaps API keys, passwords, tokens and emails for fakes before your coding agent sends a request.</p>
+      <p class="lead">lmsk swaps API keys, passwords, tokens and emails for fakes before Claude Code or pi sends a request.</p>
     </div>
     <div class="them">
       <p class="lead">Tool calls get the real values back, so your commands still run.</p>
@@ -311,6 +311,10 @@
           <dd>A little. Masking runs on your computer, with no network call.</dd>
           <dt>Where are the real values stored?</dt>
           <dd>In a local vault on your computer. lmsk sends the vault nowhere.</dd>
+          <dt>How do I stop Claude Code from sending my API keys and .env values to the model?</dt>
+          <dd>Run Claude Code with <code>lmsk claude</code>. <code>lmsk</code> masks the secrets in each request before it leaves your computer, also in the text that you paste and in command output. It also refuses the tool calls that open <code>.env</code>, keys and other secret files. A <code>Read</code> deny rule in the Claude Code settings stops a file read, but it does not mask what you paste or what a command prints. In pi, install the extension.</dd>
+          <dt>How is it different from gitleaks or a redaction hook?</dt>
+          <dd>gitleaks finds secrets in files and commits, so that you can remove them. <code>lmsk</code> uses the gitleaks default rules, and its own rules, on each request that the agent sends. A hook that replaces a secret with <code>[REDACTED]</code> gives that tag to your commands. <code>lmsk</code> gives a fake of the same length to the model, and the real value to the tool calls.</dd>
           <dt>Which agents does it work with?</dt>
           <dd>Claude Code and pi today. More agents are planned.</dd>
         </dl>
