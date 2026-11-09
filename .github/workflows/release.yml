@@ -66,21 +66,25 @@ jobs:
           git fetch --no-tags origin "refs/tags/$RELEASE_TAG"
           test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$COMMIT"
           node scripts/release.ts notes "$VERSION" > "$RUNNER_TEMP/notes.md"
-          name=$(node -p 'require("./package.json").name')
-          published=$(node scripts/release.ts published "$name" "$VERSION" "$COMMIT")
           released=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name == \"$RELEASE_TAG\" and .draft == false) | .id")
-          {
-            echo "published=$published"
-            echo "released=$released"
-          } >> "$GITHUB_OUTPUT"
+          echo "released=$released" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
           VERSION: ${{ steps.target.outputs.version }}
           COMMIT: ${{ steps.target.outputs.commit }}
-      - name: Publish to npm
-        if: steps.publication.outputs.published == 'false'
-        run: npm publish --provenance
+      - name: Publish the workspaces to npm
+        run: |
+          order=$(node scripts/release.ts order)
+          for name in $order; do
+            published=$(node scripts/release.ts published "$name" "$VERSION" "$COMMIT")
+            if [ "$published" = false ]; then
+              npm publish --provenance --workspace "$name"
+            fi
+          done
+        env:
+          VERSION: ${{ steps.target.outputs.version }}
+          COMMIT: ${{ steps.target.outputs.commit }}
       - name: Create the GitHub release
         if: steps.publication.outputs.released == ''
         run: gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$RELEASE_TAG" --notes-file "$RUNNER_TEMP/notes.md"
