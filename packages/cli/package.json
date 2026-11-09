@@ -1,6 +1,6 @@
 {
   "name": "@hugolopes45/lmsk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Runs Claude Code behind the lmsk proxy, so that secrets, IDs and emails reach the LLM provider masked.",
   "type": "module",
   "license": "MIT",
@@ -24,8 +24,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@hugolopes45/lmsk-claude-code": "0.1.0",
-    "@hugolopes45/lmsk-core": "0.1.0"
+    "@hugolopes45/lmsk-claude-code": "0.1.1",
+    "@hugolopes45/lmsk-core": "0.1.1"
   },
   "bin": {
     "lmsk": "./dist/bin.js"

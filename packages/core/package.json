@@ -1,6 +1,6 @@
 {
   "name": "@hugolopes45/lmsk-core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Harness-agnostic engine of lmsk: reversible, fail-closed masking of secrets, IDs and emails.",
   "type": "module",
   "license": "MIT",
