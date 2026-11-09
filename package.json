@@ -1,6 +1,6 @@
 {
   "name": "@hugolopes45/lmsk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Mask API keys, passwords and emails before Claude Code or the pi coding agent sends them to the LLM, and restore them in tool calls.",
   "type": "module",
   "license": "MIT",
