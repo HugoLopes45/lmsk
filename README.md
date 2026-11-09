@@ -53,6 +53,20 @@ More agents are planned. The default rules work with no configuration. Local onl
 
 Your coding agent sends what it reads to the model provider. That includes your secrets.
 
+## What lmsk handles
+
+| You | What lmsk does |
+|---|---|
+| You paste a Stripe key so that the agent can set up payments. | The model gets a fake. The file that the agent writes gets the real key. |
+| The agent tries to open `.env` to debug a config problem. | `lmsk` refuses the read and tells the agent why. |
+| A command prints `DATABASE_URL` with its password. | The model gets the URL with a fake password. |
+| The agent runs your tests, which need the real password. | The test command gets the real password. Its output goes back to the model masked. |
+| A log holds customer emails, phone numbers and card numbers. | The model gets fakes. |
+| You work for a client under NDA. | Add the client name once. The model gets a name such as `Client 1`. |
+| Your file paths and commits show your name and your computer. | The model gets fakes for your user name, host name and git identity. |
+
+The [user guide](docs/GUIDE.md) shows how to add your client names and your own secrets.
+
 ## How it works
 
 1. **Install it once.** `lmsk` runs on your computer, as a local proxy in front of your agent or as an extension inside it.
