@@ -112,10 +112,11 @@
     .cmd button { min-width: 5rem; padding-inline: 1rem; }
     .you, .them { padding-inline: var(--edge); }
     .you.end { text-align: left; }
-    header .them { justify-content: flex-start; }
+    header .them { justify-content: flex-start; padding-top: 0; background: var(--paper); color: var(--ink); }
     .cross .them { display: none; }
     .cross h1, .cross h2 { width: 100%; }
     .cmd pre { font-size: 1rem; }
+    .env { font-size: min(1rem, 4.4vw); }
   }
 </style>
 </head>
@@ -135,8 +136,8 @@
 
 <main>
   <div class="row cross hero">
-    <div class="you"><h1>Keys stay on this side.</h1></div>
-    <div class="them" aria-hidden="true"><p>Keys stay on this side.</p></div>
+    <div class="you"><h1>Keys stay on your side.</h1></div>
+    <div class="them" aria-hidden="true"><p>Keys stay on your side.</p></div>
   </div>
 
   <figure class="row env" style="margin: 0">
@@ -148,7 +149,7 @@
     </div>
     <div class="them">
       <span class="tag">The AI company’s server</span>
-      STRIPE_KEY=<span class="fake">sk_live_9fKz0aPwT7</span><br>
+      STRIPE_KEY=<span class="fake">Xq7Lm2Pz9Kd4Wb8Tn3</span><br>
       DB_PASSWORD=<span class="fake">6YPT4SfhOUbx6EEqx5</span><br>
       CONTACT=<span class="fake">ptfe.rol@dwee.xt</span>
     </div>
@@ -167,8 +168,8 @@
 
   <section id="how" aria-labelledby="how-title">
     <div class="row cross">
-      <div class="you"><h2 id="how-title">How it crosses</h2></div>
-      <div class="them" aria-hidden="true"><p>How it crosses</p></div>
+      <div class="you"><h2 id="how-title">How it works</h2></div>
+      <div class="them" aria-hidden="true"><p>How it works</p></div>
     </div>
     <div class="row step">
       <div class="you"><span class="num">1</span><h3>Install it once.</h3><p>One command, no account. lmsk uses no AI and runs on your laptop.</p></div>
