@@ -11,20 +11,19 @@ npm ci
 npm run check
 ```
 
-`npm run check` validates package and lockfile metadata, release notes, TypeScript, and the offline tests. The tests use Pi's faux provider and local stand-ins for Claude Code and the providers, not a real model. The tests and type checks read each package from `src/` through the `development` export condition; `npm run build` writes the JavaScript in `dist/` that the published packages use.
+`npm run check` validates package and lockfile metadata, release notes, TypeScript, and the offline tests. The tests use Pi's faux provider and local stand-ins for Claude Code and the providers, not a real model. The tests and type checks read the TypeScript in `src/`; `npm run build` writes the JavaScript in `dist/` that the published package uses.
 
 CI also installs the latest published Pi packages on Node 24 and runs these checks again. It also runs once a week, even when the repository does not change.
 
 Keep the lockfile reproducible. Do not replace it with an unbounded dependency tree. The peer dependencies that Pi provides stay `*`.
 
-To test the extension by hand in Pi, run these commands in the repository. pi loads the other packages from their `dist/` folders, so build them first:
+To test the extension by hand in Pi, run this command in the repository:
 
 ```bash
-npm run build
-pi -e ./packages/pi/extensions/index.ts
+pi -e ./src/pi/extension.ts
 ```
 
-To test `lmsk claude` by hand, run `npm run build`, then `node packages/cli/dist/bin.js claude`.
+To test `lmsk claude` by hand, run `npm run build`, then `node dist/cli/bin.js claude`.
 
 Do not load another copy of this extension in the same session. If you installed the package with `pi install`, remove it first, or the session loads two copies.
 

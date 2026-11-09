@@ -1,63 +1,18 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "rules": {
-    "complexity": ["error", { "max": 10 }]
+    "complexity": [
+      "error",
+      {
+        "max": 10
+      }
+    ]
   },
   "overrides": [
     {
-      "files": ["packages/core/**"],
-      "rules": {
-        "no-restricted-imports": [
-          "error",
-          {
-            "patterns": [
-              {
-                "group": ["@earendil-works/**", "@hugolopes45/**", "../../**"],
-                "message": "The engine depends on no harness, adapter or other package."
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "files": ["packages/pi/**"],
-      "rules": {
-        "no-restricted-imports": [
-          "error",
-          {
-            "patterns": [
-              {
-                "group": [
-                  "@hugolopes45/lmsk-claude-code",
-                  "@hugolopes45/*/**",
-                  "../../**"
-                ],
-                "message": "An adapter imports no other adapter and uses only the public API of other packages."
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "files": ["packages/formats/**", "packages/proxy/**"],
-      "rules": {
-        "no-restricted-imports": [
-          "error",
-          {
-            "patterns": [
-              {
-                "group": ["@earendil-works/**", "@hugolopes45/*/**", "../../**"],
-                "message": "Formats and the proxy depend only on the public API of the engine, and on no harness."
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "files": ["packages/claude-code/**"],
+      "files": [
+        "src/core/**"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -66,12 +21,9 @@
               {
                 "group": [
                   "@earendil-works/**",
-                  "@hugolopes45/lmsk-pi",
-                  "@hugolopes45/lmsk-claude-code",
-                  "@hugolopes45/*/**",
-                  "../../**"
+                  "../**"
                 ],
-                "message": "An adapter imports no harness SDK and no other adapter, and uses only the public API of other packages."
+                "message": "The engine depends on no harness and no other module."
               }
             ]
           }
@@ -79,14 +31,90 @@
       }
     },
     {
-      "files": ["packages/cli/**"],
+      "files": [
+        "src/pi/**"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",
           {
             "patterns": [
               {
-                "group": ["@earendil-works/**", "@hugolopes45/lmsk-pi", "@hugolopes45/*/**", "../../**"],
+                "group": [
+                  "../**",
+                  "!../core/index.ts",
+                  "!../formats/index.ts"
+                ],
+                "message": "An adapter imports no other adapter and uses only the public API of other modules."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "src/formats/**",
+        "src/proxy/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "@earendil-works/**",
+                  "../**",
+                  "!../core/index.ts"
+                ],
+                "message": "Formats and the proxy depend only on the public API of the engine, and on no harness."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "src/claude-code/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "@earendil-works/**",
+                  "../**",
+                  "!../core/index.ts",
+                  "!../formats/index.ts",
+                  "!../proxy/index.ts"
+                ],
+                "message": "An adapter imports no harness SDK and no other adapter, and uses only the public API of other modules."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "src/cli/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "@earendil-works/**",
+                  "../**",
+                  "!../core/index.ts",
+                  "!../claude-code/index.ts"
+                ],
                 "message": "The CLI parses and dispatches only, through the public API of the Claude Code adapter."
               }
             ]

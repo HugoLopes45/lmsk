@@ -1,13 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { isRecord } from "../packages/core/src/config.ts";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { isRecord } from "../src/core/config.ts";
 
 const UNRELEASED = "## Unreleased";
 const REQUIRED_FILES = [
-  "packages/pi/extensions/index.ts",
-  "packages/pi/test/e2e.test.ts",
-  "packages/pi/test/harness.ts",
+  "src/pi/extension.ts",
+  "test/pi/e2e.test.ts",
+  "test/pi/harness.ts",
 ];
 
 function parse(version: string): [number, number, number] {
@@ -75,115 +74,6 @@ function packageInfo(value: unknown): { name: string; version: string } {
     throw new Error("Invalid package manifest: name and version are required.");
   parse(value.version);
   return { name: value.name, version: value.version };
-}
-
-const RUNTIME_FIELDS = [
-  "dependencies",
-  "peerDependencies",
-  "optionalDependencies",
-];
-const DEPENDENCY_FIELDS = [...RUNTIME_FIELDS, "devDependencies"];
-
-function dependenciesOf(
-  manifest: Record<string, unknown>,
-  field: string,
-): Record<string, unknown> {
-  const dependencies = manifest[field];
-  if (dependencies === undefined) return {};
-  if (!isRecord(dependencies))
-    throw new Error(`Invalid package manifest: ${field} must be an object.`);
-  return dependencies;
-}
-
-function workspace(manifest: unknown): {
-  name: string;
-  version: string;
-  ranges: [string, unknown][];
-  runtime: string[];
-} {
-  const info = packageInfo(manifest);
-  if (!isRecord(manifest)) throw new Error("Invalid package manifest.");
-  const entries = (fields: string[]) =>
-    fields.flatMap((field) => Object.entries(dependenciesOf(manifest, field)));
-  return {
-    ...info,
-    ranges: entries(DEPENDENCY_FIELDS),
-    runtime: entries(RUNTIME_FIELDS).map(([name]) => name),
-  };
-}
-
-function checkPins(
-  version: string,
-  workspaces: Map<string, ReturnType<typeof workspace>>,
-): void {
-  for (const [name, workspace] of workspaces) {
-    if (workspace.version !== version)
-      throw new Error(
-        `Workspace ${name} has version ${workspace.version}, expected ${version}.`,
-      );
-    for (const [dependency, range] of workspace.ranges)
-      if (workspaces.has(dependency) && range !== version)
-        throw new Error(
-          `Workspace ${name} must pin ${dependency} to ${version}.`,
-        );
-  }
-}
-
-/** Workspace names, each after the workspaces it depends on. Throws unless all share `version` and pin each other to it. */
-export function workspaceOrder(
-  version: string,
-  manifests: unknown[],
-): string[] {
-  const workspaces = new Map(
-    manifests.map((manifest) => {
-      const entry = workspace(manifest);
-      return [entry.name, entry];
-    }),
-  );
-  checkPins(version, workspaces);
-  const order: string[] = [];
-  const visiting = new Set<string>();
-  const visit = (name: string): void => {
-    if (order.includes(name)) return;
-    if (visiting.has(name))
-      throw new Error(`Workspace dependency cycle through ${name}.`);
-    visiting.add(name);
-    for (const dependency of workspaces.get(name)?.runtime ?? [])
-      if (workspaces.has(dependency)) visit(dependency);
-    order.push(name);
-  };
-  for (const name of workspaces.keys()) visit(name);
-  return order;
-}
-
-/** `manifest` at `version`, with the `internal` dependencies pinned to it. */
-export function bumpManifest(
-  manifest: unknown,
-  version: string,
-  internal: ReadonlySet<string>,
-): Record<string, unknown> {
-  packageInfo(manifest);
-  if (!isRecord(manifest)) throw new Error("Invalid package manifest.");
-  const bumped: Record<string, unknown> = { ...manifest, version };
-  for (const field of DEPENDENCY_FIELDS)
-    if (manifest[field] !== undefined)
-      bumped[field] = Object.fromEntries(
-        Object.entries(dependenciesOf(manifest, field)).map(([name, range]) => [
-          name,
-          internal.has(name) ? version : range,
-        ]),
-      );
-  return bumped;
-}
-
-function workspaceManifests(): { path: string; manifest: unknown }[] {
-  return readdirSync("packages")
-    .map((directory) => join("packages", directory, "package.json"))
-    .filter((path) => existsSync(path))
-    .map((path) => ({
-      path,
-      manifest: JSON.parse(readFileSync(path, "utf8")),
-    }));
 }
 
 export function validateRelease(
@@ -303,24 +193,9 @@ function prepare(request: string): void {
   const branch = `release/v${version}`;
   run("git", ["switch", "--create", branch]);
   writeFileSync("CHANGELOG.md", changelog);
-  const workspaces = workspaceManifests();
-  const internal = new Set(
-    workspaces.map(({ manifest }) => packageInfo(manifest).name),
-  );
-  const manifests = [{ path: "package.json", manifest: root }, ...workspaces];
-  for (const { path, manifest } of manifests)
-    writeFileSync(
-      path,
-      `${JSON.stringify(bumpManifest(manifest, version, internal), null, 2)}\n`,
-    );
-  run("npm", ["install", "--package-lock-only", "--ignore-scripts"]);
+  run("npm", ["version", version, "--no-git-tag-version"]);
   execFileSync("npm", ["run", "check"], { stdio: "inherit" });
-  run("git", [
-    "add",
-    "package-lock.json",
-    "CHANGELOG.md",
-    ...manifests.map(({ path }) => path),
-  ]);
+  run("git", ["add", "package-lock.json", "CHANGELOG.md", "package.json"]);
   run("git", ["commit", "--message", `Release ${version}`]);
   run("git", ["push", "--set-upstream", "origin", branch]);
   const url = run("gh", [
@@ -349,12 +224,8 @@ function check(base: string | undefined): void {
     readFileSync("package-lock.json", "utf8"),
   );
   const changelog = readFileSync("CHANGELOG.md", "utf8");
-  const workspaces = workspaceManifests().map(({ manifest }) => manifest);
   if (base === undefined) {
-    workspaceOrder(
-      validateRelease(manifest, lockfile, changelog).version,
-      workspaces,
-    );
+    validateRelease(manifest, lockfile, changelog);
     return;
   }
   if (!/^[a-f0-9]{40}$/.test(base))
@@ -363,7 +234,6 @@ function check(base: string | undefined): void {
     run("git", ["show", `${base}:package.json`]),
   );
   const plan = releasePlan(previous, manifest, lockfile, changelog);
-  workspaceOrder(plan.version, workspaces);
   console.log(`version=${plan.version}\nchanged=${plan.changed}`);
 }
 
@@ -380,14 +250,6 @@ async function main(args: string[]): Promise<void> {
     case "published/3":
       console.log(await isPublished(rest[0], rest[1], rest[2]));
       return;
-    case "order/0": {
-      const root: unknown = JSON.parse(readFileSync("package.json", "utf8"));
-      const manifests = workspaceManifests().map(({ manifest }) => manifest);
-      console.log(
-        workspaceOrder(packageInfo(root).version, manifests).join("\n"),
-      );
-      return;
-    }
     case "check/0":
     case "check/1":
       return check(rest[0]);
@@ -398,7 +260,7 @@ async function main(args: string[]): Promise<void> {
     }
   }
   throw new Error(
-    "Usage: release.ts prepare <patch|minor|major|x.y.z> | notes <x.y.z> | published <name> <x.y.z> <commit> | check [base-commit] | target <vX.Y.Z> | order",
+    "Usage: release.ts prepare <patch|minor|major|x.y.z> | notes <x.y.z> | published <name> <x.y.z> <commit> | check [base-commit] | target <vX.Y.Z>",
   );
 }
 

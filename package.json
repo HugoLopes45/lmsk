@@ -1,20 +1,71 @@
 {
-  "name": "lmsk",
+  "name": "@hugolopes45/lmsk",
   "version": "0.1.1",
-  "private": true,
-  "description": "Reversible masking of secrets, IDs and emails before a coding agent sends anything to the LLM provider. Monorepo of the engine and its harness adapters.",
+  "description": "Reversible masking of secrets, IDs and emails before Claude Code or pi sends anything to the LLM provider.",
   "type": "module",
   "license": "MIT",
-  "workspaces": [
-    "packages/*"
+  "engines": {
+    "node": ">=22.19"
+  },
+  "author": "HugoLopes45 (https://github.com/HugoLopes45)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HugoLopes45/lmsk.git"
+  },
+  "homepage": "https://hugolopes45.github.io/lmsk/",
+  "bugs": {
+    "url": "https://github.com/HugoLopes45/lmsk/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi",
+    "claude-code",
+    "redact",
+    "redaction",
+    "secrets",
+    "mask",
+    "pii",
+    "privacy",
+    "dlp",
+    "llm",
+    "anonymize"
   ],
+  "files": [
+    "dist",
+    "plugin"
+  ],
+  "bin": {
+    "lmsk": "./dist/cli/bin.js"
+  },
+  "pi": {
+    "extensions": [
+      "./dist/pi/extension.js"
+    ]
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "check": "node scripts/release.ts check && oxlint --deny-warnings && tsc --noEmit && npm run build && vitest --run",
-    "build": "tsc -b packages/cli/tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json",
     "lint": "oxlint --deny-warnings",
     "test": "vitest --run",
     "release": "node scripts/release.ts prepare",
     "schema": "node scripts/write-schema.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "^1.4.3"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "^1.0.3",
@@ -22,6 +73,7 @@
     "@types/node": "^22.19.0",
     "fast-check": "^4.10.2",
     "oxlint": "^1.91.0",
+    "typebox": "^1.4.3",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
   }
