@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The protected-path checks of lmsk ignore case, so `~/.AWS/credentials` or `.NPMRC` on a macOS or Windows disk is protected too. On Linux, a path that differs only in case from a protected path is now also protected.
+
 ## 0.2.1
 
 - The README shows how lmsk fits everyday work: debugging from logs, writing configuration files, running local tests and masking client names. Its FAQ explains how lmsk works with gitleaks.
