@@ -49,18 +49,21 @@ export async function launchClaude(
   );
   // A session-only plugin, so that the deny hooks run without an edit to ~/.claude.
   const plugin = fileURLToPath(new URL("../../plugin", import.meta.url));
-  // A file, not argv: the settings hold the launch token, and other local users can read argv.
-  const dir = mkdtempSync(join(tmpdir(), "lmsk-"));
-  const settings = join(dir, "settings.json");
-  writeFileSync(settings, launchSettings(paths, proxy.url), { mode: 0o600 });
   try {
-    return await runAgent(
-      "claude",
-      ["--plugin-dir", plugin, "--settings", settings, ...args],
-      { cwd, env: { ...env, ANTHROPIC_BASE_URL: proxy.url }, notify },
-    );
+    // A file, not argv: the settings hold the launch token, and other local users can read argv.
+    const dir = mkdtempSync(join(tmpdir(), "lmsk-"));
+    try {
+      const settings = join(dir, "settings.json");
+      writeFileSync(settings, launchSettings(paths, proxy.url), { mode: 0o600 });
+      return await runAgent(
+        "claude",
+        ["--plugin-dir", plugin, "--settings", settings, ...args],
+        { cwd, env: { ...env, ANTHROPIC_BASE_URL: proxy.url }, notify },
+      );
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
   } finally {
-    rmSync(dir, { recursive: true });
     await proxy.close();
   }
 }
