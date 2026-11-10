@@ -199,6 +199,8 @@ async function forward(
     method: req.method,
     headers,
     body,
+    // fetch keeps x-api-key on a redirect to another origin.
+    redirect: "error",
   });
   // fetch decodes the response, so the encoding and length headers no longer hold.
   res.writeHead(upstream.status, forwardedHeaders(upstream.headers));

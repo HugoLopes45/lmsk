@@ -239,6 +239,28 @@ describe("startProxy", () => {
     expect(sent.headers["x-session-id"]).toBe(SECRET);
   });
 
+  it("refuses an upstream redirect, which would send the credential to another origin", async () => {
+    const other = await upstream();
+    const redirect = createServer((_req, res) => {
+      res.writeHead(307, { location: `${other.url}/v1/messages` });
+      res.end();
+    });
+    await new Promise<void>((resolve) =>
+      redirect.listen(0, "127.0.0.1", resolve),
+    );
+    closers.push(
+      () => new Promise((resolve) => redirect.close(() => resolve())),
+    );
+    const { url } = await proxy(`http://127.0.0.1:${port(redirect.address())}`);
+
+    const res = await post(`${url}/v1/messages`, payload, {
+      "x-api-key": SECRET,
+    });
+
+    expect(res.status).toBe(502);
+    expect(other.received).toEqual([]);
+  });
+
   it("forwards each request to the upstream that its headers select", async () => {
     const a = await upstream();
     const b = await upstream();
