@@ -46,7 +46,7 @@ export async function runAgent(
 }
 
 /** Claude Code sends even a 127.0.0.1 base URL through `HTTP_PROXY`, so that proxy would see the unmasked request. */
-function loopbackExempt(
+export function loopbackExempt(
   env: AgentOptions["env"],
 ): Record<"NO_PROXY" | "no_proxy", string> {
   // A tool that reads the spelling the user did not set must still get the user's exemptions.

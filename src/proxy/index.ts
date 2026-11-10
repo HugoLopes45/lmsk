@@ -1,4 +1,4 @@
-export { type AgentOptions, runAgent } from "./agent.ts";
+export { type AgentOptions, loopbackExempt, runAgent } from "./agent.ts";
 export { commandWords, type HookOptions, hookDenial } from "./hook.ts";
 export type { SessionOptions as ProxyOptions } from "./sessions.ts";
 export {

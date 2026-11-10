@@ -308,9 +308,11 @@ describe("launchClaude", () => {
       status: 200,
       mode: 0o600,
     });
-    // Settings `env` overrides the process environment and project settings; "" unsets a provider switch.
+    // Settings `env` overrides the process environment and project settings; "" unsets a provider switch. A project NO_PROXY without the loopback address would send the request to its HTTP_PROXY.
     expect(out.settings.env).toEqual({
       ANTHROPIC_BASE_URL: out.baseUrl,
+      NO_PROXY: "127.0.0.1",
+      no_proxy: "127.0.0.1",
       CLAUDE_CODE_USE_BEDROCK: "",
       CLAUDE_CODE_USE_VERTEX: "",
       CLAUDE_CODE_USE_FOUNDRY: "",
