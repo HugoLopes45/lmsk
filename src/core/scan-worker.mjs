@@ -45,7 +45,7 @@ function lineAt(text, start, end) {
 }
 
 function allowed(list, secret, match, line) {
-  const target = list.target === "match" ? match : list.target === "line" ? line : secret;
+  const target = list.target === "match" ? match : list.target === "line" ? line() : secret;
   const checks = [];
   if (list.regexes.length) checks.push(list.regexes.some((regex) => regex.test(target)));
   if (list.stopwords.length) {
@@ -71,7 +71,8 @@ function accepted(rule, text, match, value) {
   const secret = text.slice(value[0], value[1]);
   if (rule.entropy && entropy(secret) <= rule.entropy) return false;
   const [matchStart, matchEnd] = match.indices[0];
-  const line = lineAt(text, matchStart, matchEnd);
+  // Lazy: slicing the line of every match is quadratic on long single-line texts.
+  const line = () => lineAt(text, matchStart, matchEnd);
   return !rule.allow.some((list) => allowed(list, secret, match[0], line));
 }
 
