@@ -2118,6 +2118,7 @@ describe("Masker payload history", () => {
     `password=${LATER}`,
     "password=VALUEBBBB2",
     "LITERALXX9",
+    "RESTORED77",
     base64(`password=${LATER}`),
     " ",
     "\n",
@@ -2132,6 +2133,7 @@ describe("Masker payload history", () => {
       /** Per history text: whether the session keeps its masked or its raw form. */
       keep: fc.array(fc.boolean(), { minLength: 16, maxLength: 16 }),
       failAt: fc.option(fc.integer({ min: 0, max: 2 })),
+      restored: fc.subarray(["VALUEBBBB2", "RESTORED77"]),
     }),
     fc.record({
       kind: fc.constant("mask" as const),
@@ -2208,8 +2210,10 @@ describe("Masker payload history", () => {
             cached.state.calls = oracle.state.calls = 0;
             cached.state.failAt = oracle.state.failAt =
               step.failAt ?? undefined;
-            const got = await outcome(subject.maskPayload(payload));
-            const want = await outcome(reference.mask(payload));
+            const got = await outcome(
+              subject.maskPayload(payload, step.restored),
+            );
+            const want = await outcome(reference.mask(payload, step.restored));
             cached.state.failAt = oracle.state.failAt = undefined;
             expect(got).toEqual(want);
             expect(subjectVault.entries()).toEqual(referenceVault.entries());
@@ -2224,4 +2228,24 @@ describe("Masker payload history", () => {
       { seed: 20261106, numRuns: 200 },
     );
   }, 60000);
+
+  it("scans again only the history texts that hold a restored real", async () => {
+    const worker = new Scanner(2000);
+    onTestFinished(() => worker.close());
+    const rules = [
+      { ...regex("password", "password=([A-Z0-9]{10})"), group: 1 },
+    ];
+    const masker = new Masker(
+      rules,
+      worker,
+      new Vault(seeded("rescan")),
+      {},
+      NO_FORMAT,
+    );
+    const payload = ["plain words", "has RESTORED77"];
+    await masker.maskPayload(payload);
+    const scan = vi.spyOn(worker, "scan");
+    await masker.maskPayload(payload, ["RESTORED77"]);
+    expect(scan.mock.lastCall?.[1]).toEqual(["has RESTORED77"]);
+  });
 });

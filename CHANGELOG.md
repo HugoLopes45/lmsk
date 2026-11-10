@@ -9,6 +9,7 @@
 - Claude Code: the proxy refuses an upstream redirect, which would send your API key to another address.
 - Text inside an object under a `signature` or `encrypted_content` key, such as a tool schema field, is now masked. A string under such a key still passes unchanged.
 - The pi peer dependencies require version 1.
+- A request that puts real values back into tool arguments now scans again only the texts that hold one of them, not the whole conversation.
 - The limits now say that base64 documents, the request path, and the pi `/bug` summary are not masked, and which encoded copies of a value are masked.
 
 ## 0.2.1

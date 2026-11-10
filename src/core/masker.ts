@@ -394,7 +394,7 @@ export class Masker {
    * A copy whose word is the real or a learned real is masked as a literal and is left out.
    */
   private hiddenCopies(texts: string[]): string[] {
-    const learned = new Set(this.literalReals([], []));
+    const learned = new Set(this.literalReals([]));
     const bare = (real: string) => real.replace(/\s+/g, "");
     const reals = [...learned, ...this.copyable].filter(
       (real) =>
@@ -441,22 +441,24 @@ export class Masker {
     return [...parts, ...paired];
   }
 
-  /** The reals to mask as literals: learned reals of learnable length, and the call's restored reals with their parts. */
-  private literalReals(restored: readonly string[], texts: string[]): string[] {
+  /** The reals to mask as literals: learned reals of learnable length, and `restoredReals`. */
+  private literalReals(restoredReals: readonly string[]): string[] {
     const learned = this.vault
       .entries()
       .map(([real]) => real)
       .filter((real) => real.length >= MIN_LEARNED_LENGTH);
-    return [
-      ...new Set([...learned, ...restored, ...restoredParts(texts, restored)]),
-    ];
+    return [...new Set([...learned, ...restoredReals])];
   }
 
-  /** Scans each text, except a text of `previous` that no vault entry added since its scan occurs in. */
+  /**
+   * Scans each text, except a text of `previous` that holds no `restoredReals` literal and no vault
+   * entry added since its scan: its remembered spans would lack their literal spans.
+   */
   private async scanned(
     texts: string[],
     patterns: ScanPattern[],
     previous: ReadonlyMap<string, Scanned>,
+    restoredReals: readonly string[],
   ): Promise<Scanned[]> {
     const entries = this.vault.entries();
     const size = entries.length;
@@ -464,11 +466,10 @@ export class Masker {
       const known = previous.get(text);
       if (!known) return undefined;
       const inputs = [text, ...known.views.map((view) => view.text)];
-      const touched = entries
-        .slice(known.size)
-        .some(([real, fake]) =>
-          inputs.some((input) => input.includes(real) || input.includes(fake)),
-        );
+      const touched = [
+        ...entries.slice(known.size).flat(),
+        ...restoredReals,
+      ].some((value) => inputs.some((input) => input.includes(value)));
       return touched ? undefined : { ...known, size };
     });
     const missing = texts.filter((_, index) => !kept[index]);
@@ -515,7 +516,8 @@ export class Masker {
     remember: boolean,
     copies: readonly string[] = [],
   ): Promise<string[]> {
-    const literals = this.literalReals(restored, texts);
+    const restoredReals = [...restored, ...restoredParts(texts, restored)];
+    const literals = this.literalReals(restoredReals);
     const patterns = this.targets.map(({ pattern }) => pattern);
     if (literals.length > 0) patterns.push(literalPattern(literals, false));
     if (copies.length > 0) patterns.push(copiesPattern(copies));
@@ -523,6 +525,7 @@ export class Masker {
       texts,
       patterns,
       remember ? this.history : new Map(),
+      restoredReals,
     );
     const views = scanned.map((text) => text.views);
     const inputs = [...texts, ...views.flat().map((view) => view.text)];
@@ -639,8 +642,7 @@ export class Masker {
   ): Promise<unknown> {
     const texts = this.payloadTexts(payload);
     assertPayloadSize(texts);
-    // A remembered scan ran without the literals of `restored`, so a text that holds one is scanned again.
-    const masked = await this.maskBatch(texts, restored, restored.length === 0);
+    const masked = await this.maskBatch(texts, restored, true);
     let next = 0;
     return mapPayload(payload, () => masked[next++], this.format);
   }
@@ -750,7 +752,7 @@ export class Masker {
     transforms: boolean,
   ): boolean {
     const length = (real: string) => real.replace(/\s+/g, "").length;
-    const long = [...this.literalReals([], []), ...this.known].filter(
+    const long = [...this.literalReals([]), ...this.known].filter(
       (real) => length(real) >= MIN_LEARNED_LENGTH,
     );
     const short = this.known.filter(
