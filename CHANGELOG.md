@@ -8,6 +8,14 @@
 - Claude Code: a project `NO_PROXY` can no longer send requests to an HTTP proxy before they reach lmsk.
 - Claude Code: the proxy refuses an upstream redirect, which would send your API key to another address.
 - Text inside an object under a `signature` or `encrypted_content` key, such as a tool schema field, is now masked. A string under such a key still passes unchanged.
+- The pi peer dependencies require version 1.
+
+- The protected-path checks of lmsk ignore case, so `~/.AWS/credentials` or `.NPMRC` on a macOS or Windows disk is protected too. On Linux, a path that differs only in case from a protected path is now also protected.
+- Claude Code: if lmsk ends on an error, it now ends `claude` too. Before, `claude` kept sending to the closed port, which another local user could take.
+- Claude Code: the deny hook runs the lmsk of the same package, not the first `lmsk` on your `PATH`.
+- Claude Code: a project `NO_PROXY` can no longer send requests to an HTTP proxy before they reach lmsk.
+- Claude Code: the proxy refuses an upstream redirect, which would send your API key to another address.
+- Text inside an object under a `signature` or `encrypted_content` key, such as a tool schema field, is now masked. A string under such a key still passes unchanged.
 
 - The protected-path checks of lmsk ignore case, so `~/.AWS/credentials` or `.NPMRC` on a macOS or Windows disk is protected too. On Linux, a path that differs only in case from a protected path is now also protected.
 - Claude Code: if lmsk ends on an error, it now ends `claude` too. Before, `claude` kept sending to the closed port, which another local user could take.
