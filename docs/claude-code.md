@@ -110,6 +110,7 @@ The limits that apply to each agent are in [What lmsk does not protect](GUIDE.md
 - **Claude Code saves real values on your computer.** The proxy changes only what goes to Anthropic. The conversation files of Claude Code (`~/.claude/projects/`) keep the real tool output.
 - **A hidden copy can stay in an earlier tool result.** The proxy withholds a tool result that holds a secret spaced out, wrapped, reversed or encoded. If lmsk learns the secret only after the output, the earlier requests already sent the output. Claude Code still shows you the real output.
 - **The proxy knows a tool only by its name.** A tool with the name of a built-in tool gets real values too.
+- **The request path and query are not masked.** The proxy masks only the request body and headers.
 - **Tools that run at Anthropic see fakes.** A web search that Anthropic runs uses the masked text.
 - **The vault is in `~/.local/state/lmsk/vaults/`**, or in `lmsk/vaults/` in `XDG_STATE_HOME` if you set it. It is not encrypted. Exclude it from cloud backups.
 
