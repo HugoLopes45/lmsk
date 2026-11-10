@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,4 +33,29 @@ describe("runAgent", () => {
       );
     },
   );
+
+  it("ends the agent when lmsk ends on an error, so the agent never sends to a port that another user can take", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "lmsk-agent-"));
+    const out = join(dir, "pid");
+    const agent = `require("node:fs").writeFileSync(${JSON.stringify(out)}, String(process.pid)); setInterval(() => undefined, 1000)`;
+    const lmsk = `
+      import { existsSync } from "node:fs";
+      import { runAgent } from ${JSON.stringify(join(import.meta.dirname, "../../src/proxy/agent.ts"))};
+      void runAgent(process.execPath, ["-e", ${JSON.stringify(agent)}], { cwd: ${JSON.stringify(dir)}, env: {}, notify: () => undefined });
+      const started = setInterval(() => { if (existsSync(${JSON.stringify(out)})) { clearInterval(started); throw new Error("proxy failed"); } }, 10);
+    `;
+    const parent = spawn(
+      process.execPath,
+      ["--input-type=module", "-e", lmsk],
+      {
+        stdio: "ignore",
+      },
+    );
+
+    await once(parent, "exit");
+    const pid = Number(readFileSync(out, "utf8"));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(() => process.kill(pid, 0)).toThrow("ESRCH");
+  });
 });

@@ -3,6 +3,9 @@
 ## Unreleased
 
 - The protected-path checks of lmsk ignore case, so `~/.AWS/credentials` or `.NPMRC` on a macOS or Windows disk is protected too. On Linux, a path that differs only in case from a protected path is now also protected.
+- Claude Code: if lmsk ends on an error, it now ends `claude` too. Before, `claude` kept sending to the closed port, which another local user could take.
+
+- The protected-path checks of lmsk ignore case, so `~/.AWS/credentials` or `.NPMRC` on a macOS or Windows disk is protected too. On Linux, a path that differs only in case from a protected path is now also protected.
 
 ## 0.2.1
 
