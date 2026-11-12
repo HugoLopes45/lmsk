@@ -296,17 +296,24 @@ describe("Guard", () => {
     guard.setRedaction("off");
     const raw = { content: REAL };
     expect(await guard.maskPayload(raw)).toBe(raw);
+    expect(await guard.payloadMasker().maskPayload(raw)).toBe(raw);
   });
 
-  it("fails a bound payload mask once the guard opens again", async () => {
-    const { guard, open } = harness();
-    open();
-    const masker = guard.payloadMasker();
-    open();
-    await expect(masker.maskPayload({ content: REAL })).rejects.toMatchObject({
-      code: "SESSION_CHANGED",
-    });
-  });
+  it.each(["enabled", "off"] as const)(
+    "fails an obsolete bound payload mask when the new session is %s",
+    async (mode) => {
+      const { guard, open } = harness();
+      open();
+      const masker = guard.payloadMasker();
+      open();
+      guard.setRedaction(mode);
+      await expect(masker.maskPayload({ content: REAL })).rejects.toMatchObject(
+        {
+          code: "SESSION_CHANGED",
+        },
+      );
+    },
+  );
 
   it("runs masks one at a time", async () => {
     const { guard, open } = harness();

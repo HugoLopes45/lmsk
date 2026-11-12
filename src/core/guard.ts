@@ -275,6 +275,8 @@ export class Guard {
     payload: unknown,
     callIds: readonly string[],
   ): Promise<unknown> {
+    if (!this.state.ok || this.state.opened !== opened)
+      throw new CodedError("SESSION_CHANGED");
     if (this.off) return payload;
     return this.exclusive(opened, async () => {
       const { config, masker, store } = opened;

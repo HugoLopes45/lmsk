@@ -243,9 +243,18 @@ export async function startProxy(
       },
     );
   });
-  await new Promise<void>((resolve) =>
-    server.listen(options.port, "127.0.0.1", resolve),
-  );
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(options.port, "127.0.0.1", () => {
+        server.removeListener("error", reject);
+        resolve();
+      });
+    });
+  } catch (error) {
+    guard.close();
+    throw error;
+  }
   const address = server.address();
   if (address === null || typeof address === "string")
     throw new Error("proxy has no TCP address");

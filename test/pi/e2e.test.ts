@@ -1,3 +1,4 @@
+import { ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { Worker } from "node:worker_threads";
 import { request } from "node:http";
@@ -246,6 +247,64 @@ describe("supplied extension wire integration", () => {
       });
       await expect(assertCliCapture(h, finished, marker)).rejects.toThrow();
       await finished;
+    },
+    INTEGRATION_TIMEOUT_MS,
+  );
+
+  it(
+    "stops other owned CLI children when one termination reports failure",
+    async () => {
+      const h = await harness({
+        extensions: [],
+        entrypoint,
+        files: {
+          "hold.mjs":
+            'export default pi => { setInterval(() => {}, 1000); pi.on("session_shutdown", () => new Promise(() => {})); };',
+        },
+      });
+      const args = ["-e", join(h.cwd, "hold.mjs"), "Wait at shutdown"];
+      const finished = [h.print(args), h.print(args)].map((run) =>
+        run.then(
+          () => "resolved",
+          () => "rejected",
+        ),
+      );
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let disposal: Promise<void> | undefined;
+      try {
+        await h.provider.waitForRequests(2);
+        const kill = ChildProcess.prototype.kill;
+        let failed = false;
+        vi.spyOn(ChildProcess.prototype, "kill").mockImplementation(function (
+          this: ChildProcess,
+          signal,
+        ) {
+          const result = kill.call(this, signal);
+          if (!failed) {
+            failed = true;
+            return false;
+          }
+          return result;
+        });
+        disposal = h.dispose();
+        await expect(disposal).rejects.toThrow();
+        expect(
+          await Promise.race([
+            Promise.all(finished),
+            new Promise<string>((resolve) => {
+              timer = setTimeout(() => resolve("still running"), 500);
+            }),
+          ]),
+        ).toEqual(["rejected", "rejected"]);
+      } finally {
+        clearTimeout(timer);
+        vi.restoreAllMocks();
+        try {
+          if (disposal === undefined) await h.dispose();
+        } finally {
+          await Promise.all(finished);
+        }
+      }
     },
     INTEGRATION_TIMEOUT_MS,
   );

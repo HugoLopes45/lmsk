@@ -47,7 +47,7 @@ The first form means that the extension stopped one request and the session cont
 | `BLOCKED` | A rule with the `block` strategy found a value. Other causes: a found value overlaps a fake, or a value in an encoded text cannot get a safe fake. | If you made a `block` rule, remove the value from the conversation, as for `HIDDEN_REAL`. Otherwise, start a new session with `/new`. |
 | `PAYLOAD_SIZE` | The text that masking scans in a request is larger than 8 MiB. Images, PDFs, and the signatures and encrypted content of provider blocks do not count. | Start a new session with `/new`. Ask the agent for smaller outputs, for example part of a file. |
 | `PAYLOAD_SHAPE` | The request is not plain JSON data. | Report the problem as an issue. Do not include secrets. |
-| `VAULT_FULL` | The vault has 50000 values, or its values have 2000000 characters together. This is the maximum. | [Start a new vault](#start-a-new-vault). |
+| `VAULT_FULL` | The vault has 50000 values, or its values have 2000000 characters together, or the file `vault.jsonl` has a size of 32 MiB. This is the maximum. | [Start a new vault](#start-a-new-vault). |
 | `VAULT_COLLISION` | The extension found no unused fake for a value, or a line of the vault gives one fake to two values. | Send the request again. If the error comes back, [start a new vault](#start-a-new-vault). |
 
 ## Codes that block the session
@@ -57,15 +57,17 @@ The vault is the file `vault.jsonl` that keeps each real value next to its fake.
 | Code | Meaning | What to do |
 |---|---|---|
 | `CONFIG_INVALID` | A configuration file has an error. See [CONFIG_INVALID](#config_invalid). | Correct the file, then type `/reload`. |
-| `STORE_BUSY` | Another process holds the lock file `vault.lock` of the vault, and does not release it. | Close your other agents. If the error stays, delete the `vault.lock` file in the vault folder by hand. Then type `/reload`. |
+| `STORE_BUSY` | Another process held `vault.lock`, the lock of the vault, for more than 2 seconds. Or the lock has no owner that lmsk knows, for example after a process stopped while it took or released the lock. | Type `/reload`. If the error comes back, do steps 1 and 2 of [Start a new vault](#start-a-new-vault). Remove `vault.lock` from the vault folder. Then do step 4, and start pi again. |
 | `STORE_UNSAFE` | The vault folder, `vault.jsonl` or `key` has wrong permissions or a wrong owner. The folder must have mode 700 and the two files mode 600, all owned by your user. | On macOS or Linux, run `chmod 700` on the folder and `chmod 600` on the two files. Then type `/reload`. |
-| `STORE_CORRUPT` | A line of `vault.jsonl` is not valid, or the `key` file has a wrong length. | [Start a new vault](#start-a-new-vault). If the `key` file is bad, move it too. |
+| `STORE_CORRUPT` | A line of `vault.jsonl` is not valid, another process changed `vault.jsonl` while lmsk used it, or the `key` file has a wrong length. | Send the request again. If the error comes back, [start a new vault](#start-a-new-vault). If the `key` file is bad, move it too. |
 | `STORE_IO` | The computer could not read or write the vault file, for example because the disk is full. | Correct the disk problem, then type `/reload`. |
 | `UNEXPECTED_ERROR` | Another error. A `fixed` rule without `{n}` in its `replacement` causes it. A failure to read your user name, host name or git identity causes it too. | Check your `fixed` rules. Then type `/reload`. If the error stays, report it as an issue. |
 | `NOT_STARTED` | The session has not started yet. | Wait, or type `/reload`. |
 | `SESSION_SHUTDOWN` | The session is closing. | Start or open a session. |
 
-A failed read or save of the vault during a request stops only that request. But a line of `vault.jsonl` that is not valid stops each later request with `STORE_CORRUPT` or `VAULT_COLLISION`, until you [start a new vault](#start-a-new-vault).
+After you upgrade lmsk, start each pi session again. If you use Claude Code, also run `lmsk install claude` again. It starts the proxy with the new version.
+
+A failed read or save of the vault during a request stops only that request. But a line of `vault.jsonl` that is not valid stops each later request with `STORE_CORRUPT` or `VAULT_COLLISION`, until you [start a new vault](#start-a-new-vault). The next save removes a last line that a stopped process did not finish.
 
 ### Start a new vault
 

@@ -1,9 +1,11 @@
-import { mkdtempSync } from "node:fs";
+import fs, { mkdtempSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { claudeProfile, serveClaude } from "../../src/claude-code/index.ts";
+import { serveToken } from "../../src/claude-code/serve.ts";
 
 const REAL = "Zq7Kp2Lm9Xw4Rt8Vb3Nc";
 
@@ -63,6 +65,48 @@ async function upstream(): Promise<{
     close: () => server.close(),
   };
 }
+
+describe("serveToken", () => {
+  it("refuses an invalid existing token without replacing it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "lmsk-token-"));
+    const path = join(dir, "serve-token");
+    fs.writeFileSync(path, "incomplete", { mode: 0o600 });
+    expect(() => serveToken(dir)).toThrow(
+      expect.objectContaining({ code: "TOKEN_CORRUPT" }),
+    );
+    expect(fs.readFileSync(path, "utf8")).toBe("incomplete");
+    expect(fs.readdirSync(dir)).toEqual(["serve-token"]);
+  });
+
+  it("shares a complete token with a caller arriving during the first write", () => {
+    const dir = mkdtempSync(join(tmpdir(), "lmsk-token-"));
+    const write = fs.writeFileSync;
+    let intercepted = false;
+    let concurrent: string | undefined;
+    vi.spyOn(fs, "writeFileSync").mockImplementation((file, data, options) => {
+      if (intercepted) return write(file, data, options);
+      intercepted = true;
+      const fd =
+        typeof file === "number" ? file : fs.openSync(file, "wx", 0o600);
+      try {
+        concurrent = serveToken(dir);
+        write(fd, data, options);
+      } finally {
+        if (typeof file !== "number") fs.closeSync(fd);
+      }
+    });
+    syncBuiltinESMExports();
+    try {
+      const first = serveToken(dir);
+      expect(concurrent).toMatch(/^[\w-]{43}$/);
+      expect(first).toBe(concurrent);
+      expect(serveToken(dir)).toBe(first);
+    } finally {
+      vi.restoreAllMocks();
+      syncBuiltinESMExports();
+    }
+  });
+});
 
 describe("serveClaude", () => {
   const options = (home: string, env: Record<string, string> = {}) => ({

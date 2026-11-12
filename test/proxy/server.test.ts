@@ -1,4 +1,6 @@
+import { execFile } from "node:child_process";
 import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
+import { promisify } from "node:util";
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -82,6 +84,34 @@ function dirs(
   writeFileSync(configPath, JSON.stringify(config));
   return { configPath, stateDir: join(root, "state") };
 }
+
+it("rejects startup when another server owns the port", async () => {
+  const occupied = await upstream();
+  const paths = dirs();
+  const source = new URL("../../src/proxy/server.ts", import.meta.url).href;
+  const adapter = new URL("../../src/claude-code/profile.ts", import.meta.url)
+    .href;
+  const script = `
+    import assert from "node:assert/strict";
+    import { startProxy } from ${JSON.stringify(source)};
+    import { claudeProfile } from ${JSON.stringify(adapter)};
+    await assert.rejects(startProxy(claudeProfile({
+      cwd: "/", env: {}, protectedPaths: [],
+    }), {
+      configPaths: [], stateDir: ${JSON.stringify(paths.stateDir)}, env: {},
+      notify: () => {}, token: "test-token", port: ${new URL(occupied.url).port},
+    }), { code: "EADDRINUSE" });
+  `;
+  await expect(
+    promisify(execFile)(
+      process.execPath,
+      ["--input-type=module", "-e", script],
+      {
+        timeout: 5000,
+      },
+    ),
+  ).resolves.toMatchObject({ stdout: "", stderr: "" });
+});
 
 async function proxy(
   upstreamUrl: string,
