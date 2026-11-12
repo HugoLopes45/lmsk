@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0
+
 - Breaking: `lmsk claude` is gone. Run `lmsk install claude` once. It starts the proxy as a service at login and points your Claude Code user settings at it. Then start `claude` as usual: each session goes through the proxy. Run it again after you update lmsk or Node.js, change the configuration file, or start to use a gateway. There is no uninstall command: see [Uninstall](docs/claude-code.md#uninstall).
 - Breaking: replies show real values. The proxy puts the real values back into each streamed reply, and the pi extension into each reply. Thinking text keeps its fakes. A value under 8 characters also keeps its fake, unless it is a value of a `literal` or `env` rule. A value that the model glues to a letter, a digit or `_` keeps its fake too.
 - Breaking: the pi session file holds real values. The extension puts the real values back into the summaries of `/compact` and `/tree` as it does into replies. Thinking text, and some short or glued values in replies and summaries, keep their fakes.
