@@ -1,5 +1,13 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  linkSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { CodedError, isRecord, machinePaths } from "../core/index.ts";
 import {
@@ -28,13 +36,21 @@ export interface ServeOptions {
 export function serveToken(stateDir: string): string {
   const path = join(stateDir, "serve-token");
   mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  const candidate = join(
+    stateDir,
+    `serve-token.${randomBytes(16).toString("hex")}.tmp`,
+  );
+  const fd = openSync(candidate, "wx", 0o600);
   try {
-    writeFileSync(path, randomBytes(32).toString("base64url"), {
-      mode: 0o600,
-      flag: "wx",
-    });
-  } catch (error) {
-    if (!isRecord(error) || error.code !== "EEXIST") throw error;
+    writeFileSync(fd, randomBytes(32).toString("base64url"));
+    try {
+      linkSync(candidate, path);
+    } catch (error) {
+      if (!isRecord(error) || error.code !== "EEXIST") throw error;
+    }
+  } finally {
+    closeSync(fd);
+    unlinkSync(candidate);
   }
   const token = readFileSync(path, "utf8");
   if (!/^[\w-]{43}$/.test(token)) throw new CodedError("TOKEN_CORRUPT");

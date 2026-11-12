@@ -3,11 +3,14 @@ import {
   closeSync,
   fstatSync,
   fsyncSync,
+  ftruncateSync,
   lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
+  readdirSync,
   readSync,
+  rmdirSync,
   unlinkSync,
   writeSync,
 } from "node:fs";
@@ -15,7 +18,7 @@ import { join } from "node:path";
 import { isRecord } from "./config.ts";
 import { CodedError } from "./errors.ts";
 import { keyedBytes } from "./keyed-bytes.ts";
-import { type Journal, Vault, type VaultEntry } from "./vault.ts";
+import { type Journal, Vault, type VaultEntry, VaultError } from "./vault.ts";
 
 export type MachineVaultCode =
   "STORE_CORRUPT" | "STORE_UNSAFE" | "STORE_BUSY" | "STORE_IO";
@@ -28,6 +31,8 @@ const FILE_MODE = 0o600;
 /** A writer holds the lock only while it renders one batch, so a longer wait means a stuck writer. */
 const LOCK_WAIT_MS = 2000;
 const LOCK_POLL_MS = 5;
+/** Bounds the records of tool calls, which have no other limit, and so the time to read the vault. */
+const MAX_JOURNAL_BYTES = 32 * 1024 * 1024;
 const SLEEP = new Int32Array(new SharedArrayBuffer(4));
 
 function isCode(error: unknown, code: string): boolean {
@@ -69,49 +74,75 @@ function writeAll(fd: number, bytes: Buffer): void {
     offset += writeSync(fd, bytes, offset, bytes.length - offset);
 }
 
-/** A lock file that names a process that ended, or this process, which holds no lock between calls. */
-function isStale(path: string): boolean {
-  let text: string;
+function isStale(pid: string): boolean {
+  if (!/^\d+$/.test(pid)) return false;
   try {
-    text = readFileSync(path, "utf8");
-  } catch (error) {
-    if (isCode(error, "ENOENT")) return false;
-    throw error;
-  }
-  // An empty lock is a writer between its create and its write.
-  if (!/^\d+$/.test(text)) return false;
-  const pid = Number(text);
-  if (pid === process.pid) return true;
-  try {
-    process.kill(pid, 0);
+    process.kill(Number(pid), 0);
     return false;
   } catch (error) {
     return isCode(error, "ESRCH");
   }
 }
 
-/** Creates the lock file with this process id. Waits for a live holder, takes over a stale one. */
-function acquire(path: string): number {
+function reclaimDirectory(path: string): boolean {
+  const owners = readdirSync(path);
+  if (owners.length !== 1) return false;
+  const owner = owners[0];
+  const pid = /^(\d+)-[a-f0-9]{32}$/.exec(owner)?.[1];
+  if (pid === undefined || !isStale(pid)) return false;
+  // Only the process that removes this exact marker may remove its directory.
+  unlinkSync(join(path, owner));
+  rmdirSync(path);
+  return true;
+}
+
+function reclaim(path: string): boolean {
+  try {
+    if (lstatSync(path).isDirectory()) return reclaimDirectory(path);
+    if (!isStale(readFileSync(path, "utf8"))) return false;
+    try {
+      unlinkSync(path);
+    } catch (error) {
+      if (!isCode(error, "EPERM") || !lstatSync(path).isDirectory())
+        throw error;
+    }
+    return true;
+  } catch (error) {
+    if (
+      isCode(error, "ENOENT") ||
+      isCode(error, "ENOTDIR") ||
+      isCode(error, "EISDIR")
+    )
+      return true;
+    throw error;
+  }
+}
+
+/** Claims a directory whose unique owner marker cannot name a later holder. */
+function acquire(path: string): string {
+  const owner = join(path, `${process.pid}-${randomBytes(16).toString("hex")}`);
   const until = Date.now() + LOCK_WAIT_MS;
   for (;;) {
     try {
-      const fd = openSync(path, "wx", FILE_MODE);
-      writeAll(fd, Buffer.from(String(process.pid)));
-      return fd;
+      mkdirSync(path, DIR_MODE);
     } catch (error) {
       if (!isCode(error, "EEXIST")) throw error;
-    }
-    if (isStale(path)) {
-      try {
-        unlinkSync(path);
-      } catch (error) {
-        if (!isCode(error, "ENOENT")) throw error;
-      }
+      if (Date.now() > until)
+        throw new MachineVaultError("STORE_BUSY", "the vault lock is held");
+      if (!reclaim(path)) Atomics.wait(SLEEP, 0, 0, LOCK_POLL_MS);
       continue;
     }
-    if (Date.now() > until)
-      throw new MachineVaultError("STORE_BUSY", "the vault lock is held");
-    Atomics.wait(SLEEP, 0, 0, LOCK_POLL_MS);
+    let created = false;
+    try {
+      const fd = openSync(owner, "wx", FILE_MODE);
+      created = true;
+      closeSync(fd);
+      return owner;
+    } catch (error) {
+      if (created) unlinkSync(owner);
+      rmdirSync(path);
+      throw error;
+    }
   }
 }
 
@@ -152,6 +183,10 @@ class FileJournal implements Journal {
   private readonly calls: Map<string, string[]>;
   /** The end of the last complete line read. */
   private offset = 0;
+  /** How many bytes after `offset` the last read found. Under the lock, they are a line that a stopped write did not finish. */
+  private torn = 0;
+  /** No other process writes or cuts the file while this process holds the lock. */
+  private holding = false;
 
   constructor(dir: string, calls: Map<string, string[]>) {
     this.path = join(dir, "vault.jsonl");
@@ -160,20 +195,26 @@ class FileJournal implements Journal {
   }
 
   locked<T>(write: () => T): T {
-    const fd = io(() => acquire(this.lockPath));
+    const owner = io(() => acquire(this.lockPath));
+    this.holding = true;
     try {
       return write();
     } finally {
-      closeSync(fd);
-      io(() => unlinkSync(this.lockPath));
+      this.holding = false;
+      io(() => {
+        unlinkSync(owner);
+        rmdirSync(this.lockPath);
+      });
     }
   }
 
   /** Moves past the new lines only after all of them parse and `take` accepts them, so a refused line is read again. */
   unread(take: (entries: VaultEntry[]) => void): void {
-    const text = io(() => this.readNew());
-    const complete = text.slice(0, text.lastIndexOf("\n") + 1);
-    const lines = complete
+    const bytes = io(() => this.readNew());
+    // Counts raw bytes: a decoded torn character has another length.
+    const end = bytes.lastIndexOf(0x0a) + 1;
+    const lines = bytes
+      .toString("utf8", 0, end)
       .split("\n")
       .filter((raw) => raw !== "")
       .map(parseLine);
@@ -182,7 +223,8 @@ class FileJournal implements Journal {
     );
     for (const line of lines)
       if (line.kind === "call") this.addCall(line.id, line.reals);
-    this.offset += Buffer.byteLength(complete);
+    this.offset += end;
+    this.torn = bytes.length - end;
   }
 
   append(entries: VaultEntry[]): void {
@@ -200,20 +242,23 @@ class FileJournal implements Journal {
     this.calls.set(id, [...(this.calls.get(id) ?? []), ...reals]);
   }
 
-  /** Appends one line per record. The lock holder runs alone, so text past the last line is a torn write. */
+  /** Appends one line per record, after it cuts the `torn` bytes. It refuses a file whose size changed since the read under the lock. */
   private write(records: readonly object[]): void {
     if (records.length === 0) return;
     const bytes = Buffer.from(
       records.map((record) => `${JSON.stringify(record)}\n`).join(""),
     );
+    if (this.offset + bytes.length > MAX_JOURNAL_BYTES)
+      throw new VaultError(
+        "VAULT_FULL",
+        `the vault file would exceed ${MAX_JOURNAL_BYTES} bytes`,
+      );
     io(() => {
       const fd = openSync(this.path, "a");
       try {
-        if (fstatSync(fd).size !== this.offset)
-          throw new MachineVaultError(
-            "STORE_CORRUPT",
-            "the vault ends inside a line",
-          );
+        if (fstatSync(fd).size !== this.offset + this.torn)
+          throw new MachineVaultError("STORE_CORRUPT", "the vault changed");
+        if (this.torn > 0) ftruncateSync(fd, this.offset);
         writeAll(fd, bytes);
         fsyncSync(fd);
       } finally {
@@ -223,21 +268,31 @@ class FileJournal implements Journal {
     this.offset += bytes.length;
   }
 
-  private readNew(): string {
+  /**
+   * Under the lock, reads to the end, so `write` cuts only a torn line. Without the lock, one read: a writer
+   * can cut a torn line meanwhile, and a second read could join its start to the next line. A short read
+   * leaves the rest for the next call.
+   */
+  private readNew(): Buffer {
     const fd = openSync(this.path, "r");
     try {
       const size = fstatSync(fd).size;
+      if (size < this.offset)
+        throw new MachineVaultError("STORE_CORRUPT", "the vault got shorter");
       const bytes = Buffer.alloc(size - this.offset);
-      let read = 0;
-      while (read < bytes.length)
-        read += readSync(
+      let read = readSync(fd, bytes, 0, bytes.length, this.offset);
+      while (this.holding && read < bytes.length) {
+        const count = readSync(
           fd,
           bytes,
           read,
           bytes.length - read,
           this.offset + read,
         );
-      return bytes.toString("utf8");
+        if (count === 0) break;
+        read += count;
+      }
+      return bytes.subarray(0, read);
     } finally {
       closeSync(fd);
     }

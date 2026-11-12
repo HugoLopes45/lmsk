@@ -436,7 +436,10 @@
   for (const button of document.querySelectorAll('[data-copy]')) {
     button.hidden = false;
     button.setAttribute('aria-label', 'Copy: ' + button.previousElementSibling.textContent.split('\n')[0]);
+    let reset;
     button.addEventListener('click', async () => {
+      clearTimeout(reset);
+      button.disabled = true;
       try {
         await navigator.clipboard.writeText(button.previousElementSibling.textContent);
         button.textContent = 'Copied';
@@ -444,8 +447,10 @@
       } catch {
         button.textContent = 'Copy failed';
         status.textContent = 'Copy failed. Select the text and copy it.';
+      } finally {
+        button.disabled = false;
       }
-      setTimeout(() => { button.textContent = 'Copy'; }, 2000);
+      reset = setTimeout(() => { button.textContent = 'Copy'; }, 2000);
     });
   }
 </script>

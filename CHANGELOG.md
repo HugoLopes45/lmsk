@@ -17,6 +17,7 @@
 - A text that hides a secret spaced out, wrapped, reversed or encoded is withheld only in the request. You still see the real text.
 - pi: a provider error is saved as pi gets it, not as a fixed text such as `503 provider error, text withheld`.
 - pi: lmsk now masks the model calls that other extensions make with `ctx.modelRegistry.stream`, `streamSimple` or `complete`. If masking fails, the call ends with an error and sends nothing.
+- pi: a `/compact` or `/tree` summary that an earlier session started no longer reaches the model provider unmasked after `/lmsk off`. lmsk cancels it.
 - The codes `SIGNED_CHANGE`, `STORE_CONFLICT`, `STORE_MISSING`, `STORE_EXISTS`, `STORE_INVALID_ID`, `STORE_INVALID`, `STORE_EXHAUSTED`, `STORE_REFERENCE_INVALID`, `STORE_REFERENCE_AMBIGUOUS`, `STORE_REFERENCE_CONFLICT` and `VAULT_LEGACY` are gone.
 - The package exports its engine with TypeScript types, so you can add lmsk to your own agent: `import { Guard } from "@hugolopes45/lmsk"`. The README shows an example. Imports of files inside `dist` no longer work.
 - A tool result is now withheld when it holds a known secret written with JSON escapes (`\/`, `\"`) or HTML entities (`&amp;`, `&#47;`). A secret in `\u` escapes already was.
@@ -24,6 +25,7 @@
 - Claude Code: the deny hook reads a `Bash` command also without its quotes and backslashes, so `cat .e''nv` and `cat .e$'n'v` are refused like `cat .env`.
 - More commands keep their fakes by default: `gh`, `glab`, `npm publish`, `pnpm publish`, `yarn publish`, `docker push`, `docker login`, `podman push`, `podman login`, `socat`, `openssl s_client`, `aws`, `gcloud`, `az`, `kubectl`, `helm`, `xh`, `eval`, `/dev/tcp` and `/dev/udp`, and inline code for `python`, `python3`, `node`, `deno`, `bun`, `perl`, `ruby` and `php`. To remove one, add a `!` item to your global configuration, for example `"!aws"`.
 - A password in a connection URL is no longer masked when it is an upper-case variable, a placeholder, or 8 to 15 letters and `_`. Examples are `${DB_PASSWORD}`, `<password>`, `****` and `postgres`. So a real password of 8 to 15 letters in a URL now reaches the model provider. Add a `literal` rule for it.
+- A word from a known secret is no longer masked alone, such as `tangerine` from `tangerine-elephant-staple`, or the domain of an email. Masking it also changed each text that had the word by chance. The word is still masked in a request that holds the tool call that received the secret.
 - A `Bearer` token of 8 to 15 characters after an `Authorization` key is now masked. Before, a `Bearer` token needed 16 characters. Such a token stays visible when it has only letters, `-` and `_`, such as `Bearer undefined`, `Bearer REDACTED` or `Bearer your-token-here`.
 - A base64 document or data URL passes unchanged only when it is an image or a PDF. Other base64 documents and data URLs get the checks of other text. A `signature` or `encrypted_content` string passes unchanged only in a provider block: thinking, reasoning, signed text, web search result, compaction, advisor result, an OpenRouter `reasoning.text` detail, or a Bedrock `reasoningText`. Before, a tool argument with such a key reached the model provider unmasked.
 - A tool argument field that a request passes unchanged keeps its fakes, such as `encrypted_content` in an object of type `reasoning`. Before, lmsk put the real value back in it, and the next request sent that value to the model provider unmasked.
@@ -42,6 +44,7 @@
 - A request no longer fails with `VAULT_COLLISION` when an encoded secret comes after a longer encoded run that holds it. An example is base64 with `=` padding.
 - With a big vault, a request costs less. With 8000 values, lmsk took about 2.2 seconds to mask a request of a recorded Claude Code session, and now takes about 0.35 seconds. After lmsk learns a new value, it took about 3.9 seconds, and now takes about 0.2 seconds.
 - The vault is full when its values have 2000000 characters together. A new value then stops the request with `VAULT_FULL`. Before, a vault with more than about 6 MB of values made V8 stop pi or the proxy.
+- The vault file `vault.jsonl` has a maximum size of 32 MiB. A save that would make it larger stops with `VAULT_FULL`.
 
 ## 0.2.1
 

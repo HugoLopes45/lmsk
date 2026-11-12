@@ -58,19 +58,26 @@ async function deadline<T>(
 
 async function stopPrints(runs: Set<PrintRun>): Promise<void> {
   const pending = [...runs];
-  for (const { child } of pending) {
-    if (
-      child.exitCode === null &&
-      child.signalCode === null &&
-      !child.kill("SIGKILL")
-    )
-      throw new Error("Could not terminate owned CLI child");
-  }
-  await deadline(
-    Promise.all(pending.map((run) => run.closed)),
-    SHUTDOWN_TIMEOUT_MS,
-    "CLI shutdown",
+  const results = await Promise.allSettled([
+    ...pending.map(async ({ child }) => {
+      if (
+        child.exitCode === null &&
+        child.signalCode === null &&
+        !child.kill("SIGKILL")
+      )
+        throw new Error("Could not terminate owned CLI child");
+    }),
+    deadline(
+      Promise.all(pending.map((run) => run.closed)),
+      SHUTDOWN_TIMEOUT_MS,
+      "CLI shutdown",
+    ),
+  ]);
+  const errors: unknown[] = results.flatMap((result) =>
+    result.status === "rejected" ? [result.reason] : [],
   );
+  if (errors.length > 0)
+    throw new AggregateError(errors, "Could not stop owned CLI children");
 }
 const MAX_CLI_OUTPUT_BYTES = 1024 * 1024;
 const MAX_CAPTURE_BYTES = 64 * 1024 * 1024;
