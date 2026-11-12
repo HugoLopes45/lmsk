@@ -1,10 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  isToolCallEventType,
-  type ToolCallEvent,
-} from "@earendil-works/pi-coding-agent";
 import type { HookApi } from "./host.ts";
 
 const PATH_TOOLS: ReadonlySet<string> = new Set(["read", "grep", "find", "ls"]);
@@ -22,17 +18,17 @@ function normalizePath(path: string): string {
 }
 
 /** The path that a core path tool opens, as pi's tool resolves it. */
-export function pathOf(event: ToolCallEvent): string | undefined {
-  if (!PATH_TOOLS.has(event.toolName) || !("path" in event.input))
-    return undefined;
-  return typeof event.input.path === "string"
-    ? normalizePath(event.input.path)
-    : undefined;
+export function pathOf(
+  tool: string,
+  input: Record<string, unknown>,
+): string | undefined {
+  if (!PATH_TOOLS.has(tool)) return undefined;
+  return typeof input.path === "string" ? normalizePath(input.path) : undefined;
 }
 
 /** The input field that holds a shell command. */
-export function commandKeyOf(event: ToolCallEvent): string | undefined {
-  return isToolCallEventType("bash", event) ? "command" : undefined;
+export function commandKeyOf(tool: string): string | undefined {
+  return tool === "bash" ? "command" : undefined;
 }
 
 /** Pi lists a core builtin as `builtin:<name>`. A same-named extension tool replaces it and fails this check. */

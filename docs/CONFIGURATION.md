@@ -102,14 +102,14 @@ This example is a global file. Its `email` entry and its `!` glob are not allowe
 | `protectedPaths` | See [Default protected paths](#default-protected-paths) | Globs. The extension refuses `read`, `grep`, `find` and `ls` when the path argument, or the target of a link, matches one. | Global and project |
 | `networkCommands` | `curl`, `wget`, `ssh`, `scp`, `sftp`, `rsync`, `nc`, `ncat`, `telnet`, `ftp`, `git push` | Command words, not regexes. A space matches one or more spaces. A `bash` command that contains one of these words keeps its fakes. | Global and project |
 | `restoredTools` | pi: `read`, `grep`, `find`, `ls`, `edit`, `write`, `bash`. Claude Code: `Read`, `Write`, `Edit`, `Grep`, `Glob`, `Bash`. | The built-in tools whose arguments get real values back. Only these tools are allowed, so you can only remove tools. | Global only |
-| `withholdHiddenCopies` | `true` | Withholds a tool result that holds a secret in a hidden form: spaced out, wrapped, reversed or encoded. See below. | Global only |
-| `scanTimeoutMs` | `5000` | The time limit of one search, in milliseconds. A slower search blocks its request or withholds its tool result. The maximum is `2147483647`. | Global only |
+| `withholdHiddenCopies` | `true` | Withholds a text of a request that holds a known secret in a hidden form: spaced out, wrapped, reversed or encoded. See below. | Global only |
+| `scanTimeoutMs` | `5000` | The time limit of one search, in milliseconds. A slower search blocks its request. The maximum is `2147483647`. | Global only |
 
 About `withholdHiddenCopies`:
 
 - Set it to `false` if it withholds ordinary output.
-- A prefixed token glued to a word, such as `xghp_...`, is withheld in both cases.
-- In both cases, a tool result masks the run of letters and digits around a known secret glued to other text, such as `<secret>` in `build_<secret>`: `build_` stays. It also masks a copy in another case when the secret has a digit and 8 or more characters, such as `te1234567` for `TE1234567`. The run gets its own fake, and that fake restores to the exact spelling. A copy of a value of a `mask` or `block` rule is withheld instead.
+- A prefixed token glued to a word, such as `xghp_...`, stops the request in both cases, unless the vault already holds the token.
+- In both cases, a request masks the run of letters and digits around a known secret glued to other text. For example, in `build_<secret>`, `build_` stays. It also masks a copy in another case when the secret has a digit and 8 or more characters, such as `te1234567` for `TE1234567`. The run gets its own fake, and that fake restores to the exact spelling. A copy of a value of a `mask` or `block` rule stops the request instead.
 - With `false`, a copy split by spaces passes.
 - A value of your own rules with 4 to 7 characters is checked only as you wrote it. A copy in another case, with spaces, reversed or encoded passes in both cases. A value under 4 characters glued to a word is not checked.
 
@@ -117,9 +117,9 @@ About `networkCommands`: the check reads plain words only. Quotes, backslashes, 
 
 ### Default protected paths
 
-`**/.env*`, `**/*.pem`, `**/*.key`, `**/*.p12`, `**/*.pfx`, `**/*.jks`, `**/id_rsa*`, `**/id_ed25519*`, `**/.ssh/**`, `**/.aws/**`, `**/.kube/**`, `**/.gnupg/**`, `**/.config/gcloud/**`, `**/.docker/config.json`, `**/.npmrc`, `**/.pypirc`, `**/.netrc`, `**/.git-credentials`, `**/*.tfvars`, `**/*.tfstate`, `**/secrets.yaml`, `**/secrets.yml`, and the files of lmsk: `**/lmsk-vaults/**`, `**/lmsk/config.json`, `**/.pi/lmsk.json`, and `**/lmsk/vaults/**`, which holds the vaults of `lmsk claude`.
+`**/.env*`, `**/*.pem`, `**/*.key`, `**/*.p12`, `**/*.pfx`, `**/*.jks`, `**/id_rsa*`, `**/id_ed25519*`, `**/.ssh/**`, `**/.aws/**`, `**/.kube/**`, `**/.gnupg/**`, `**/.config/gcloud/**`, `**/.docker/config.json`, `**/.npmrc`, `**/.pypirc`, `**/.netrc`, `**/.git-credentials`, `**/*.tfvars`, `**/*.tfstate`, `**/secrets.yaml`, `**/secrets.yml`, and the files of lmsk: `**/lmsk-vaults/**` and `**/lmsk/config.json`, and with pi `**/.pi/lmsk.json`.
 
-With Claude Code, the proxy and the deny hook also protect the proxy's folders, `~/.config/lmsk/` and `~/.local/state/lmsk/`. The proxy withholds the result of a Claude Code `Read`, `Write`, `Edit`, `Grep` or `Glob` call on a protected path. The deny hook also checks each word of a shell command. See [Deny hooks](claude-code.md#how-the-deny-hook-works).
+Each agent also protects the folders of lmsk, `~/.config/lmsk/` and `~/.local/state/lmsk/`. With Claude Code, a tool call whose path becomes a protected path after restore keeps its fakes. The hook of Claude Code also checks each word of a shell command. See [How the hook works](claude-code.md#how-the-hook-works).
 
 A protected path checks only the path argument of `read`, `grep`, `find` and `ls`. A `grep` or `find` on a whole folder, or a `bash` command, can still read a protected file. The masking rules still apply to that output.
 

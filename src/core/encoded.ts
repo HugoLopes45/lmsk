@@ -119,8 +119,18 @@ export function decodedViews(text: string): View[] {
 }
 
 const HEX_RUN = /[0-9A-Fa-f]{8,}/g;
-const BYTE_ESCAPE = /\\x([0-9A-Fa-f]{2})/g;
-const UNIT_ESCAPE = /\\u([0-9A-Fa-f]{4})/g;
+// One pass per family, as in JSON and HTML, so a `\\` or `&` that a pass decodes starts no escape in that pass.
+// Markdown, as in a fetched web page, can escape any ASCII punctuation.
+const ESCAPE = /\\(x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|[!-/:-@[-`{-~])/g;
+const ENTITY =
+  /&(?:#0*(\d{1,7})|#[xX]0*([0-9A-Fa-f]{1,6})|(amp|lt|gt|quot|apos));/g;
+const NAMED_ENTITY: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+};
 const CHAR_CODES = /\b\d{2,3}(?:[,;\s]+\d{2,3}){3,4096}\b/g;
 
 function fromHex(text: string, shift: number): string {
@@ -129,8 +139,22 @@ function fromHex(text: string, shift: number): string {
   );
 }
 
-function fromCode(_: string, hex: string): string {
-  return String.fromCharCode(Number.parseInt(hex, 16));
+function fromEscape(_: string, escape: string): string {
+  return escape.length === 1
+    ? escape
+    : String.fromCharCode(Number.parseInt(escape.slice(1), 16));
+}
+
+/** `fromCodePoint` throws past the last code point, so such an entity stays. */
+function fromEntity(
+  entity: string,
+  decimal: string | undefined,
+  hex: string | undefined,
+  name: string | undefined,
+): string {
+  if (name !== undefined) return NAMED_ENTITY[name];
+  const code = hex === undefined ? Number(decimal) : Number.parseInt(hex, 16);
+  return code <= 0x10ffff ? String.fromCodePoint(code) : entity;
 }
 
 function rot13(text: string): string {
@@ -143,7 +167,7 @@ function rot13(text: string): string {
 /**
  * Readings of tool output in which a value hides from a plain match: spaced out, as `od -c`
  * (octal offsets removed) or spelled one character at a time between `,.;:|`, reversed, rot13,
- * hex at either alignment (also as `xxd`, `xxd -u` or `hexdump -C` print it), `\x` and `\u` escapes, and decimal
+ * hex at either alignment (also as `xxd`, `xxd -u` or `hexdump -C` print it), `\x` and `\u` escapes, a backslash before punctuation (as JSON and Markdown write it), HTML entities, and decimal
  * character codes, of the text and of each decoded view after `neutral`. Whitespace stays, except
  * between hex digits, so words do not join.
  */
@@ -171,7 +195,7 @@ function readingsOf(text: string): string[] {
     rot13(joined),
     fromHex(hex, 0),
     fromHex(hex, 1),
-    text.replace(BYTE_ESCAPE, fromCode).replace(UNIT_ESCAPE, fromCode),
+    text.replace(ESCAPE, fromEscape).replace(ENTITY, fromEntity),
     text.replace(CHAR_CODES, (run) =>
       String.fromCharCode(...run.split(/[,;\s]+/).map(Number)),
     ),

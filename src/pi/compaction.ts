@@ -7,9 +7,9 @@ import {
   type SessionBeforeTreeEvent,
   type SessionBeforeTreeResult,
 } from "@earendil-works/pi-coding-agent";
-import { isRecord, type Masker } from "../core/index.ts";
+import { isRecord, type Masker, TextRestorer } from "../core/index.ts";
 
-type PayloadMasker = Pick<Masker, "maskPayload">;
+type PayloadMasker = Pick<Masker, "maskPayload" | "shownSpans" | "longestFake">;
 type SummaryStream = NonNullable<Parameters<typeof compact>[7]>;
 
 function maskedStream(
@@ -31,6 +31,12 @@ function maskedStream(
     if (result.stopReason !== "stop") throw new Error("SUMMARY_INCOMPLETE");
     return stream;
   };
+}
+
+// pi saves and shows the summary that a hook returns; the next provider request masks it again.
+function restored(summary: string, masker: PayloadMasker): string {
+  const restorer = new TextRestorer(masker);
+  return restorer.push(summary) + restorer.end();
 }
 
 function cancel(ctx: ExtensionContext): { cancel: true } {
@@ -65,7 +71,12 @@ export async function compactMasked(
       maskedStream(ctx, masker),
     );
     event.signal.throwIfAborted();
-    return { compaction };
+    return {
+      compaction: {
+        ...compaction,
+        summary: restored(compaction.summary, masker),
+      },
+    };
   } catch {
     return cancel(ctx);
   }
@@ -100,7 +111,7 @@ export async function summarizeTreeMasked(
       return cancel(ctx);
     return {
       summary: {
-        summary: result.summary,
+        summary: restored(result.summary, masker),
         usage: result.usage,
         details: {
           readFiles: result.readFiles,

@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { shared } from "../core/shared-bytes.ts";
 import { Masker, type Rule, Scanner, Vault } from "../../src/core/index.ts";
 import { afterEach, describe, expect, it } from "vitest";
 import { allFormats } from "../../src/formats/index.ts";
@@ -19,7 +20,13 @@ afterEach(() => {
 
 function masker(rules: readonly Rule[] = [TICKET]) {
   scanner = new Scanner(2000);
-  return new Masker(rules, scanner, new Vault(randomBytes), {}, allFormats);
+  return new Masker(
+    rules,
+    scanner,
+    new Vault(shared(randomBytes)),
+    {},
+    allFormats,
+  );
 }
 
 describe("Anthropic shapes", () => {

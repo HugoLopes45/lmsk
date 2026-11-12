@@ -66,6 +66,7 @@ export class Scanner {
   scan(patterns: ScanPattern[], texts: string[]): Promise<Span[][]> {
     if (this.closed)
       return Promise.reject(new ScanError("SCAN_CRASH", "scanner closed"));
+    if (texts.length === 0) return Promise.resolve([]);
     const worker = this.ensureWorker();
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
@@ -139,7 +140,11 @@ export class Scanner {
 }
 
 const SYNTAX = /[\\^$.*+?()[\]{}|/]/g;
-const WORD = /[\p{L}\p{N}_]/u;
+/**
+ * Not inside a run of word characters: where a literal starts or ends with a word character, a word
+ * boundary. One copy around the whole alternation, as V8 fails to scan with a copy per literal of a large vault.
+ */
+const EDGE = "(?:(?<![\\p{L}\\p{N}_])|(?![\\p{L}\\p{N}_]))";
 
 export function escapeRegex(value: string): string {
   return value.replace(SYNTAX, "\\$&");
@@ -152,15 +157,9 @@ export function literalPattern(
 ): ScanPattern {
   const alternatives = [...new Set(values)]
     .sort((a, b) => b.length - a.length)
-    .map((value) => {
-      const before = WORD.test(value.charAt(0)) ? "(?<![\\p{L}\\p{N}_])" : "";
-      const after = WORD.test(value.charAt(value.length - 1))
-        ? "(?![\\p{L}\\p{N}_])"
-        : "";
-      return `${before}${escapeRegex(value)}${after}`;
-    });
+    .map(escapeRegex);
   return {
-    source: alternatives.join("|"),
+    source: `${EDGE}(?:${alternatives.join("|")})${EDGE}`,
     flags: ignoreCase ? "iu" : "u",
     group: 0,
   };

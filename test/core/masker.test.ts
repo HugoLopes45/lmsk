@@ -11,6 +11,7 @@ import type { PayloadFormat } from "../../src/core/payload.ts";
 import type { RandomBytes } from "../../src/core/shape.ts";
 import { ScanError, Scanner } from "../../src/core/scanner.ts";
 import { Vault } from "../../src/core/vault.ts";
+import { shared } from "./shared-bytes.ts";
 
 function seeded(seed: string): RandomBytes {
   let counter = 0;
@@ -75,7 +76,7 @@ afterEach(() => {
 
 function build(
   rules: readonly Rule[],
-  vault = new Vault(seeded("masker")),
+  vault = new Vault(shared(seeded("masker"))),
   env: Record<string, string | undefined> = {},
   format = NO_FORMAT,
 ): { masker: Masker; vault: Vault } {
@@ -287,6 +288,32 @@ describe("Masker rules", () => {
     },
   );
 
+  const token = `ghp_${"Ab1Cd2Ef3G".repeat(3)}h4Ij5K`;
+  const padded = base64(`token=${token}`);
+  const unpadded = padded.replace(/=+$/, "");
+  it.each([
+    ["a padded base64 run", "its unpadded form", padded, unpadded],
+    ["an unpadded base64 run", "its padded form", unpadded, padded],
+    ["a percent run", "a run it holds", `q%3D${token}%26y%3D1`, `q%3D${token}`],
+    [
+      "a percent run",
+      "a run that holds it",
+      `q%3D${token}`,
+      `q%3D${token}%26y%3D1`,
+    ],
+  ])("masks %s, then %s", async (_first, _second, firstRun, secondRun) => {
+    const { masker } = build([regex("token", "ghp_[A-Za-z0-9]{36}")]);
+    const texts = [`see ${firstRun} end`, `see ${secondRun} end`];
+    const masked = [
+      ...(await masker.mask([texts[0]])),
+      ...(await masker.mask([texts[1]])),
+    ];
+    expect(
+      masked.some((text) => text.includes(token) || text.includes(unpadded)),
+    ).toBe(false);
+    expect(masker.restoreValue(masked)).toEqual(texts);
+  });
+
   it("uses the discovered fixed strategy for an earlier bare occurrence", async () => {
     const value = "ABCDEFGHIJKL";
     const { masker } = build([
@@ -322,9 +349,10 @@ describe("Masker rules", () => {
   });
   it("remains usable after a scanner failure", async () => {
     const { masker, vault } = build([literal("value", ["SYNTHETIC-123"])]);
-    vi.spyOn(Scanner.prototype, "scan").mockRejectedValueOnce(
-      new ScanError("SCAN_CRASH", "worker exited"),
-    );
+    const scan = vi
+      .spyOn(Scanner.prototype, "scan")
+      .mockRejectedValueOnce(new ScanError("SCAN_CRASH", "worker exited"));
+    onTestFinished(() => scan.mockRestore());
     await expect(masker.mask(["SYNTHETIC-123"])).rejects.toMatchObject({
       code: "SCAN_CRASH",
     });
@@ -357,7 +385,7 @@ describe("Masker rules", () => {
         `f${String(index).padStart(5, "0")}`,
       ],
     );
-    const vault = new Vault(seeded("cap-atomic"), entries);
+    const vault = new Vault(shared(seeded("cap-atomic")), entries);
     const { masker } = build([regex("cap", "SEC-[A-Z]{12}")], vault);
     await expect(
       masker.mask(["SEC-ABCDEFGHIJKL SEC-MNOPQRSTUVWX"]),
@@ -739,7 +767,7 @@ describe("Masker spans", () => {
   });
 
   it("blocks before learning a lost overlap in the same batch", async () => {
-    const vault = new Vault(seeded("block-overlap"));
+    const vault = new Vault(shared(seeded("block-overlap")));
     const { masker } = build(
       [
         regex("token", "SEC-[A-Za-z0-9]{12}"),
@@ -755,7 +783,7 @@ describe("Masker spans", () => {
   });
 
   it("re-hides learned values of 8 characters or more when no rule fires", async () => {
-    const vault = new Vault(seeded("learned"), [
+    const vault = new Vault(shared(seeded("learned")), [
       ["Acme-Corp-42", "Qzvbm-Lpwt-42"],
     ]);
     const { masker } = build([], vault);
@@ -764,8 +792,23 @@ describe("Masker spans", () => {
     ]);
   });
 
+  it("re-hides a learned value in a vault of thousands of learned values", async () => {
+    const entries = Array.from(
+      { length: 6000 },
+      (_, index): [string, string] => [
+        `Acme-Corp-${index}`,
+        `Qzvbm-Lpwt-${index}`,
+      ],
+    );
+    const vault = new Vault(shared(seeded("thousands")), entries);
+    const { masker } = build([], vault);
+    expect(await masker.mask(["ping Acme-Corp-4321 today"])).toEqual([
+      "ping Qzvbm-Lpwt-4321 today",
+    ]);
+  });
+
   it("does not re-hide learned values shorter than 8 characters", async () => {
-    const vault = new Vault(seeded("short"), [["Acme-42", "Qzvbm-42"]]);
+    const vault = new Vault(shared(seeded("short")), [["Acme-42", "Qzvbm-42"]]);
     const { masker } = build([], vault);
     expect(await masker.mask(["ping Acme-42 today"])).toEqual([
       "ping Acme-42 today",
@@ -1019,7 +1062,7 @@ describe("Masker strategies", () => {
   });
 
   it("leaves the vault unchanged when a block rule fires", async () => {
-    const vault = new Vault(seeded("blocked"));
+    const vault = new Vault(shared(seeded("blocked")));
     const { masker } = build(
       [
         regex("ticket", "\\bTKT-\\d{6}\\b"),
@@ -1062,12 +1105,12 @@ describe("Masker.maskPayload", () => {
   it("does not let a fake take the place of text in another input of the same call", async () => {
     const first = build(
       [regex("ticket", "\\bTKT-\\d{6}\\b")],
-      new Vault(seeded("call")),
+      new Vault(shared(seeded("call"))),
     );
     const [fake] = await first.masker.mask(["TKT-123456"]);
     const second = build(
       [regex("ticket", "\\bTKT-\\d{6}\\b")],
-      new Vault(seeded("call")),
+      new Vault(shared(seeded("call"))),
     );
     const [masked, other] = await second.masker.mask([
       "TKT-123456",
@@ -1273,7 +1316,7 @@ describe("Masker encoded runs", () => {
   });
 
   it("leaves an encoded run as written when its restored text changes length", () => {
-    const vault = new Vault(seeded("length"), [["Client-One", "ID-1"]]);
+    const vault = new Vault(shared(seeded("length")), [["Client-One", "ID-1"]]);
     const { masker } = build([], vault);
     expect(masker.restoreValue(base64("ID-1"))).toBe(base64("ID-1"));
   });
@@ -1299,7 +1342,9 @@ describe("Masker encoded runs", () => {
   });
 
   it("fails closed when a learned fake of another length matches inside an encoded run", async () => {
-    const vault = new Vault(seeded("learned-length"), [["Client-One", "ID-1"]]);
+    const vault = new Vault(shared(seeded("learned-length")), [
+      ["Client-One", "ID-1"],
+    ]);
     const { masker } = build([], vault);
     await expect(
       masker.mask([percentEach("Client-One")]),
@@ -1307,7 +1352,7 @@ describe("Masker encoded runs", () => {
   });
 
   it("masks a percent-encoded learned value whose fake has the same length", async () => {
-    const vault = new Vault(seeded("learned-same"), [
+    const vault = new Vault(shared(seeded("learned-same")), [
       ["Client-One", "Client-Two"],
     ]);
     const { masker } = build([], vault);
@@ -1364,7 +1409,7 @@ describe("Masker property", () => {
               },
             ],
             worker,
-            new Vault(seeded(value)),
+            new Vault(shared(seeded(value))),
             {},
             NO_FORMAT,
           );
@@ -1393,13 +1438,17 @@ describe("Masker property", () => {
         secret.map(base64),
         secret.map(percentEach),
       );
-      const payload = fc.array(segment, { minLength: 1, maxLength: 6 });
+      // `_` and `é` glue a secret to a word, which a regex rule still finds.
+      const payload = fc.array(
+        fc.tuple(segment, fc.constantFrom(" ", "_", "é")),
+        { minLength: 1, maxLength: 6 },
+      );
       const scanner = new Scanner(2000);
       onTestFinished(() => scanner.close());
       await fc.assert(
-        fc.asyncProperty(payload, async (segments) => {
-          const text = segments.join(" ");
-          const vault = new Vault(seeded(text));
+        fc.asyncProperty(payload, async (parts) => {
+          const text = parts.flat().join("");
+          const vault = new Vault(shared(seeded(text)));
           const masker = new Masker(
             [regex("secret", SECRET_PATTERN)],
             scanner,
@@ -1414,12 +1463,58 @@ describe("Masker property", () => {
           const reloaded = new Masker(
             [regex("secret", SECRET_PATTERN)],
             scanner,
-            new Vault(seeded("reload"), vault.entries()),
+            new Vault(shared(seeded("reload")), vault.entries()),
             {},
             NO_FORMAT,
           );
           expect(reloaded.restoreValue(masked)).toBe(text);
         }),
+        { seed: PROPERTY_SEED, numRuns: PROPERTY_RUNS },
+      );
+    },
+    PROPERTY_TIMEOUT_MS,
+  );
+
+  it(
+    "leaves masked text as it is when it is masked again, and restores the text",
+    async () => {
+      const secret = fc.oneof(
+        fc.stringMatching(/^[A-Za-z0-9]{36}$/).map((tail) => `ghp_${tail}`),
+        fc
+          .stringMatching(/^[A-Za-z0-9]{10}$/)
+          .map((value) => `password=${value}`),
+        fc
+          .tuple(
+            fc.stringMatching(/^[a-z]{6}$/),
+            fc.stringMatching(/^[a-z]{5}$/),
+          )
+          .map(([user, host]) => `${user}@${host}.com`),
+      );
+      const segment = fc.oneof(
+        fc.stringMatching(/^[a-z0-9]{1,12}$/),
+        secret,
+        secret.map(base64),
+        secret.map(percentEach),
+      );
+      const scanner = new Scanner(2000);
+      onTestFinished(() => scanner.close());
+      await fc.assert(
+        fc.asyncProperty(
+          fc.array(segment, { minLength: 1, maxLength: 6 }),
+          async (segments) => {
+            const text = segments.join(" ");
+            const masker = new Masker(
+              DEFAULT_RULES,
+              scanner,
+              new Vault(shared(seeded(text))),
+              {},
+              NO_FORMAT,
+            );
+            const [masked] = await masker.mask([text]);
+            expect(await masker.mask([masked])).toEqual([masked]);
+            expect(masker.restoreValue(masked)).toBe(text);
+          },
+        ),
         { seed: PROPERTY_SEED, numRuns: PROPERTY_RUNS },
       );
     },
@@ -1515,7 +1610,7 @@ describe("Masker generated values", () => {
     const masker = new Masker(
       rules,
       scanner,
-      new Vault(seeded(`generated:${value}`)),
+      new Vault(shared(seeded(`generated:${value}`))),
       {},
       NO_FORMAT,
     );
@@ -1659,7 +1754,7 @@ describe("Masker call-local restores", () => {
 
   it("does not report a short real that a decoded leaf of a bound fake restores", () => {
     const OUTER = "Outer-Secret-Value";
-    const vault = new Vault(seeded("short-leaf"));
+    const vault = new Vault(shared(seeded("short-leaf")));
     vault.fixedFor(SHORT, "ID-{n}", "");
     vault.fixedFor(OUTER, "%69%64%2D%31%20-{n}", "");
     const { masker } = build([], vault);
@@ -1672,7 +1767,7 @@ describe("Masker call-local restores", () => {
 
   it("reports a decoded short real when the restored real also holds it as text", () => {
     const OUTER = `Outer ${SHORT}`;
-    const vault = new Vault(seeded("short-plain"));
+    const vault = new Vault(shared(seeded("short-plain")));
     vault.fixedFor(SHORT, "ID-{n}", "");
     vault.fixedFor(OUTER, "%69%64%2D%31%20-{n}", "");
     const { masker } = build([], vault);
@@ -1831,6 +1926,36 @@ describe("Masker derived parts", () => {
     );
   });
 
+  it("withholds a payload text again once the vault learns the real that it hides", async () => {
+    const rules = [
+      { ...regex("password", "password=([A-Z0-9]{10})"), group: 1 },
+    ];
+    const { masker } = build(rules);
+    const reversed = "1AAAAEULAV";
+    expect(await masker.hidingTexts([reversed])).toEqual(new Set());
+    await masker.mask(["password=VALUEAAAA1"]);
+    expect(await masker.hidingTexts([reversed])).toEqual(new Set([reversed]));
+  });
+
+  it("withholds a payload text again once its decoded view holds a fake learned after its check", async () => {
+    const { masker } = build([
+      literal("client", ["AcmeCorp"], "fixed", "Client{n}"),
+      regex("gitleaks.probe", "[^a-z ]{4} tok_[a-z]{8}"),
+    ]);
+    const text = base64("Client1 tok_abcdefgh");
+    expect(await masker.hidingTexts([text])).toEqual(new Set());
+    expect(await masker.mask(["AcmeCorp"])).toEqual(["Client1"]);
+    expect(await masker.hidingTexts([text])).toEqual(new Set([text]));
+  });
+
+  it("keeps a payload text that a short value learned after its check spells reversed", async () => {
+    const { masker, vault } = build([]);
+    const text = "1AAAA";
+    expect(await masker.hidingTexts([text])).toEqual(new Set());
+    vault.fakeFor("AAAA1", "");
+    expect(await masker.hidingTexts([text])).toEqual(new Set());
+  });
+
   it("checks a payload text again after a check that failed", async () => {
     const { masker } = build([literal("password", ["secret42pass"])]);
     const payload = ["clean", "xsecret42pass"];
@@ -1920,7 +2045,7 @@ describe("Masker derived parts", () => {
   });
 
   it("leaves a token inside a fake as written when it is no prefix or suffix", () => {
-    const vault = new Vault(seeded("inner"), [
+    const vault = new Vault(shared(seeded("inner")), [
       ["Secret-1234-abcd", "Qx7utf8Lp9Vb2Nm4"],
     ]);
     const { masker } = build([], vault);
@@ -1928,13 +2053,15 @@ describe("Masker derived parts", () => {
   });
 
   it("leaves a part of a fixed fake as written", () => {
-    const vault = new Vault(seeded("fixed"), [["Secret1234", "PASSWORD_1"]]);
+    const vault = new Vault(shared(seeded("fixed")), [
+      ["Secret1234", "PASSWORD_1"],
+    ]);
     const { masker } = build([], vault);
     expect(masker.restoreValue("export PASSWORD=x")).toBe("export PASSWORD=x");
   });
 
   it("leaves the tail of a fixed fake inside a longer word as written", () => {
-    const vault = new Vault(seeded("fixed"), [
+    const vault = new Vault(shared(seeded("fixed")), [
       ["acmecorpTheme", "company1Theme"],
     ]);
     const { masker } = build(
@@ -1951,7 +2078,7 @@ describe("Masker derived parts", () => {
   });
 
   it("restores a part of an opaque fake that holds a short fixed template", () => {
-    const vault = new Vault(seeded("fixed"), [
+    const vault = new Vault(shared(seeded("fixed")), [
       ["Rk7pQ2mZ4xLw", "Ab3c7Xy9QwEr"],
     ]);
     const { masker } = build(
@@ -1962,7 +2089,9 @@ describe("Masker derived parts", () => {
   });
 
   it("leaves a template word that is a part of a fixed fake as written after a reload", () => {
-    const vault = new Vault(seeded("fixed"), [["s3cretKey", "REDACTED1"]]);
+    const vault = new Vault(shared(seeded("fixed")), [
+      ["s3cretKey", "REDACTED1"],
+    ]);
     const { masker } = build(
       [literal("secret", ["s3cretKey"], "fixed", "REDACTED{n}")],
       vault,
@@ -2005,7 +2134,7 @@ describe("Masker derived parts", () => {
   });
 
   it("leaves a part that occurs in two fakes as written", () => {
-    const vault = new Vault(seeded("masker"), [
+    const vault = new Vault(shared(seeded("masker")), [
       ["Real1aaaa", "Xq7Kz4Lm9"],
       ["Real2bbbb", "Pw3Kz4Lm8"],
     ]);
@@ -2013,19 +2142,61 @@ describe("Masker derived parts", () => {
     expect(masker.restoreValue("part Kz4Lm")).toBe("part Kz4Lm");
   });
 
-  it("masks a part of eight or more characters of a vault real", async () => {
-    const { masker } = build([literal("mail", ["billing.accounts@x.io"])]);
-    await masker.mask(["to billing.accounts@x.io"]);
-    const [masked] = await masker.mask(["user accounts"]);
-    expect(masked).not.toContain("accounts");
+  it("masks a part of eight or more digits of a vault real", async () => {
+    const { masker } = build([literal("mail", ["billing.20240917@x.io"])]);
+    await masker.mask(["to billing.20240917@x.io"]);
+    const [masked] = await masker.mask(["invoice 20240917"]);
+    expect(masked).not.toContain("20240917");
+  });
+
+  it("leaves a word of a vault real as written elsewhere, such as the domain of an email", async () => {
+    const { masker } = build([literal("mail", ["noreply@anthropic.com"])]);
+    await masker.mask(["Co-Authored-By: Claude <noreply@anthropic.com>"]);
+    const [masked] = await masker.mask(["x-anthropic-billing-header"]);
+    expect(masked).toBe("x-anthropic-billing-header");
   });
 
   it("masks a short word-like real that sits next to its fake, as in the vault file", async () => {
-    const vault = new Vault(seeded("masker"), [["hunterz", "Qx7Lp9V"]]);
+    const vault = new Vault(shared(seeded("masker")), [["hunterz", "Qx7Lp9V"]]);
     const { masker } = build([], vault);
     const [masked] = await masker.mask(['[["hunterz","Qx7Lp9V"]]']);
     expect(masked).not.toContain("hunterz");
   });
+
+  it("masks a short word-like real next to its fake in a payload text sent before the vault learned it", async () => {
+    const twin = new Vault(shared(seeded("masker")));
+    twin.fakeFor("Other-1234", "");
+    const fake = twin.fakeFor("hunterz", "");
+    const { masker, vault } = build([]);
+    // A value before the first payload, so the second payload checks only the value added since.
+    vault.fakeFor("Other-1234", "");
+    const text = `[["hunterz","${fake}"]]`;
+    await masker.maskPayload([text]);
+    vault.fakeFor("hunterz", "");
+    expect(await masker.maskPayload([text])).toEqual([
+      expect.not.stringContaining("hunterz"),
+    ]);
+  });
+
+  it.each([
+    ["a copy in another case", "see valueaaaa1", "valueaaaa1"],
+    ["a part", "see AAAA1", "AAAA1"],
+  ])(
+    "masks %s of a value learned after a payload text was first sent",
+    async (_, text, copy) => {
+      const rules = [
+        { ...regex("password", "password=([A-Z0-9]{10})"), group: 1 },
+      ];
+      const { masker } = build(rules);
+      // A value before the first payload, so the second payload checks only the value added since.
+      await masker.mask(["password=VALUEBBBB2"]);
+      await masker.maskPayload([text]);
+      await masker.mask(["password=VALUEAAAA1"]);
+      expect(await masker.maskPayload([text])).toEqual([
+        expect.not.stringContaining(copy),
+      ]);
+    },
+  );
 
   it("keeps a word-like or digit-only part of a vault real", async () => {
     const { masker } = build([literal("client", ["Acme-Corp-20245"])]);
@@ -2061,7 +2232,7 @@ describe("Masker placeholders", () => {
   });
 
   it("ignores a provider span nested inside a placeholder, also inside an encoded placeholder", async () => {
-    const vault = new Vault(seeded("masker"), [
+    const vault = new Vault(shared(seeded("masker")), [
       ["Secret-12345", "Qx7Lp9Vb2Nm4"],
     ]);
     const { masker } = build([regex("tag", "Vb2Nm4")], vault);
@@ -2074,7 +2245,7 @@ describe("Masker placeholders", () => {
   });
 
   it("blocks a provider span that only partly overlaps a placeholder", async () => {
-    const vault = new Vault(seeded("masker"), [
+    const vault = new Vault(shared(seeded("masker")), [
       ["Secret-12345", "Qx7Lp9Vb2Nm4"],
     ]);
     const { masker } = build([regex("tag", "-Qx7")], vault);
@@ -2114,12 +2285,18 @@ describe("Masker payload history", () => {
   const LATER = "VALUEAAAA1";
   const FRAGMENTS = [
     LATER,
+    "valueaaaa1",
     "VALUEBBBB2",
     `password=${LATER}`,
     "password=VALUEBBBB2",
     "LITERALXX9",
+    "xLITERALXX9",
     "RESTORED77",
     base64(`password=${LATER}`),
+    // A hidden copy and a part of LATER: a history text that holds one changes once the vault learns LATER.
+    [...LATER].reverse().join(""),
+    [...LATER].join(" "),
+    "AAAA1",
     " ",
     "\n",
   ];
@@ -2134,6 +2311,8 @@ describe("Masker payload history", () => {
       keep: fc.array(fc.boolean(), { minLength: 16, maxLength: 16 }),
       failAt: fc.option(fc.integer({ min: 0, max: 2 })),
       restored: fc.subarray(["VALUEBBBB2", "RESTORED77"]),
+      /** A payload of another conversation: only `added`, and the history stays. */
+      side: fc.boolean(),
     }),
     fc.record({
       kind: fc.constant("mask" as const),
@@ -2178,8 +2357,8 @@ describe("Masker payload history", () => {
           ];
           const cached = breakable("history");
           const oracle = breakable("history");
-          const subjectVault = new Vault(cached.bytes);
-          const referenceVault = new Vault(oracle.bytes);
+          const subjectVault = new Vault(shared(cached.bytes));
+          const referenceVault = new Vault(shared(oracle.bytes));
           const subject = new Masker(
             rules,
             worker,
@@ -2206,7 +2385,9 @@ describe("Masker payload history", () => {
               );
               continue;
             }
-            const payload = [...history, ...step.added];
+            const payload = step.side
+              ? step.added
+              : [...history, ...step.added];
             cached.state.calls = oracle.state.calls = 0;
             cached.state.failAt = oracle.state.failAt =
               step.failAt ?? undefined;
@@ -2217,7 +2398,7 @@ describe("Masker payload history", () => {
             cached.state.failAt = oracle.state.failAt = undefined;
             expect(got).toEqual(want);
             expect(subjectVault.entries()).toEqual(referenceVault.entries());
-            if (Array.isArray(want))
+            if (Array.isArray(want) && !step.side)
               history = payload.map((raw, index) =>
                 step.keep[index] ? want[index] : raw,
               );
@@ -2226,6 +2407,65 @@ describe("Masker payload history", () => {
         },
       ),
       { seed: 20261106, numRuns: 200 },
+    );
+  }, 60000);
+
+  it("checks each payload of a session as a fresh masker does", async () => {
+    const worker = new Scanner(2000);
+    onTestFinished(() => worker.close());
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(op, { minLength: 1, maxLength: 8 }),
+        async (ops) => {
+          const rules = [
+            { ...regex("password", "password=([A-Z0-9]{10})"), group: 1 },
+            literal("literal", ["LITERALXX9"], "shape"),
+          ];
+          const random = breakable("checks");
+          const vault = new Vault(shared(random.bytes));
+          const subject = new Masker(rules, worker, vault, {}, NO_FORMAT);
+          // A new masker has no cache, so it checks each text in full.
+          const fresh = () => new Masker(rules, worker, vault, {}, NO_FORMAT);
+          let history: string[] = [];
+          for (const step of ops) {
+            if (step.kind === "mask") {
+              // Only grows the vault between two payloads.
+              await outcome(
+                subject.mask([
+                  step.fresh ??
+                    history[step.pick % Math.max(history.length, 1)] ??
+                    LATER,
+                ]),
+              );
+              continue;
+            }
+            const payload = step.side
+              ? step.added
+              : [...history, ...step.added];
+            random.state.calls = 0;
+            random.state.failAt = step.failAt ?? undefined;
+            const masked = await outcome(
+              subject.maskPayload(payload, step.restored),
+            );
+            random.state.failAt = undefined;
+            if (!Array.isArray(masked)) continue;
+            const texts = subject.payloadTexts(masked);
+            expect(
+              await outcome(subject.assertNoHiddenRealInPayload(texts)),
+            ).toEqual(
+              await outcome(fresh().assertNoHiddenRealInPayload(texts)),
+            );
+            expect(await subject.hidingTexts(texts)).toEqual(
+              await fresh().hidingTexts(texts),
+            );
+            if (!step.side)
+              history = payload.map((raw, index) =>
+                step.keep[index] ? texts[index] : raw,
+              );
+          }
+        },
+      ),
+      { seed: 20261107, numRuns: 200 },
     );
   }, 60000);
 
@@ -2238,7 +2478,7 @@ describe("Masker payload history", () => {
     const masker = new Masker(
       rules,
       worker,
-      new Vault(seeded("rescan")),
+      new Vault(shared(seeded("rescan"))),
       {},
       NO_FORMAT,
     );
@@ -2247,5 +2487,68 @@ describe("Masker payload history", () => {
     const scan = vi.spyOn(worker, "scan");
     await masker.maskPayload(payload, ["RESTORED77"]);
     expect(scan.mock.lastCall?.[1]).toEqual(["has RESTORED77"]);
+  });
+
+  it("masks a short real only in the payloads that restore it", async () => {
+    const worker = new Scanner(2000);
+    onTestFinished(() => worker.close());
+    const masker = new Masker(
+      [],
+      worker,
+      new Vault(shared(seeded("short"))),
+      {},
+      NO_FORMAT,
+    );
+    // The vault learns the real first: a vault entry added after a scan makes the text scanned again.
+    await masker.mask(["hunter"], ["hunter"]);
+    await masker.maskPayload(["tool says hunter"], ["hunter"]);
+    expect(await masker.maskPayload(["tool says hunter"])).toEqual([
+      "tool says hunter",
+    ]);
+  });
+
+  it("does not scan the history of a conversation again after a payload of another", async () => {
+    const worker = new Scanner(2000);
+    onTestFinished(() => worker.close());
+    const rules = [
+      { ...regex("password", "password=([A-Z0-9]{10})"), group: 1 },
+    ];
+    const masker = new Masker(
+      rules,
+      worker,
+      new Vault(shared(seeded("conversations"))),
+      {},
+      NO_FORMAT,
+    );
+    const send = async (payload: string[]) => {
+      const texts = masker.payloadTexts(await masker.maskPayload(payload));
+      await masker.assertNoHiddenRealInPayload(texts);
+      await masker.hidingTexts(texts);
+    };
+    const main = ["main instructions", "main first turn"];
+    await send(main);
+    await send(["side instructions"]);
+    const scan = vi.spyOn(worker, "scan");
+    await send([...main, "main second turn"]);
+    const scanned = scan.mock.calls.flatMap(([, texts]) => texts);
+    expect(scanned.filter((text) => main.includes(text))).toEqual([]);
+  });
+
+  it("keeps the texts that payloads repeat and pushes out the oldest others past the payload limit", async () => {
+    const worker = new Scanner(2000);
+    onTestFinished(() => worker.close());
+    const masker = new Masker(
+      [],
+      worker,
+      new Vault(shared(seeded("bound"))),
+      {},
+      NO_FORMAT,
+    );
+    await masker.maskPayload(["oldest", "repeated"]);
+    await masker.maskPayload(["repeated", "a ".repeat(2 * 1024 * 1024)]);
+    await masker.maskPayload(["repeated", "b ".repeat(2 * 1024 * 1024)]);
+    const scan = vi.spyOn(worker, "scan");
+    await masker.maskPayload(["oldest", "repeated"]);
+    expect(scan.mock.lastCall?.[1]).toEqual(["oldest"]);
   });
 });

@@ -1,4 +1,4 @@
-import { allFormats, anthropicStream, anthropicTurns } from "../formats/index.ts";
+import { allFormats, anthropicStream } from "../formats/index.ts";
 import type { ProxyProfile } from "../proxy/index.ts";
 
 /** The input field of each built-in tool that holds the path it opens. */
@@ -22,9 +22,9 @@ export function pathOf(
 }
 
 export interface ClaudeProfileOptions {
-  /** The directory that Claude Code runs in. */
+  /** The directory that relative tool paths resolve against. */
   cwd: string;
-  /** The environment that Claude Code gets. */
+  /** Its ANTHROPIC_BASE_URL, if set, is the upstream. */
   env: Readonly<Record<string, string | undefined>>;
   protectedPaths: readonly string[];
 }
@@ -40,15 +40,10 @@ export function claudeProfile({
     protectedPaths,
     format: allFormats,
     // A user who already routes Claude Code through a gateway keeps it behind the proxy.
-    upstream: () => env.ANTHROPIC_BASE_URL || "https://api.anthropic.com",
+    upstream: env.ANTHROPIC_BASE_URL || "https://api.anthropic.com",
     keptHeaders: ["x-claude-code-session-id"],
-    sessionId: (headers) => {
-      const id = headers["x-claude-code-session-id"];
-      return typeof id === "string" ? id : undefined;
-    },
     cwd,
     codec: anthropicStream,
-    turns: anthropicTurns,
     commandKey: (tool) => (tool === "Bash" ? "command" : undefined),
     pathOf,
   };

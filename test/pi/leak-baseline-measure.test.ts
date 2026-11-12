@@ -69,7 +69,7 @@ interface Observed {
   providerTurns: number;
   repliesRemaining: number;
   roles: Record<string, number>;
-  leakTotals: { payload: number; session: number };
+  leakTotals: { payload: number };
 }
 
 let previousEnv: string | undefined;
@@ -104,15 +104,12 @@ function roleCounts(bodies: string[]): Record<string, number> {
 }
 
 function observe(h: Harness): Observed {
-  const sessionFile = h.session.sessionManager.getSessionFile();
-  if (sessionFile === undefined) throw new Error("session is not file-backed");
   return {
     providerTurns: h.provider.bodies.length,
     repliesRemaining: h.provider.replies.length,
     roles: roleCounts(h.provider.bodies),
     leakTotals: {
       payload: leakTotal(countAll(Buffer.from(h.sent(), "utf8"), canaries)),
-      session: leakTotal(countAll(readFileSync(sessionFile), canaries)),
     },
   };
 }
@@ -142,11 +139,6 @@ async function runScenario(spec: ScenarioSpec): Promise<void> {
         name: "no raw, base64 or percent canary in provider payload",
         passed: observed.leakTotals.payload === 0,
         detail: `${observed.leakTotals.payload} literal occurrences`,
-      },
-      {
-        name: "no raw, base64 or percent canary in session JSONL",
-        passed: observed.leakTotals.session === 0,
-        detail: `${observed.leakTotals.session} literal occurrences`,
       },
       ...(spec.checks?.(h, observed) ?? []),
     ];

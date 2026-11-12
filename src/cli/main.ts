@@ -1,5 +1,12 @@
+import { spawnSync } from "node:child_process";
 import { text } from "node:stream/consumers";
-import { claudeHook, launchClaude } from "../claude-code/index.ts";
+import { fileURLToPath } from "node:url";
+import {
+  claudeHook,
+  installClaude,
+  SERVE_PORT,
+  serveClaude,
+} from "../claude-code/index.ts";
 import { errorCode } from "../core/index.ts";
 
 export interface Io {
@@ -12,7 +19,8 @@ export interface Io {
 }
 
 const USAGE = `Usage:
-  lmsk claude [args...]   Run Claude Code behind the masking proxy.
+  lmsk install claude     Start the masking proxy at login and point Claude Code at it.
+  lmsk serve              Run the masking proxy that Claude Code uses, until a signal ends it.
   lmsk hook claude        Run the PreToolUse hook on the hook input in stdin.
 `;
 
@@ -23,7 +31,19 @@ export async function main(args: readonly string[], io: Io): Promise<number> {
     ...io,
     notify: (message: string) => io.stderr.write(`${message}\n`),
   };
-  if (command === "claude") return launchClaude(rest, launch);
+  if (command === "install" && rest[0] === "claude")
+    return installClaude({
+      ...launch,
+      platform: process.platform,
+      node: process.execPath,
+      bin: fileURLToPath(new URL("bin.js", import.meta.url)),
+      run: (program, programArgs) =>
+        spawnSync(program, programArgs, { stdio: "inherit" }).status ?? 1,
+    });
+  if (command === "serve") {
+    await serveClaude({ ...launch, port: SERVE_PORT });
+    return 0;
+  }
   if (command === "hook" && rest[0] === "claude") return runHook(io);
   if (command === "--help" || command === "-h") {
     io.stdout.write(USAGE);

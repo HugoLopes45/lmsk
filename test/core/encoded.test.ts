@@ -192,3 +192,20 @@ describe("hiddenReadings run time", () => {
     expect(performance.now() - start).toBeLessThan(500);
   });
 });
+
+describe("hiddenReadings", () => {
+  it("keeps a numeric entity past the last code point instead of throwing", () => {
+    expect(() =>
+      hiddenReadings("&#9999999;&#xFFFFFF;", (value) => value),
+    ).not.toThrow();
+  });
+
+  it("decodes each escape and entity once, with any leading zeros", () => {
+    expect(
+      hiddenReadings(
+        String.raw`\u005c/ \\u0041 &#38;lt; &#00000047;&#x000002F;`,
+        (value) => value,
+      ),
+    ).toContain(String.raw`\/ \u0041 &lt; //`);
+  });
+});

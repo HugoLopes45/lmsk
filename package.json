@@ -35,9 +35,14 @@
     "gitleaks"
   ],
   "files": [
-    "dist",
-    "plugin"
+    "dist"
   ],
+  "exports": {
+    ".": {
+      "types": "./dist/core/index.d.ts",
+      "default": "./dist/core/index.js"
+    }
+  },
   "bin": {
     "lmsk": "./dist/cli/bin.js"
   },

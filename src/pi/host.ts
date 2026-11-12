@@ -3,7 +3,6 @@ import type {
   ExtensionContext,
   MessageEndEvent,
   MessageEndEventResult,
-  ModelRegistry,
   SessionBeforeCompactEvent,
   SessionBeforeCompactResult,
   SessionBeforeTreeEvent,
@@ -11,20 +10,16 @@ import type {
   SessionMessageEntry,
   SessionShutdownEvent,
   SessionStartEvent,
-  SessionTreeEvent,
   ToolCallEvent,
   ToolCallEventResult,
-  ToolExecutionEndEvent,
   ToolInfo,
-  ToolResultEvent,
-  ToolResultEventResult,
 } from "@earendil-works/pi-coding-agent";
+import type { GuardedRegistry } from "./guard-runtime.ts";
 
-/** A session entry as the hook reads it: the custom entries, and the messages for `/lmsk reveal`. */
+/** A session entry as the hook reads it: its message, for the call ids and for `/lmsk reveal`. */
 export interface BranchRecord {
+  /** Not read: without it, a pi entry that has no `message` shares no property and does not type-check. */
   type: string;
-  customType?: string;
-  data?: unknown;
   message?: SessionMessageEntry["message"];
 }
 
@@ -35,7 +30,7 @@ export interface HookContext {
   abort(): void;
   ui: { notify(message: string, level: "info" | "warning" | "error"): void };
   sessionManager: { getBranch(): readonly BranchRecord[] };
-  modelRegistry: Pick<ModelRegistry, "classify" | "generateImages">;
+  modelRegistry: GuardedRegistry;
 }
 
 type Handler<E, R = undefined, C = HookContext> = (
@@ -48,8 +43,6 @@ interface HookHandlers {
   before_provider_request: Handler<BeforeProviderRequestEvent, unknown>;
   tool_call: Handler<ToolCallEvent, ToolCallEventResult>;
   message_end: Handler<MessageEndEvent, MessageEndEventResult>;
-  tool_result: Handler<ToolResultEvent, ToolResultEventResult>;
-  tool_execution_end: Handler<ToolExecutionEndEvent>;
   session_before_compact: Handler<
     SessionBeforeCompactEvent,
     SessionBeforeCompactResult,
@@ -60,14 +53,12 @@ interface HookHandlers {
     SessionBeforeTreeResult,
     ExtensionContext
   >;
-  session_tree: Handler<SessionTreeEvent>;
   session_shutdown: Handler<SessionShutdownEvent>;
 }
 
 /** The part of the extension API this extension uses. */
 export interface HookApi {
   on<E extends keyof HookHandlers>(event: E, handler: HookHandlers[E]): void;
-  appendEntry(customType: string, data: unknown): void;
   getAllTools(): Pick<ToolInfo, "name" | "sourceInfo">[];
   registerCommand(
     name: string,

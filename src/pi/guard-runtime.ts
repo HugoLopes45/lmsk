@@ -5,21 +5,27 @@ import type {
   ImagesContext,
   JsonObject,
   JsonValue,
+  StreamOptions,
 } from "@earendil-works/pi-ai";
 import { MaskError } from "../core/index.ts";
 
 /**
- * Model calls made through the registry, such as codemode's `models.classify()`,
- * never reach the provider hook. The guard masks their text inputs on the registry
- * instance. Image bytes pass through unmasked.
+ * Model calls made through the registry, such as codemode's `models.classify()` or
+ * another extension's `streamSimple()`, never reach the provider hook. The guard masks
+ * their inputs on the registry instance. Image bytes pass through unmasked.
  */
 export type GuardedRegistry = Pick<
   ModelRegistry,
-  "classify" | "generateImages"
+  "classify" | "generateImages" | "stream" | "streamSimple" | "complete"
 >;
 
 /** Masks one text. Rejecting cancels the call. */
 export type MaskText = (text: string) => Promise<string>;
+
+/** Masks one provider payload. Rejecting cancels the request before it is sent. */
+type MaskPayload = (payload: unknown) => Promise<unknown>;
+
+type OnPayload = NonNullable<StreamOptions["onPayload"]>;
 
 /**
  * Keyed on the registry through `Symbol.for`, so a reloaded extension finds the
@@ -148,10 +154,22 @@ async function maskImages(
   };
 }
 
-/** Wraps the registry's classify and generateImages. Reinstalling restores the earlier originals first. */
+/** `options` with an `onPayload` that runs the caller's first, so that what the caller adds is masked too. */
+function masking<O extends { onPayload?: OnPayload } | undefined>(
+  options: O,
+  mask: MaskPayload,
+) {
+  const next = options?.onPayload;
+  const onPayload: OnPayload = async (payload, model) =>
+    mask((await next?.(payload, model)) ?? payload);
+  return { ...options, onPayload };
+}
+
+/** Wraps the registry's model calls. Reinstalling restores the earlier originals first. */
 export function installModelGuard(
   registry: GuardedRegistry,
   mask: MaskText,
+  maskPayload: MaskPayload,
 ): void {
   const uninstall: unknown = Object.getOwnPropertyDescriptor(
     registry,
@@ -159,7 +177,7 @@ export function installModelGuard(
   )?.value;
   if (typeof uninstall === "function") uninstall();
 
-  const { classify, generateImages } = registry;
+  const { classify, generateImages, stream, streamSimple, complete } = registry;
   registry.classify = async (model, context, options) =>
     classify.call(
       registry,
@@ -174,11 +192,23 @@ export function installModelGuard(
       await maskImages(context, mask),
       options,
     );
+  // `bind` keeps the generic signatures of `stream` and `complete`, which `call` erases.
+  registry.stream = (model, context, options) =>
+    stream.bind(registry)(model, context, masking(options, maskPayload));
+  registry.streamSimple = (model, context, options) =>
+    streamSimple.bind(registry)(model, context, masking(options, maskPayload));
+  registry.complete = (model, context, options) =>
+    complete.bind(registry)(model, context, masking(options, maskPayload));
   Object.defineProperty(registry, INSTALLED, {
     configurable: true,
     value: () => {
-      registry.classify = classify;
-      registry.generateImages = generateImages;
+      Object.assign(registry, {
+        classify,
+        generateImages,
+        stream,
+        streamSimple,
+        complete,
+      });
     },
   });
 }

@@ -235,6 +235,29 @@ describe("Scanner", () => {
     ]);
   });
 
+  it("runs each scan with the keywords of its own patterns", async () => {
+    scanner = new Scanner(1000);
+    const rule = (word: string) => ({
+      source: word,
+      flags: "",
+      group: 0,
+      keywords: [word],
+    });
+    await scanner.scan([rule("alpha")], ["alpha"]);
+    expect(await scanner.scan([rule("beta")], ["beta"])).toEqual([[[0, 4, 0]]]);
+  });
+
+  it("runs a pattern with an empty keyword after a scan without keywords", async () => {
+    scanner = new Scanner(1000);
+    await scanner.scan([{ source: "x", flags: "", group: 0 }], ["x"]);
+    expect(
+      await scanner.scan(
+        [{ source: "tok", flags: "", group: 0, keywords: [""] }],
+        ["tok"],
+      ),
+    ).toEqual([[[0, 3, 0]]]);
+  });
+
   it("drops an allowlisted value when every check of an all-list passes", async () => {
     scanner = new Scanner(1000);
     const text = "fixture KEY=Fz8Kp3Nq6Vb1";

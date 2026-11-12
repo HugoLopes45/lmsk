@@ -2,16 +2,38 @@
 
 ## Unreleased
 
+- Breaking: `lmsk claude` is gone. Run `lmsk install claude` once. It starts the proxy as a service at login and points your Claude Code user settings at it. Then start `claude` as usual: each session goes through the proxy. Run it again after you update lmsk or Node.js, change the configuration file, or start to use a gateway. There is no uninstall command: see [Uninstall](docs/claude-code.md#uninstall).
+- Breaking: replies show real values. The proxy puts the real values back into each streamed reply, and the pi extension into each reply. Thinking text keeps its fakes. A value under 8 characters also keeps its fake, unless it is a value of a `literal` or `env` rule. A value that the model glues to a letter, a digit or `_` keeps its fake too.
+- Breaking: the pi session file holds real values. The extension puts the real values back into the summaries of `/compact` and `/tree` as it does into replies. Thinking text, and some short or glued values in replies and summaries, keep their fakes.
+- Breaking: one vault for each computer, `~/.local/state/lmsk/vault.jsonl`, for pi and Claude Code. A value gets the same fake in each session on the computer. lmsk no longer reads the vaults in `~/.pi/agent/lmsk-vaults/` and `~/.local/state/lmsk/vaults/`, or the tool calls in `~/.local/state/lmsk/sessions/`.
+- Breaking: Claude Code: a project settings file can now send the requests past the proxy, with `ANTHROPIC_BASE_URL` or a provider switch such as `CLAUDE_CODE_USE_BEDROCK`. It can also turn off the hook with `disableAllHooks`. `lmsk claude` gave Claude Code its own `--settings`, which won over a project file.
+- Claude Code: `lmsk install claude` sets `CLAUDE_CODE_MAX_RETRIES` to 3 if your user settings do not set it, and the provider switches, such as `CLAUDE_CODE_USE_BEDROCK`, to an empty value.
+- Claude Code: the proxy uses the fixed port 25675. Do not use lmsk for Claude Code on a computer that other people log in to.
+- Claude Code: resumed and forked sessions work. `FORKED_SESSION` and `CALLS_INVALID` are gone.
+- Claude Code: an `env` rule reads only the environment of the service, not the variables of your terminal.
+- Claude Code: the proxy no longer withholds the result of a tool call on a protected path. The hook refuses the call. A call whose path becomes a protected path after restore keeps its fakes.
+- A known secret glued to a word, such as `build_<secret>`, is masked as its own value in each request. A glued token with a known prefix, or a glued value of a `mask` or `block` rule, still stops the request.
+- A text that hides a secret spaced out, wrapped, reversed or encoded is withheld only in the request. You still see the real text.
+- pi: a provider error is saved as pi gets it, not as a fixed text such as `503 provider error, text withheld`.
+- pi: lmsk now masks the model calls that other extensions make with `ctx.modelRegistry.stream`, `streamSimple` or `complete`. If masking fails, the call ends with an error and sends nothing.
+- The codes `SIGNED_CHANGE`, `STORE_CONFLICT`, `STORE_MISSING`, `STORE_EXISTS`, `STORE_INVALID_ID`, `STORE_INVALID`, `STORE_EXHAUSTED`, `STORE_REFERENCE_INVALID`, `STORE_REFERENCE_AMBIGUOUS`, `STORE_REFERENCE_CONFLICT` and `VAULT_LEGACY` are gone.
+- The package exports its engine with TypeScript types, so you can add lmsk to your own agent: `import { Guard } from "@hugolopes45/lmsk"`. The README shows an example. Imports of files inside `dist` no longer work.
+- A tool result is now withheld when it holds a known secret written with JSON escapes (`\/`, `\"`) or HTML entities (`&amp;`, `&#47;`). A secret in `\u` escapes already was.
 - The protected-path checks of lmsk ignore case, so `~/.AWS/credentials` or `.NPMRC` on a macOS or Windows disk is protected too. On Linux, a path that differs only in case from a protected path is now also protected.
-- Claude Code: if lmsk ends on an error, it now ends `claude` too. Before, `claude` kept sending to the closed port, which another local user could take.
 - Claude Code: the deny hook runs the lmsk of the same package, not the first `lmsk` on your `PATH`.
-- Claude Code: a project `NO_PROXY` can no longer send requests to an HTTP proxy before they reach lmsk.
 - Claude Code: the proxy refuses an upstream redirect, which would send your API key to another address.
 - Text inside an object under a `signature` or `encrypted_content` key, such as a tool schema field, is now masked. A string under such a key still passes unchanged.
 - The pi peer dependencies require version 1.
 - A request that puts real values back into tool arguments now scans again only the texts that hold one of them, not the whole conversation.
+- lmsk adds less time to each request. A side request, or a request of another session, no longer makes lmsk scan the whole conversation again. In a recorded Claude Code session, the 95th percentile of the added time went from 117 ms to between 19 and 26 ms.
+- A text that holds a known secret in another case, such as `abcd1234ef` for `ABCD1234EF`, is now masked. Before, if lmsk scanned the text before the secret became known, it withheld the text, or sent it unchanged with `withholdHiddenCopies: false`.
 - A long text without line breaks, such as minified code, scans up to five times faster.
 - The limits now say that base64 documents, the request path, and the pi `/bug` summary are not masked, and which encoded copies of a value are masked.
+- A request header is now withheld when it hides a secret spaced out, wrapped, reversed or encoded. So is a text that pi sends to a classifier or an image model. Before, they reached the model provider.
+- Claude Code: a streamed reply whose content type is not in lowercase, such as `Text/Event-Stream`, now gets its real values back.
+- A request no longer fails with `VAULT_COLLISION` when an encoded secret comes after a longer encoded run that holds it. An example is base64 with `=` padding.
+- With a big vault, a request costs less. With 8000 values, lmsk took about 2.2 seconds to mask a request of a recorded Claude Code session, and now takes about 0.35 seconds. After lmsk learns a new value, it took about 3.9 seconds, and now takes about 0.2 seconds.
+- The vault is full when its values have 2000000 characters together. A new value then stops the request with `VAULT_FULL`. Before, a vault with more than about 6 MB of values made V8 stop pi or the proxy.
 
 ## 0.2.1
 

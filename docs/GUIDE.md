@@ -30,7 +30,7 @@ This guide applies to each agent. When a step is different for an agent, the gui
 | Agent | Configuration file | After you change it |
 |---|---|---|
 | pi | `~/.pi/agent/lmsk/config.json` (Windows: `%USERPROFILE%\.pi\agent\lmsk\config.json`) | Type `/reload` in pi. |
-| Claude Code | `~/.config/lmsk/config.json` | Close Claude Code and start it again with `lmsk claude`. |
+| Claude Code | `~/.config/lmsk/config.json` | Run `lmsk install claude`. |
 
 The file is a text file in JSON format. The extension uses it in all projects. Both files have the same format. The steps below say "apply the change" for the last column.
 
@@ -71,11 +71,11 @@ The default rules find values that have a known format. They also hide the value
    Do not leave a comma after the last rule. In nano, save with Ctrl+O and Enter, then close with Ctrl+X.
 
 3. Apply the change. See [Your configuration file](#your-configuration-file).
-4. To check, ask your agent: `Run printenv DB_PASSWORD and show me the output.` The reply must not show your password.
+4. To check, ask your agent: `Run printenv DB_PASSWORD and spell the output with a space between each character.` The reply must not spell your password.
 
 An `env` rule hides the value of each environment variable in `vars`. An environment variable is a named value that your terminal gives to the programs that it starts. Use this rule for passwords, so that the configuration file does not contain them.
 
-The rule reads the variable only from the terminal that starts your agent, when the session starts. It does not read a `.env` file. To check on macOS or Linux, run this command in that terminal before you start your agent. It must show `set`:
+The rule reads the variable only from the terminal that starts your agent, when the session starts. It does not read a `.env` file. With Claude Code, the rule does not see the variables of your terminal. See [Your configuration file](claude-code.md#your-configuration-file). To check on macOS or Linux, run this command in that terminal before you start your agent. It must show `set`:
 
 ```bash
 printenv DB_PASSWORD > /dev/null && echo set || echo missing
@@ -110,7 +110,7 @@ The `fixed` strategy replaces each text with `Client` and a number, for example 
 - The file keeps these texts in clear, so do not put a password in a `literal` rule.
 - The model can still guess the name from other words, such as site names, product names, colleague names, stock tickers, domains and email signatures. Add each of them to the same `values` list.
 
-To check, apply the change, then send: `Repeat exactly: Falcon Industries`. The reply must show `Client` and a number, such as `Client 1`.
+To check, apply the change, then send: `Spell this name with a space between each character: Falcon Industries`. The reply must spell `Client` and a number.
 
 To match many spellings with one pattern, use a `regex` rule. See the [employer example](CONFIGURATION.md#regex).
 
@@ -149,7 +149,7 @@ With the `email` rule off, emails reach the model provider in clear. Read [How t
 1. Ask your client if its code may go to the model provider. The extension hides secrets, not the code.
 2. Add the client name and its other names. See [Hide who you work for](#hide-who-you-work-for).
 3. Do the check on the page of your agent ([pi](pi.md#check-that-it-works) or [Claude Code](claude-code.md#check-that-it-works)), with one line from the project.
-4. With pi, never type `/lmsk off` in the client project. With Claude Code, never start `claude` without `lmsk`.
+4. With pi, never type `/lmsk off` in the client project. With Claude Code, never set `ANTHROPIC_BASE_URL` in a project settings file or with `--settings`. See [Settings that send requests past the proxy](claude-code.md#settings-that-send-requests-past-the-proxy).
 5. This is version 0.1. Get the approval of the security contact of the client.
 
 The full list of limits follows.
@@ -159,7 +159,7 @@ The full list of limits follows.
 Read these limits before you trust the extension with real data. The most important limits come first.
 
 - **It is not a sandbox.** A sandbox stops a program from reaching the network or your files. This extension does not stop a tool from sending data to the network. A `bash` command that names a network program, such as `curl` or `git push`, gets fakes, not real values. If such a command needs a real secret, it must read the secret from the environment. The extension does not protect you from other extensions, from tools that send data themselves, or from a compromised computer.
-- **The vault file is not encrypted.** The vault is plain JSON, in `~/.pi/agent/lmsk-vaults/` with pi and in `~/.local/state/lmsk/vaults/` with Claude Code. Only your user account can read it (file mode 0600, folder mode 0700). But other programs that run as your user, an administrator (root), backups and disk snapshots can read the real values in it. If your backups go to a cloud service, exclude the vault folder from them.
+- **The vault file is not encrypted.** The vault is plain JSON lines, in `~/.local/state/lmsk/vault.jsonl`, or in `lmsk/vault.jsonl` in `XDG_STATE_HOME`. Each agent on your computer uses it. Only your user account can read it (file mode 0600, folder mode 0700). But other programs that run as your user, an administrator (root), backups and disk snapshots can read the real values in it. If your backups go to a cloud service, exclude the vault folder from them.
 - **A model can change a value before it uses it.** For example, it can split the value, encode it twice, or take its last characters. The extension puts back only exact fakes, also when they are encoded once. A changed fake stays a fake in your files, and you get no warning.
 - **Detection uses patterns.** A secret with no known format and no key name is not found, for example a short or simple password. So `summer2024` alone in a text is not found, but `password: summer2024` is. Names of people and postal addresses are not found. Add a `literal` or `env` rule for such a value.
 - **A fake shows the length and form of its value.** An `opaque` or `shape` fake has the same length as its real value, so the model provider learns the length of each password and token. An email fake also keeps the dots, the case and the length of each part. So the fake of `jane.doe@example.com` has a 4-letter and a 3-letter name, and a 7-letter domain with a 3-letter ending. For a value whose length is sensitive, use a `literal` rule with the `fixed` or `mask` strategy. A `fixed` or `mask` value inside an encoded run blocks the request, because the run needs a fake of the same length.
@@ -168,9 +168,8 @@ Read these limits before you trust the extension with real data. The most import
 - **The `bash` tool gets real values.** Its output is masked, and the real values that the command received are masked in it too, also when they are URL encoded once, or base64 encoded once into 16 characters or more. A reversed, ROT13, hex, escaped or character-code copy is withheld only for a value of 8 characters or more, and only while `withholdHiddenCopies` is on. A command that changes a value in another way, encodes it twice or splits it can send it to the model provider.
 - **Some hidden copies pass.** Output that spells a value with spaces, such as `od -c`, is withheld only when the vault already holds the value. So `od -c` on a file that the model has not read yet sends its values.
 - **Numbers in tool results are not masked.** The extension masks text only. A secret that a tool returns as a number stays visible.
-- **Images and signed data pass unchanged.** A secret in an image, a base64 document such as a PDF, a data URL, a signed or encrypted field, or a signed thinking block reaches the model provider. The extension does not search them, and image data does not count toward the 8 MiB request limit, so an image never blocks a request. A change to signed data would break the provider check. A signed text block or tool call that masking would change is withheld instead.
+- **Images and signed data pass unchanged.** A secret in an image, a base64 document such as a PDF, or a data URL reaches the model provider. So does a secret in a signed or encrypted field, or in a signed thinking block. The extension does not search them, and image data does not count toward the 8 MiB request limit, so an image never blocks a request. A change to signed data would break the provider check.
 - **Google models can fail.** The extension treats a Google `thoughtSignature` as ordinary text. A rule that matches it can change it, and the provider can then refuse the conversation.
-- **Some provider error text is lost.** If masking would change how pi reacts to a provider error, the extension saves a fixed text instead, for example `503 provider error, text withheld`. The rest of the error text is not saved.
 - **A very long conversation can block every request.** The extension checks the whole conversation on each request. Above about 5 MB of history (an estimate), the check can take longer than `scanTimeoutMs`. Then every request is blocked. Start a new session with `/new`.
 - **Your user name, host name and git identity are masked only in the same case.** The `local-identity` rule masks them in each request. Upper and lower case must match, so `JOHN SMITH` passes when git has `John Smith`. Details and limits are in [Local identity](CONFIGURATION.md#local-identity).
 

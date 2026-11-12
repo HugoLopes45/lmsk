@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { proxyPaths } from "../../src/proxy/index.ts";
+import { machinePaths } from "../../src/core/index.ts";
 
-describe("proxyPaths", () => {
-  it("uses the XDG defaults under home and protects the proxy's and pi's stores and configurations", () => {
-    expect(proxyPaths({}, "/h")).toEqual({
+describe("machinePaths", () => {
+  it("uses the XDG defaults under home and protects lmsk's state and pi's stores and configurations", () => {
+    expect(machinePaths({}, "/h")).toEqual({
       configPath: "/h/.config/lmsk/config.json",
       stateDir: "/h/.local/state/lmsk",
       protectedPaths: [
@@ -16,7 +16,7 @@ describe("proxyPaths", () => {
   });
 
   it("uses absolute XDG directories and ignores relative ones, as the XDG specification requires", () => {
-    const paths = proxyPaths(
+    const paths = machinePaths(
       { XDG_CONFIG_HOME: "/cfg", XDG_STATE_HOME: "state" },
       "/h",
     );

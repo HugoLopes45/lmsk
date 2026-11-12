@@ -1,4 +1,5 @@
 import { CodedError } from "./errors.ts";
+import type { BytesFor } from "./keyed-bytes.ts";
 import { escapeRegex } from "./scanner.ts";
 import { type RandomBytes, reshape } from "./shape.ts";
 
@@ -9,7 +10,26 @@ export class VaultError extends CodedError<VaultCode> {}
 /** `[real, fake]`. */
 export type VaultEntry = [real: string, fake: string];
 
+/** Where a vault shares its mappings with other processes. */
+export interface Journal {
+  /** Runs `write` while no other process writes the journal. */
+  locked<T>(write: () => T): T;
+  /** Gives `take` the mappings of any process that no earlier call gave without a throw. */
+  unread(take: (entries: VaultEntry[]) => void): void;
+  /** Saves mappings that this process added. */
+  append(entries: VaultEntry[]): void;
+}
+
+/** A journal of one process: nothing to share. */
+const OWN: Journal = {
+  locked: (write) => write(),
+  unread: () => undefined,
+  append: () => undefined,
+};
+
 const MAX_ENTRIES = 50000;
+/** `literalPattern` joins the learned reals into one regex. Past about 6 MB, V8 aborts the whole process when it compiles it. */
+const MAX_REAL_CHARS = 2000000;
 const MAX_ATTEMPTS = 64;
 
 /** Equal, or one contains the other. */
@@ -73,6 +93,18 @@ function opaque(length: number, random: RandomBytes): string {
       if (byte < OPAQUE_LIMIT && out.length < length)
         out += OPAQUE_ALPHABET.charAt(byte % OPAQUE_ALPHABET.length);
   return out;
+}
+
+/**
+ * `reshape` turns a real of 2 to 4 letters into a short word, such as `cat`. The model may write
+ * that word, which would then restore to the real, so such a real gets a fake with a digit.
+ */
+function shaped(real: string, random: RandomBytes): string {
+  if (!SHORT_WORD.test(real)) return reshape(real, random);
+  for (;;) {
+    const fake = opaque(real.length, random);
+    if (!SHORT_WORD.test(fake)) return fake;
+  }
 }
 
 /** Whether the character at `index` is a letter or digit; outside the text it is not. */
@@ -159,16 +191,38 @@ function bucketsOf(
  * only whole tokens.
  */
 export class Vault {
-  private readonly random: RandomBytes;
+  private readonly bytesFor: BytesFor;
+  private readonly journal: Journal;
   private readonly fakes = new Map<string, string>();
   private readonly reals = new Map<string, string>();
+  /** The characters of all reals. */
+  private chars = 0;
   /** Fakes from `bucketsOf`; undefined until the next store. */
   private buckets: Map<string, [fake: string, real: string][]> | undefined;
+  /** The length of the longest fake; undefined until the next store. */
+  private longest: number | undefined;
 
-  constructor(random: RandomBytes, entries: VaultEntry[] = []) {
-    this.random = random;
+  constructor(
+    bytesFor: BytesFor,
+    entries: VaultEntry[] = [],
+    journal: Journal = OWN,
+  ) {
+    this.bytesFor = bytesFor;
+    this.journal = journal;
+    this.add(entries);
+    this.refresh();
+  }
+
+  /** Adds the mappings that the journal got from other processes. */
+  refresh(): void {
+    this.journal.unread((entries) => this.add(entries));
+  }
+
+  /** A mapping that is already here passes; one that reuses its real or fake for another throws. */
+  private add(entries: VaultEntry[]): void {
     for (const [real, fake] of entries) {
-      this.room();
+      if (this.fakes.get(real) === fake) continue;
+      this.room(real);
       if (
         !real ||
         !fake ||
@@ -177,8 +231,7 @@ export class Vault {
         this.reals.has(fake)
       )
         throw new VaultError("VAULT_COLLISION", "invalid restored mapping");
-      this.fakes.set(real, fake);
-      this.reals.set(fake, real);
+      this.store(real, fake);
     }
   }
 
@@ -188,26 +241,14 @@ export class Vault {
    */
   fakeFor(real: string, avoid: string): string {
     const pieces = EMAIL_SHAPE.test(real) ? real.split("@") : [real];
-    return this.assign(real, avoid, () =>
-      pieces.map((piece) => sliceable(piece.length, this.random)).join("@"),
+    return this.assign(real, avoid, (_attempt, random) =>
+      pieces.map((piece) => sliceable(piece.length, random)).join("@"),
     );
   }
 
   /** Same class per character, see `reshape`. A shape rule keeps the form of its real. */
   shapeFor(real: string, avoid: string): string {
-    return this.assign(real, avoid, () => this.shaped(real));
-  }
-
-  /**
-   * `reshape` turns a real of 2 to 4 letters into a short word, such as `cat`. The model may write
-   * that word, which would then restore to the real, so such a real gets a fake with a digit.
-   */
-  private shaped(real: string): string {
-    if (!SHORT_WORD.test(real)) return reshape(real, this.random);
-    for (;;) {
-      const fake = opaque(real.length, this.random);
-      if (!SHORT_WORD.test(fake)) return fake;
-    }
+    return this.assign(real, avoid, (_attempt, random) => shaped(real, random));
   }
 
   /**
@@ -233,7 +274,8 @@ export class Vault {
     return this.assign(
       part,
       avoid,
-      (attempt) => (attempt === 0 ? slice : opaque(part.length, this.random)),
+      (attempt, random) =>
+        attempt === 0 ? slice : opaque(part.length, random),
       (known) => known === fake,
     );
   }
@@ -340,9 +382,9 @@ export class Vault {
     return out + text.slice(last);
   }
 
-  /** Start and end of each fake that `restore` replaces in `text`. */
-  fakeSpans(text: string): [start: number, end: number][] {
-    return this.fakeMatches(text).map(([start, end]) => [start, end]);
+  /** Start and end of each fake that `restore` replaces in `text`, from `from` on. */
+  fakeSpans(text: string, from = 0): [start: number, end: number][] {
+    return this.fakeMatches(text, from).map(([start, end]) => [start, end]);
   }
 
   /**
@@ -352,11 +394,12 @@ export class Vault {
    */
   private fakeMatches(
     text: string,
+    from = 0,
   ): [start: number, end: number, real: string][] {
     if (this.reals.size === 0) return [];
     const buckets = (this.buckets ??= bucketsOf(this.reals));
     const matches: [start: number, end: number, real: string][] = [];
-    let start = 0;
+    let start = from;
     while (start < text.length) {
       const hit = this.fakeAt(text, start, buckets);
       if (hit === undefined) {
@@ -397,13 +440,21 @@ export class Vault {
   bindRun(run: string, rendered: string, avoid: string): void {
     const existing = this.fakes.get(run);
     if (existing === rendered) return;
-    this.room();
+    this.room(run);
     if (
       existing !== undefined ||
-      !this.usable(run, rendered, avoid, (known) => rendered.includes(known))
+      !this.usable(run, rendered, avoid, () => true)
     )
       throw new VaultError("VAULT_COLLISION", "encoded run has no unused fake");
     this.store(run, rendered);
+  }
+
+  longestFake(): number {
+    this.longest ??= Math.max(
+      0,
+      ...[...this.reals.keys()].map((fake) => fake.length),
+    );
+    return this.longest;
   }
 
   /** The real behind a fake, or undefined when the text is no fake. */
@@ -415,32 +466,43 @@ export class Vault {
     return [...this.fakes];
   }
 
+  /**
+   * Runs `render` with the journal locked and the mappings of other processes added, then saves
+   * the new mappings. A throw, also of the save, drops the new mappings.
+   */
   atomic(render: () => string[]): string[] {
-    const size = this.fakes.size;
-    const buckets = this.buckets;
-    try {
-      return render();
-    } catch (error) {
-      for (const [real, fake] of [...this.fakes].slice(size)) {
-        this.fakes.delete(real);
-        this.reals.delete(fake);
+    return this.journal.locked(() => {
+      this.refresh();
+      const size = this.fakes.size;
+      try {
+        const rendered = render();
+        this.journal.append([...this.fakes].slice(size));
+        return rendered;
+      } catch (error) {
+        for (const [real, fake] of [...this.fakes].slice(size)) {
+          this.fakes.delete(real);
+          this.reals.delete(fake);
+          this.chars -= real.length;
+        }
+        this.buckets = undefined;
+        this.longest = undefined;
+        throw error;
       }
-      this.buckets = buckets;
-      throw error;
-    }
+    });
   }
 
   private assign(
     real: string,
     avoid: string,
-    candidate: (attempt: number) => string,
+    candidate: (attempt: number, random: RandomBytes) => string,
     exempt?: (knownFake: string) => boolean,
   ): string {
     const existing = this.fakes.get(real);
     if (existing !== undefined) return existing;
-    this.room();
+    this.room(real);
+    const random = this.bytesFor(real);
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      const fake = candidate(attempt);
+      const fake = candidate(attempt, random);
       if (this.usable(real, fake, avoid, exempt)) {
         this.store(real, fake);
         return fake;
@@ -452,22 +514,31 @@ export class Vault {
     );
   }
 
-  private room(): void {
-    if (this.fakes.size >= MAX_ENTRIES)
-      throw new VaultError("VAULT_FULL", `more than ${MAX_ENTRIES} entries`);
+  private room(real: string): void {
+    if (
+      this.fakes.size >= MAX_ENTRIES ||
+      this.chars + real.length > MAX_REAL_CHARS
+    )
+      throw new VaultError(
+        "VAULT_FULL",
+        `more than ${MAX_ENTRIES} entries or ${MAX_REAL_CHARS} characters`,
+      );
   }
 
   private store(real: string, fake: string): void {
     this.fakes.set(real, fake);
     this.reals.set(fake, real);
+    this.chars += real.length;
     this.buckets = undefined;
+    this.longest = undefined;
   }
 
   /**
    * A fake must not nest with any string in the vault, and must not occur in the text it hides.
    * `exempt` lifts this for a known fake that nests by design: a part's fake in its parent fake
-   * (`partFor`), the fakes in an encoded run's fake (`bindRun`), and fakes of one fixed template
-   * (`fixedFor`). An equal fake is never exempt.
+   * (`partFor`), any fake that holds or is held by an encoded run's fake, as one run can hold
+   * another and either can come first (`bindRun`), and fakes of one fixed template (`fixedFor`).
+   * An equal fake is never exempt.
    */
   private usable(
     real: string,

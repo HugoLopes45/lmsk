@@ -381,10 +381,7 @@ function writeFixtures(
   }
   if (options.globalConfig !== undefined) {
     mkdirSync(join(agentDir, "lmsk"));
-    writeFileSync(
-      join(agentDir, "lmsk", "config.json"),
-      options.globalConfig,
-    );
+    writeFileSync(join(agentDir, "lmsk", "config.json"), options.globalConfig);
   }
 }
 
@@ -416,13 +413,21 @@ async function createHarness(
   mkdirSync(agentDir);
   writeFixtures(cwd, agentDir, options);
   const provider = await fakeProvider();
-  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  // The extension keeps its key and vault under XDG_STATE_HOME, so a test must not reach the user's.
+  const vars = {
+    PI_CODING_AGENT_DIR: agentDir,
+    XDG_STATE_HOME: join(root, "state"),
+  };
+  const previous = Object.keys(vars).map(
+    (name): [string, string | undefined] => [name, process.env[name]],
+  );
   const restoreAgentDir = () => {
-    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    for (const [name, value] of previous)
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
     release();
   };
-  process.env.PI_CODING_AGENT_DIR = agentDir;
+  Object.assign(process.env, vars);
   let session: AgentSession | undefined;
   const runs = new Set<PrintRun>();
   try {
