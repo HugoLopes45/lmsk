@@ -145,6 +145,7 @@ describe("keyed secrets", () => {
       `token: TOKEN`,
       `password: string`,
       `credentials: credentials`,
+      `POSTGRES_PASSWORD: postgres`,
     ])
       expect(await found(text), text).toEqual([]);
   });
@@ -249,6 +250,53 @@ describe("connection strings and credentials in arguments", () => {
   ])("takes the password of a %s URL", async (_scheme, text) => {
     expect(await found(text)).toEqual([VALUE]);
   });
+
+  it.each([
+    "%40Secret123",
+    "Sunshine2024",
+    "$up3rS3cret",
+    "p4ss-w0rd",
+    "$ECRET2024",
+    "your_Xk9mQ2pL7vR4",
+    "<Xk9#mQ2pL7>",
+    "{{Xk9#mQ2pL7}}",
+  ])("takes the URL password %s", async (password) => {
+    expect(await found(`postgres://app:${password}@db:5432/x`)).toEqual([
+      password,
+    ]);
+  });
+
+  it.each([
+    "password",
+    "postgres",
+    "abcdefghijklmno",
+    "${DB_PASSWORD}",
+    "$PGPASSWORD",
+    "$DB_PASSWORD",
+    "%DB_PASS%",
+    "<password>",
+    "{{db_password}}",
+    "{{db.password}}",
+    "****",
+    "your-password",
+    "YOUR_PASSWORD_HERE",
+  ])("ignores the URL password stand-in %s", async (password) => {
+    expect(await found(`postgres://app:${password}@db:5432/x`)).toEqual([]);
+  });
+
+  it.each([
+    "root",
+    "abcdefg",
+    "abcdefghijklmnop",
+    "correct_horse_battery_staple",
+  ])(
+    "takes a URL password of letters only outside 8 to 15 characters: %s",
+    async (password) => {
+      expect(await found(`postgres://app:${password}@db:5432/x`)).toEqual([
+        password,
+      ]);
+    },
+  );
 
   it.each([
     ["ado.net", `Server=tcp:db;User ID=svc;Password=${VALUE};Encrypt=True;`],
@@ -439,6 +487,46 @@ describe("more vendor formats", () => {
   it("takes a percent-encoded bearer token", async () => {
     const token = `AAAAAAAAAAAAAAAAAAAAA${random(60, 47, BASE64URL)}%3D${random(20, 48, BASE64URL)}`;
     expect(await found(`Bearer ${token}`)).toEqual([token]);
+  });
+
+  it.each([
+    (token: string) => `Authorization: Bearer ${token}`,
+    (token: string) => `AUTHORIZATION: Bearer ${token}`,
+    (token: string) => `authorization: bearer ${token}`,
+    (token: string) => `authorization:Bearer ${token}\r\n`,
+    (token: string) => `"Authorization": "Bearer ${token}"`,
+    (token: string) => `-H 'Authorization: Bearer ${token}'`,
+  ])(
+    "takes a short bearer token after an Authorization key: %s",
+    async (form) => {
+      const token = random(8, 50);
+      expect(await found(form(token))).toEqual([token]);
+    },
+  );
+
+  it.each([
+    "Authorization: Bearer undefined",
+    "Authorization: Bearer REDACTED",
+    "Authorization: Bearer xxxxxxxx",
+    "Authorization: Bearer your-token-here",
+    'headers: { Authorization: "Bearer test-token" }',
+    '-H "Authorization: Bearer ACCESS_TOKEN"',
+    "Authorization: Bearer accessToken",
+    "Authorization: Bearer abcdefghijklmno",
+    "Authorization: Bearer abc1234",
+  ])("ignores a stand-in after an Authorization key: %s", async (text) => {
+    expect(await found(text)).toEqual([]);
+  });
+
+  it.each(["abcdefghijklmnop", "xxxxxxxxxxxxxxxx", "your-token-goes-here"])(
+    "takes a 16+ bearer token of letters: %s",
+    async (token) => {
+      expect(await found(`Authorization: Bearer ${token}`)).toEqual([token]);
+    },
+  );
+
+  it("ignores a short word after Bearer outside an Authorization key", async () => {
+    expect(await found("Send a Bearer abcd1234 token")).toEqual([]);
   });
 
   it("takes a secret from a markdown table cell under a key cell", async () => {

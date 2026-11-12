@@ -70,6 +70,124 @@ describe("Anthropic shapes", () => {
     expect(JSON.stringify(masked)).not.toContain("TKT-123456");
   });
 
+  it("keeps a base64 PDF document", async () => {
+    const payload = {
+      type: "document",
+      source: {
+        type: "base64",
+        media_type: "application/pdf",
+        data: "TKT-123456",
+      },
+    };
+    expect(await masker().maskPayload(payload)).toEqual(payload);
+  });
+
+  it.each([
+    [
+      "an Anthropic web search result",
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtoolu_1",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://example.com",
+            title: "t",
+            encrypted_content: "TKT-123456",
+          },
+        ],
+      },
+    ],
+    [
+      "an Anthropic compaction block",
+      {
+        type: "compaction",
+        content: "s",
+        encrypted_content: "TKT-123456",
+        signature: "TKT-123456",
+      },
+    ],
+    [
+      "an Anthropic advisor redacted result",
+      { type: "advisor_redacted_result", encrypted_content: "TKT-123456" },
+    ],
+    [
+      "an OpenAI Responses compaction item",
+      { type: "compaction", id: "cmp_1", encrypted_content: "TKT-123456" },
+    ],
+    [
+      "an OpenRouter reasoning.text detail",
+      {
+        type: "reasoning.text",
+        text: "TKT-123456",
+        signature: "TKT-123456",
+        format: "anthropic-claude-v1",
+        index: 0,
+      },
+    ],
+    [
+      "bedrock reasoning",
+      {
+        reasoningContent: {
+          reasoningText: { text: "TKT-123456", signature: "TKT-123456" },
+        },
+      },
+    ],
+  ])("keeps the signed or encrypted content of %s", async (_name, block) => {
+    const payload = { content: [block] };
+    expect(await masker().maskPayload(payload)).toEqual(payload);
+  });
+
+  it.each([
+    [
+      "a base64 text document",
+      {
+        type: "document",
+        source: {
+          type: "base64",
+          media_type: "text/plain",
+          data: "TKT-123456",
+        },
+      },
+    ],
+    [
+      "a tool argument named signature",
+      { type: "tool_use", id: "toolu_1", input: { signature: "TKT-123456" } },
+    ],
+    [
+      "a tool argument named encrypted_content",
+      {
+        type: "tool_use",
+        id: "toolu_1",
+        input: { encrypted_content: "TKT-123456" },
+      },
+    ],
+    [
+      "an email tool argument with text and signature",
+      {
+        type: "tool_use",
+        id: "toolu_1",
+        input: {
+          to: "a@example.com",
+          subject: "TKT-123456",
+          text: "TKT-123456",
+          signature: "TKT-123456",
+        },
+      },
+    ],
+    [
+      "a text data URL in a tool argument",
+      {
+        type: "tool_use",
+        id: "toolu_1",
+        input: { url: "data:text/plain,TKT-123456" },
+      },
+    ],
+  ])("masks %s", async (_name, block) => {
+    const masked = await masker().maskPayload({ content: [block] });
+    expect(JSON.stringify(masked)).not.toContain("TKT-123456");
+  });
+
   it("masks text under a tool schema field named signature or encrypted_content, which no provider signs", async () => {
     const masked = await masker().maskPayload({
       tools: [
@@ -106,6 +224,10 @@ describe("OpenAI shapes", () => {
         {
           type: "image_url",
           image_url: { url: "data:image/png;base64,TKT-123456" },
+        },
+        {
+          type: "image_url",
+          image_url: { url: "data:application/pdf;base64,TKT-123456" },
         },
       ],
       messages: [

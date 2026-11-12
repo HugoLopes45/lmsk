@@ -7,6 +7,7 @@
 - Breaking: the pi session file holds real values. The extension puts the real values back into the summaries of `/compact` and `/tree` as it does into replies. Thinking text, and some short or glued values in replies and summaries, keep their fakes.
 - Breaking: one vault for each computer, `~/.local/state/lmsk/vault.jsonl`, for pi and Claude Code. A value gets the same fake in each session on the computer. lmsk no longer reads the vaults in `~/.pi/agent/lmsk-vaults/` and `~/.local/state/lmsk/vaults/`, or the tool calls in `~/.local/state/lmsk/sessions/`.
 - Breaking: Claude Code: a project settings file can now send the requests past the proxy, with `ANTHROPIC_BASE_URL` or a provider switch such as `CLAUDE_CODE_USE_BEDROCK`. It can also turn off the hook with `disableAllHooks`. `lmsk claude` gave Claude Code its own `--settings`, which won over a project file.
+- Breaking: a number in a tool argument keeps its fake. Before, lmsk put the real number back, and the next request sent it to the model provider unmasked, because lmsk masks only text.
 - Claude Code: `lmsk install claude` sets `CLAUDE_CODE_MAX_RETRIES` to 3 if your user settings do not set it, and the provider switches, such as `CLAUDE_CODE_USE_BEDROCK`, to an empty value.
 - Claude Code: the proxy uses the fixed port 25675. Do not use lmsk for Claude Code on a computer that other people log in to.
 - Claude Code: resumed and forked sessions work. `FORKED_SESSION` and `CALLS_INVALID` are gone.
@@ -22,16 +23,20 @@
 - A `bash` command keeps its fakes when quotes or backslashes hide a network command in it, such as `"curl"`, `$'curl'`, `c\url` or `bash -c 'curl ...'`. It also keeps them when options separate the words of the command, such as `git -C repo push`. It also keeps them when the command sets a variable to the whole name, or a brace list holds it, such as `X=curl; $X` or `{curl,...}`.
 - Claude Code: the deny hook reads a `Bash` command also without its quotes and backslashes, so `cat .e''nv` and `cat .e$'n'v` are refused like `cat .env`.
 - More commands keep their fakes by default: `gh`, `glab`, `npm publish`, `pnpm publish`, `yarn publish`, `docker push`, `docker login`, `podman push`, `podman login`, `socat`, `openssl s_client`, `aws`, `gcloud`, `az`, `kubectl`, `helm`, `xh`, `eval`, `/dev/tcp` and `/dev/udp`, and inline code for `python`, `python3`, `node`, `deno`, `bun`, `perl`, `ruby` and `php`. To remove one, add a `!` item to your global configuration, for example `"!aws"`.
+- A password in a connection URL is no longer masked when it is an upper-case variable, a placeholder, or 8 to 15 letters and `_`. Examples are `${DB_PASSWORD}`, `<password>`, `****` and `postgres`. So a real password of 8 to 15 letters in a URL now reaches the model provider. Add a `literal` rule for it.
+- A `Bearer` token of 8 to 15 characters after an `Authorization` key is now masked. Before, a `Bearer` token needed 16 characters. Such a token stays visible when it has only letters, `-` and `_`, such as `Bearer undefined`, `Bearer REDACTED` or `Bearer your-token-here`.
+- A base64 document or data URL passes unchanged only when it is an image or a PDF. Other base64 documents and data URLs get the checks of other text. A `signature` or `encrypted_content` string passes unchanged only in a provider block: thinking, reasoning, signed text, web search result, compaction, advisor result, an OpenRouter `reasoning.text` detail, or a Bedrock `reasoningText`. Before, a tool argument with such a key reached the model provider unmasked.
+- A tool argument field that a request passes unchanged keeps its fakes, such as `encrypted_content` in an object of type `reasoning`. Before, lmsk put the real value back in it, and the next request sent that value to the model provider unmasked.
 - The protected-path checks of lmsk ignore case, so `~/.AWS/credentials` or `.NPMRC` on a macOS or Windows disk is protected too. On Linux, a path that differs only in case from a protected path is now also protected.
 - Claude Code: the deny hook runs the lmsk of the same package, not the first `lmsk` on your `PATH`.
 - Claude Code: the proxy refuses an upstream redirect, which would send your API key to another address.
-- Text inside an object under a `signature` or `encrypted_content` key, such as a tool schema field, is now masked. A string under such a key still passes unchanged.
+- Text inside an object under a `signature` or `encrypted_content` key, such as a tool schema field, is now masked.
 - The pi peer dependencies require version 1.
 - A request that puts real values back into tool arguments now scans again only the texts that hold one of them, not the whole conversation.
 - lmsk adds less time to each request. A side request, or a request of another session, no longer makes lmsk scan the whole conversation again. In a recorded Claude Code session, the 95th percentile of the added time went from 117 ms to between 19 and 26 ms.
 - A text that holds a known secret in another case, such as `abcd1234ef` for `ABCD1234EF`, is now masked. Before, if lmsk scanned the text before the secret became known, it withheld the text, or sent it unchanged with `withholdHiddenCopies: false`.
 - A long text without line breaks, such as minified code, scans up to five times faster.
-- The limits now say that base64 documents, the request path, and the pi `/bug` summary are not masked, and which encoded copies of a value are masked.
+- The limits now say which values are not masked: image and PDF base64 documents, the request path, and the pi `/bug` summary. They also say which encoded copies of a value are masked.
 - A request header is now withheld when it hides a secret spaced out, wrapped, reversed or encoded. So is a text that pi sends to a classifier or an image model. Before, they reached the model provider.
 - Claude Code: a streamed reply whose content type is not in lowercase, such as `Text/Event-Stream`, now gets its real values back.
 - A request no longer fails with `VAULT_COLLISION` when an encoded secret comes after a longer encoded run that holds it. An example is base64 with `=` padding.

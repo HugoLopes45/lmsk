@@ -93,6 +93,9 @@ const STAND_IN: Allowlist = {
   all: false,
 };
 
+const caseless = (word: string) =>
+  word.replace(/[a-z]/g, (c) => `[${c}${c.toUpperCase()}]`);
+
 /** Secrets the entropy rules miss, plus the vendor formats gitleaks lacks. Group 1 or `auto` is the value. */
 export const SECRET_RULES: Rule[] = [
   ...VENDOR_KEYS.map(([id, body]) =>
@@ -111,12 +114,37 @@ export const SECRET_RULES: Rule[] = [
   regexRule(
     "connection-password",
     /[A-Za-z][A-Za-z0-9+.-]{0,30}:\/\/[^\s:@/[\]]{0,80}:(?!\d{1,5}[/?#])([^\s@]{1,200})@/.source,
-    { group: 1 },
+    {
+      group: 1,
+      // Not STAND_IN: its `%` prefix and its stopwords pass a percent-encoded or an "example" password.
+      allow: [
+        {
+          target: "secret",
+          regexes: [
+            `^(?:(?=.{8,15}$)[A-Za-z]+(?:_[A-Za-z]+)*|\\$\\{[A-Z_][A-Z0-9_]*\\}|\\$[A-Z_]+|%[A-Z_][A-Z0-9_]*%|<[A-Za-z_ -]{1,40}>|\\{\\{\\s*[\\w.]+\\s*\\}\\}|\\*+|${caseless("your")}[-_][A-Za-z_-]*)$`,
+          ],
+          stopwords: [],
+          all: false,
+        },
+      ],
+    },
   ),
   regexRule(
     "bearer-token",
-    /\bBearer\s+([A-Za-z0-9._~+/%-]{16,200}={0,2})/.source,
-    { group: 1 },
+    // After an Authorization key, a shorter token is still a credential.
+    `${caseless("authorization")}["']?\\s*[:=]\\s*["']?${caseless("bearer")}\\s+([A-Za-z0-9._~+/%-]{8,200}={0,2})|\\bBearer\\s+([A-Za-z0-9._~+/%-]{16,200}={0,2})`,
+    {
+      group: "auto",
+      allow: [
+        {
+          target: "secret",
+          // A letters-only value of 8 to 15 characters is a name or a test value. A 16+ value stays found.
+          regexes: ["^(?=.{8,15}$)[A-Za-z]+(?:[-_][A-Za-z]+)*$"],
+          stopwords: [],
+          all: false,
+        },
+      ],
+    },
   ),
   regexRule(
     "authorization-scheme",

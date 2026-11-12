@@ -45,7 +45,7 @@ The first form means that the extension stopped one request and the session cont
 | `SCAN_CRASH` | The worker that searches for secrets stopped. | Send the request again. If the error comes back, type `/reload`. |
 | `SCAN_PATTERN` | A regex failed during the search. | Check the `pattern` of your `regex` rules. Then type `/reload`. |
 | `BLOCKED` | A rule with the `block` strategy found a value. Other causes: a found value overlaps a fake, or a value in an encoded text cannot get a safe fake. | If you made a `block` rule, remove the value from the conversation, as for `HIDDEN_REAL`. Otherwise, start a new session with `/new`. |
-| `PAYLOAD_SIZE` | The text that masking scans in a request is larger than 8 MiB. Images, signatures and encrypted content do not count. | Start a new session with `/new`. Ask the agent for smaller outputs, for example part of a file. |
+| `PAYLOAD_SIZE` | The text that masking scans in a request is larger than 8 MiB. Images, PDFs, and the signatures and encrypted content of provider blocks do not count. | Start a new session with `/new`. Ask the agent for smaller outputs, for example part of a file. |
 | `PAYLOAD_SHAPE` | The request is not plain JSON data. | Report the problem as an issue. Do not include secrets. |
 | `VAULT_FULL` | The vault has 50000 values, or its values have 2000000 characters together. This is the maximum. | [Start a new vault](#start-a-new-vault). |
 | `VAULT_COLLISION` | The extension found no unused fake for a value, or a line of the vault gives one fake to two values. | Send the request again. If the error comes back, [start a new vault](#start-a-new-vault). |

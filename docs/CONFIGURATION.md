@@ -260,7 +260,7 @@ An enabled `fixed` rule without `{n}` in `replacement` blocks the session with t
 |---|---|
 | Vendor keys | More than 200 token formats from the gitleaks default rules: cloud, payment, source control, chat and AI providers. |
 | Keyed secrets | `password: ...`, `API_KEY=...`, `"token": "..."` in JSON, YAML, env files, CLI flags, cookies, netrc and SQL. Variables and placeholders such as `${DB_PASSWORD}` or `changeme` stay unchanged. |
-| Credentials in structure | The password in `postgres://user:pass@host`, `Bearer` and `Basic` headers, and `--password` flags. |
+| Credentials in structure | The password in `postgres://user:p4ss@host`, `Bearer` and `Basic` headers, and `--password` flags. A URL password that is a variable, a placeholder, or 8 to 15 letters and `_` stays unchanged. |
 | Personal data | Emails, phone numbers (FR, US, E.164), IBANs, payment cards (Luhn), FR NIR, US SSN, public IP addresses, MAC addresses, UUIDs. |
 | Identifiers | Values of 4 or more characters under `clientId`, `userId`, `accountId` and similar keys, identifiers such as `ORD-123456`, and account ids such as `AB1234567` or `AB1234567_team`. |
 | Local identity | Your user name, host name and git identity. See [Local identity](#local-identity). |

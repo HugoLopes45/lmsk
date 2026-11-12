@@ -1190,11 +1190,39 @@ describe("Masker.restoreValue", () => {
     });
   });
 
-  it("restores a digits-only fake that is a number to the real number", () => {
+  it("keeps a digits-only fake that is a number, as a request passes numbers unchanged", () => {
     const { masker, vault } = build([]);
     const fake = vault.shapeFor("48213", "");
-    expect(masker.restoreValue(Number(fake))).toBe(48213);
+    expect(masker.restoreValue(Number(fake))).toBe(Number(fake));
   });
+
+  it.each(["written", "masked"])(
+    "keeps the fakes of a field that the restored record passes unchanged, with a %s block type",
+    async (typeForm) => {
+      const real = "Kx91abQuillHarbor";
+      const format: PayloadFormat = {
+        opaque: (key, _value, parent) =>
+          key === "sealed" && parent.kind === "sealed-block",
+      };
+      const { masker } = build(
+        [literal("lit", [real, "sealed-block"])],
+        undefined,
+        {},
+        format,
+      );
+      const [kind, sealed] = await masker.mask(["sealed-block", real]);
+      const reals = new Set<string>();
+      const restored = masker.restoreValue(
+        { kind: typeForm === "masked" ? kind : "sealed-block", sealed },
+        reals,
+      );
+      expect(restored).toEqual({ kind: "sealed-block", sealed });
+      expect(reals.has(real)).toBe(false);
+      expect(JSON.stringify(await masker.maskPayload(restored))).not.toContain(
+        real,
+      );
+    },
+  );
 });
 
 describe("Masker encoded runs", () => {
