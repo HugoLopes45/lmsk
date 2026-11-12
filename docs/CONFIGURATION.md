@@ -100,7 +100,7 @@ This example is a global file. Its `email` entry and its `!` glob are not allowe
 |---|---|---|---|
 | `rules` | The default rules | The rules. See [Rule types](#rule-types). | Global and project |
 | `protectedPaths` | See [Default protected paths](#default-protected-paths) | Globs. The extension refuses `read`, `grep`, `find` and `ls` when the path argument, or the target of a link, matches one. | Global and project |
-| `networkCommands` | `curl`, `wget`, `ssh`, `scp`, `sftp`, `rsync`, `nc`, `ncat`, `telnet`, `ftp`, `git push` | Command words, not regexes. A space matches one or more spaces. A `bash` command that contains one of these words keeps its fakes. | Global and project |
+| `networkCommands` | `curl`, `wget`, `ssh`, `scp`, `sftp`, `rsync`, `nc`, `ncat`, `telnet`, `ftp`, `socat`, `openssl s_client`, `git push`, `gh`, `glab`, `npm publish`, `pnpm publish`, `yarn publish`, `docker push`, `docker login`, `podman push`, `podman login`, `aws`, `gcloud`, `az`, `kubectl`, `helm`, `xh`, `python -c`, `python3 -c`, `node -e`, `node --eval`, `node -p`, `node --print`, `deno eval`, `bun -e`, `bun --eval`, `bun -p`, `bun --print`, `perl -e`, `perl -E`, `ruby -e`, `php -r`, `eval`, `dev/tcp`, `dev/udp` | Command words, not regexes. The words of an item can have up to 10 other words between them. A `bash` command that contains one of these words keeps its fakes. | Global and project |
 | `restoredTools` | pi: `read`, `grep`, `find`, `ls`, `edit`, `write`, `bash`. Claude Code: `Read`, `Write`, `Edit`, `Grep`, `Glob`, `Bash`. | The built-in tools whose arguments get real values back. Only these tools are allowed, so you can only remove tools. | Global only |
 | `withholdHiddenCopies` | `true` | Withholds a text of a request that holds a known secret in a hidden form: spaced out, wrapped, reversed or encoded. See below. | Global only |
 | `scanTimeoutMs` | `5000` | The time limit of one search, in milliseconds. A slower search blocks its request. The maximum is `2147483647`. | Global only |
@@ -113,7 +113,9 @@ About `withholdHiddenCopies`:
 - With `false`, a copy split by spaces passes.
 - A value of your own rules with 4 to 7 characters is checked only as you wrote it. A copy in another case, with spaces, reversed or encoded passes in both cases. A value under 4 characters glued to a word is not checked.
 
-About `networkCommands`: the check reads plain words only. Quotes, backslashes, variables, options between the words or another program can hide a command from it. It is not a sandbox.
+About `networkCommands`: the check reads the command as written, and again with its quotes and backslashes removed. It reads that form once with its line continuations joined and once with each line break kept. So `"curl"`, `$'curl'`, `c\url` and `bash -c 'curl ...'` keep their fakes. The words of an item can have up to 10 other words between them, so `git -C repo push` and `git commit -m wip; echo push` keep their fakes too.
+
+The check is not a sandbox. Any shell expansion can still hide a command, such as a split variable, a default value, an escape code or a glob. Code on standard input, combined options, more than 10 words between the words of an item, or a program outside the list also hide it. Examples are `X=cu; ${X}rl`, `${X:-curl}`, `$'\x63url'`, `/usr/bin/cu?l`, `python3 - <<'EOF'` and `python -uc`. A word also matches in a path, in quoted text, or before a `-` or a `.`, such as `cat infra/aws/main.tf` or `npm i aws-sdk`. Then that command keeps its fakes.
 
 ### Default protected paths
 

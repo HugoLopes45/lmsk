@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   ConfigSchema,
   DEFAULT_RULES,
+  DEFAULT_SETTINGS,
   type HostDefaults,
   loadConfig,
   mergeConfigs,
@@ -184,7 +185,7 @@ describe("mergeConfigs", () => {
     );
     expect(problems).toEqual([
       "protectedPaths.22 must be string.",
-      "networkCommands.11 must be string.",
+      `networkCommands.${DEFAULT_SETTINGS.networkCommands.length} must be string.`,
       "restoredTools.0 must be string.",
     ]);
   });
@@ -204,7 +205,9 @@ describe("mergeConfigs", () => {
         mergeConfigs([{ networkCommands: [name] }]),
       );
       expect(problems).toEqual([
-        expect.stringMatching(/^networkCommands\.11 must match pattern/),
+        expect.stringMatching(
+          `^networkCommands\\.${DEFAULT_SETTINGS.networkCommands.length} must match pattern`,
+        ),
       ]);
     },
   );

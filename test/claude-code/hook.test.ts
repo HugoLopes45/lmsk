@@ -10,6 +10,14 @@ describe("claudeHook", () => {
   it.each([
     ["Read", { file_path: "/w/.env" }, true],
     ["Bash", { command: "cat .env" }, true],
+    ["Bash", { command: "cat .e''nv" }, true],
+    ["Bash", { command: 'cat .e"nv"' }, true],
+    ["Bash", { command: "cat .en\\v" }, true],
+    ["Bash", { command: "cat .e$'n'v" }, true],
+    ["Bash", { command: "cat .e\\\nnv" }, true],
+    ["Bash", { command: "cat ~/.aws''/credentials" }, true],
+    ["Bash", { command: 'cat ~/.aws/"credentials"' }, true],
+    ["Bash", { command: 'cat "READ"ME.md' }, false],
     ["Read", { file_path: "/w/README.md" }, false],
     ["Grep", { pattern: "x", path: "/w/.env.local" }, true],
   ])(

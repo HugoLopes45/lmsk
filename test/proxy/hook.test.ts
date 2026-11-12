@@ -79,4 +79,13 @@ describe("commandWords", () => {
       "out",
     ]);
   });
+
+  it.each([
+    ["cat .e''nv", ".env"],
+    ['cat .e"nv"', ".env"],
+    ["cat .en\\v", ".env"],
+    ["cat ~/.aws''/credentials", "~/.aws/credentials"],
+  ])("reads %s also without its quotes and backslashes", (command, word) => {
+    expect(commandWords(command)).toContain(word);
+  });
 });
