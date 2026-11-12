@@ -128,7 +128,9 @@ The `Read` deny rules also refuse a file command that Claude Code recognizes in 
 
 A tool call with a fake path that becomes a protected path after restore keeps its fakes. So it does not open the protected file.
 
-The hook does not check the `glob` of a `Grep` or `Glob` call. So a search of a folder can find a protected file in it. Claude Code applies the `Read` deny rules to `Grep` and `Glob` as a best effort. The hook reads a shell command as a word list, not with a parser. A path in quotes with a space in it, a variable, another user's `~name` or another program can hide a path from it.
+The hook does not check the `glob` of a `Grep` or `Glob` call. So a search of a folder can find a protected file in it. Claude Code applies the `Read` deny rules to `Grep` and `Glob` as a best effort.
+
+The hook reads a shell command as a word list, not with a parser. It reads the words again without quotes, backslashes and line continuations, so `cat .e''nv` and `cat .e$'n'v` are refused like `cat .env`. Other shell expansions can still hide a path, such as a variable, an escape code `$'\x2e'`, a command substitution, a glob or a brace list. A quoted path with a space, a `name=value` word such as `if=.env`, another user's `~name` or another program can hide a path too.
 
 ## Limits that are specific to Claude Code
 

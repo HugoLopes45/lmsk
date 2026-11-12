@@ -9,14 +9,30 @@ import {
 } from "node:path";
 import type { MaskConfig } from "./config.ts";
 
-/** A restored value in such a command would leave the machine. A word list, not a sandbox: any shell indirection evades it, such as quotes, backslashes, brace expansion, variables, options between the words or an interpreter. */
+/** A shell command as written, and with its quotes, backslashes and the `$` of `$'...'` deleted, once with its line breaks kept and once with its line continuations joined. So `c\url`, `"curl"`, `$'curl'` and `.e''nv` also read as the words the shell runs. The written form stays, for `python -c'code'`. */
+export function shellReadings(command: string): string[] {
+  const unquote = (text: string) => text.replace(/\$(?=["'])|["'\\]/g, "");
+  return [
+    command,
+    // A backslash before a line break does not join the lines in a comment or a quoted heredoc.
+    unquote(command),
+    unquote(
+      // A backslash escapes the next character, so `\\` before a line break keeps the line break, as in the shell.
+      command.replace(/\\[\s\S]/g, (pair) => (pair === "\\\n" ? "" : pair)),
+    ),
+  ];
+}
+
+/** A restored value in such a command would leave the machine. A word list, not a sandbox: a shell expansion such as a split variable, an escape code or a glob, code on standard input, combined options such as `-uc`, or a program that is not in the list evades it. The words of an item may have up to 10 other words between them, such as `git -C dir push`. The gap can cross a line break. */
 export function isNetworkCommand(command: string, config: MaskConfig): boolean {
   return config.networkCommands.some((name) => {
     const words = name
       .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-      .replace(/ +/g, "\\s+");
+      // A bound: an open gap makes each repeated first word scan to the end, so a long command takes quadratic time.
+      .replace(/ +/g, "(?:\\s+\\S+){0,10}?\\s+");
     // Not `\b`: an item may end in a character that is not a word character.
-    return new RegExp(`(?:^|[\\s;&|(/\`])${words}(?!\\w)`).test(command);
+    const pattern = new RegExp(`(?:^|[\\s;&|(/\`={,])${words}(?!\\w)`);
+    return shellReadings(command).some((reading) => pattern.test(reading));
   });
 }
 

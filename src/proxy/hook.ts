@@ -4,6 +4,7 @@ import {
   isProtectedPath,
   isRecord,
   protectedPatterns,
+  shellReadings,
 } from "../core/index.ts";
 
 export interface HookOptions {
@@ -17,9 +18,12 @@ export interface HookOptions {
   targets(tool: string, input: Record<string, unknown>): string[];
 }
 
-/** A word list, not a parser: quotes split words, so a quoted path with a blank is not seen whole. */
+/** A word list, not a parser: quotes split words, so a quoted path with a blank is not seen whole. The words of the command without its quotes and backslashes count too, so `.e''nv` reads as `.env`. */
 export function commandWords(command: string): string[] {
-  return command.split(/[\s;&|()<>`'"]+/).filter((word) => word !== "");
+  const words = shellReadings(command).flatMap((reading) =>
+    reading.split(/[\s;&|()<>`'"]+/),
+  );
+  return [...new Set(words)].filter((word) => word !== "");
 }
 
 /** The shell reads a word `~/...` from home. Another user's `~name` stays a relative word. */
