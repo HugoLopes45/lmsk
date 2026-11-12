@@ -141,8 +141,9 @@ export function openSession(options: OpenOptions, host: SessionHost): State {
 
 /**
  * Saves the complete mapping at the next revision, also when nothing is new and
- * the loaded store is unconfirmed. The reference is published only after the
- * save, and only when the session has no store yet.
+ * the loaded store is unconfirmed. A session without a store creates an empty
+ * one and publishes its reference before the first save, so no saved mapping
+ * sits in a store that no reference names.
  */
 export function persistNewEntries(session: Session): void {
   const entries = session.vault.entries();
@@ -151,11 +152,12 @@ export function persistNewEntries(session: Session): void {
     entries.length === (session.store?.entries.length ?? 0)
   )
     return;
-  const current = session.store ?? createVaultStore(session.storeDir);
-  const saved = saveVaultStore(session.storeDir, current, entries);
-  if (session.store === undefined)
-    session.references.append({ namespaceId: saved.namespaceId });
-  session.store = saved;
+  let current = session.store;
+  if (current === undefined) {
+    current = createVaultStore(session.storeDir);
+    session.references.append({ namespaceId: current.namespaceId });
+  }
+  session.store = saveVaultStore(session.storeDir, current, entries);
   session.confirmed = true;
 }
 

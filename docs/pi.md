@@ -102,7 +102,7 @@ To write your first rules, read [Add your own secrets](GUIDE.md#add-your-own-sec
 The limits that apply to each agent are in [What lmsk does not protect](GUIDE.md#what-lmsk-does-not-protect).
 
 - **`/lmsk off` stops most protection.** It stops the masking of requests, saved messages, tool results, summaries and the text sent to model calls. The checks on tool calls and protected paths stay on, and fakes in tool calls still get their real values back.
-- **Your own shell commands are saved unmasked.** pi saves the output of a command that you run with `!` while the agent is idle to the session file without masking. Requests to the model provider still mask it.
+- **Your own shell commands are saved unmasked.** pi saves the output of a command that you run with `!` while the agent is idle to the session file without masking. Requests to the model provider still mask it, but `/bug` does not: its summary goes to the model provider, and its report can hold the session file.
 - **The vault is in `~/.pi/agent/lmsk-vaults/`.** It is not encrypted. Exclude it from cloud backups.
 
 ## Uninstall

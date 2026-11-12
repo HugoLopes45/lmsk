@@ -6,11 +6,11 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { createServer } from "node:http";
+import { createServer, Server } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { claudeProfile, launchClaude } from "../../src/claude-code/index.ts";
 
 const REAL = "Zq7Kp2Lm9Xw4Rt8Vb3Nc";
@@ -108,6 +108,28 @@ async function upstream(
 }
 
 describe("launchClaude", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("closes the proxy when the settings file cannot be written", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "lmsk-claude-"));
+    const close = vi.spyOn(Server.prototype, "close");
+    vi.stubEnv("TMPDIR", join(dir, "missing"));
+
+    await expect(
+      launchClaude([], {
+        cwd: dir,
+        home: dir,
+        env: { PATH: dir },
+        notify: () => undefined,
+      }),
+    ).rejects.toThrow("ENOENT");
+
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
   it("says that claude is not on the PATH, and exits 127 as a shell does", async () => {
     const dir = mkdtempSync(join(tmpdir(), "lmsk-claude-"));
     const notices: unknown[][] = [];
@@ -286,9 +308,11 @@ describe("launchClaude", () => {
       status: 200,
       mode: 0o600,
     });
-    // Settings `env` overrides the process environment and project settings; "" unsets a provider switch.
+    // Settings `env` overrides the process environment and project settings; "" unsets a provider switch. A project NO_PROXY without the loopback address would send the request to its HTTP_PROXY.
     expect(out.settings.env).toEqual({
       ANTHROPIC_BASE_URL: out.baseUrl,
+      NO_PROXY: "127.0.0.1",
+      no_proxy: "127.0.0.1",
       CLAUDE_CODE_USE_BEDROCK: "",
       CLAUDE_CODE_USE_VERTEX: "",
       CLAUDE_CODE_USE_FOUNDRY: "",

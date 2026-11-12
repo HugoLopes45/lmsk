@@ -18,6 +18,10 @@ describe("isProtectedPath", () => {
     ["/h/.x/.ssh/id", "**/.ssh/**"],
     ["/h/.ssh/.hidden", "**/.ssh/**"],
     ["/w/.npmrc", "**/{.env,.npmrc}"],
+    // macOS and Windows disks ignore case, so these open the protected file.
+    ["/h/.AWS/credentials", "/h/.aws/**"],
+    ["/w/.NPMRC", "**/.npmrc"],
+    ["/h/.config/LMSK/config.json", "/h/.config/lmsk/**"],
   ])(
     "matches %s with %s, also through folders that start with a dot",
     (path, pattern) => {

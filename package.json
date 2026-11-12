@@ -58,8 +58,8 @@
     "schema": "node scripts/write-schema.ts"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-ai": "^1.0.3",
+    "@earendil-works/pi-coding-agent": "^1.0.3",
     "typebox": "^1.4.3"
   },
   "peerDependenciesMeta": {

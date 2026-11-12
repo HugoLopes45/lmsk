@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isRecord, protectedPatterns } from "../core/index.ts";
 import {
+  loopbackExempt,
   type ProxyOptions,
   type ProxyPaths,
   proxyPaths,
@@ -49,18 +50,23 @@ export async function launchClaude(
   );
   // A session-only plugin, so that the deny hooks run without an edit to ~/.claude.
   const plugin = fileURLToPath(new URL("../../plugin", import.meta.url));
-  // A file, not argv: the settings hold the launch token, and other local users can read argv.
-  const dir = mkdtempSync(join(tmpdir(), "lmsk-"));
-  const settings = join(dir, "settings.json");
-  writeFileSync(settings, launchSettings(paths, proxy.url), { mode: 0o600 });
   try {
-    return await runAgent(
-      "claude",
-      ["--plugin-dir", plugin, "--settings", settings, ...args],
-      { cwd, env: { ...env, ANTHROPIC_BASE_URL: proxy.url }, notify },
-    );
+    // A file, not argv: the settings hold the launch token, and other local users can read argv.
+    const dir = mkdtempSync(join(tmpdir(), "lmsk-"));
+    try {
+      const settings = join(dir, "settings.json");
+      writeFileSync(settings, launchSettings(paths, proxy.url, env), {
+        mode: 0o600,
+      });
+      return await runAgent(
+        "claude",
+        ["--plugin-dir", plugin, "--settings", settings, ...args],
+        { cwd, env: { ...env, ANTHROPIC_BASE_URL: proxy.url }, notify },
+      );
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
   } finally {
-    rmSync(dir, { recursive: true });
     await proxy.close();
   }
 }
@@ -100,10 +106,15 @@ function readSettings(file: string): Record<string, unknown> | undefined {
  * Claude Code's own deny rules for the protected paths. Unlike the hook, they also cover the
  * files that `@` mentions and IDE context add to a prompt. `//` starts an absolute pattern.
  * Settings `env` overrides the process environment and the project and user settings, so no
- * settings file sends requests past the proxy. An empty provider switch counts as unset.
+ * settings file sends requests past the proxy, also through a project HTTP_PROXY. An empty
+ * provider switch counts as unset.
  * `disableAllHooks` in a project file would also turn off the plugin's deny hook.
  */
-function launchSettings(paths: ProxyPaths, url: string): string {
+function launchSettings(
+  paths: ProxyPaths,
+  url: string,
+  processEnv: LaunchOptions["env"],
+): string {
   const patterns = protectedPatterns([paths.configPath], {
     rules: [],
     protectedPaths: paths.protectedPaths,
@@ -114,6 +125,7 @@ function launchSettings(paths: ProxyPaths, url: string): string {
   );
   const env = {
     ANTHROPIC_BASE_URL: url,
+    ...loopbackExempt(processEnv),
     CLAUDE_CODE_USE_BEDROCK: "",
     CLAUDE_CODE_USE_VERTEX: "",
     CLAUDE_CODE_USE_FOUNDRY: "",

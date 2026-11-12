@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { claudeHook, claudeProfile } from "../../src/claude-code/index.ts";
 
@@ -19,6 +20,21 @@ describe("claudeHook", () => {
     expect(hooks.hooks.PreToolUse[0].matcher.split("|").toSorted()).toEqual(
       [...tools].toSorted(),
     );
+  });
+
+  it("runs the lmsk of its own package, not another lmsk on the PATH", () => {
+    const root = new URL("../../", import.meta.url);
+    const read = (path: string) =>
+      JSON.parse(readFileSync(new URL(path, root), "utf8"));
+    const [hook] = read("plugin/hooks/hooks.json").hooks.PreToolUse[0].hooks;
+    const plugin = fileURLToPath(new URL("plugin", root));
+
+    const [bin, ...args] = hook.args;
+
+    expect(resolve(bin.replace("${CLAUDE_PLUGIN_ROOT}", plugin))).toBe(
+      fileURLToPath(new URL(read("package.json").bin.lmsk, root)),
+    );
+    expect(args).toEqual(["hook", "claude"]);
   });
 
   it.each([

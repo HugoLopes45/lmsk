@@ -62,6 +62,22 @@ describe("Anthropic shapes", () => {
     });
     expect(JSON.stringify(masked)).not.toContain("TKT-123456");
   });
+
+  it("masks text under a tool schema field named signature or encrypted_content, which no provider signs", async () => {
+    const masked = await masker().maskPayload({
+      tools: [
+        {
+          input_schema: {
+            properties: {
+              signature: { description: "TKT-123456" },
+              encrypted_content: { description: "TKT-123456" },
+            },
+          },
+        },
+      ],
+    });
+    expect(JSON.stringify(masked)).not.toContain("TKT-123456");
+  });
 });
 
 describe("OpenAI shapes", () => {

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- The protected-path checks of lmsk ignore case, so `~/.AWS/credentials` or `.NPMRC` on a macOS or Windows disk is protected too. On Linux, a path that differs only in case from a protected path is now also protected.
+- Claude Code: if lmsk ends on an error, it now ends `claude` too. Before, `claude` kept sending to the closed port, which another local user could take.
+- Claude Code: the deny hook runs the lmsk of the same package, not the first `lmsk` on your `PATH`.
+- Claude Code: a project `NO_PROXY` can no longer send requests to an HTTP proxy before they reach lmsk.
+- Claude Code: the proxy refuses an upstream redirect, which would send your API key to another address.
+- Text inside an object under a `signature` or `encrypted_content` key, such as a tool schema field, is now masked. A string under such a key still passes unchanged.
+- The pi peer dependencies require version 1.
+- A request that puts real values back into tool arguments now scans again only the texts that hold one of them, not the whole conversation.
+- A long text without line breaks, such as minified code, scans up to five times faster.
+- The limits now say that base64 documents, the request path, and the pi `/bug` summary are not masked, and which encoded copies of a value are masked.
+
 ## 0.2.1
 
 - The README shows how lmsk fits everyday work: debugging from logs, writing configuration files, running local tests and masking client names. Its FAQ explains how lmsk works with gitleaks.

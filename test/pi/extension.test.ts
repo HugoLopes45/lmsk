@@ -2437,11 +2437,13 @@ describe("vault persistence", () => {
     expect(JSON.stringify(pi.appended)).not.toContain(CODENAME);
   });
 
-  it("saves the mapping to the store before it publishes the reference", async () => {
+  it("publishes the reference to an empty store before it saves the mapping", async () => {
     writeProjectConfig();
     const pi = fakePi();
+    let published: unknown;
     let storedWhenPublished: unknown;
     pi.pi.appendEntry = (_customType, data) => {
+      published = data;
       storedWhenPublished = storeEntries(namespaceOf(data));
     };
     const ctx = testContext();
@@ -2452,7 +2454,10 @@ describe("vault persistence", () => {
       ctx,
     );
 
-    expect(storedWhenPublished).toEqual([[CODENAME, expect.any(String)]]);
+    expect(storedWhenPublished).toEqual([]);
+    expect(storeEntries(namespaceOf(published))).toEqual([
+      [CODENAME, expect.any(String)],
+    ]);
   });
 
   it("rebuilds the vault on resume from the store alone, so a real keeps its fake", async () => {

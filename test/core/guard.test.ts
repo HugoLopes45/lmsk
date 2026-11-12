@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -51,6 +51,10 @@ interface Harness {
   references: VaultReference[];
   /** Makes the host's reference records throw on read. */
   breakRead(): void;
+  /** Makes the host's reference records throw on append. */
+  breakAppend(): void;
+  /** The text of every store file. */
+  stores(): string[];
   open(
     config?: unknown,
     host?: Partial<Pick<OpenOptions, "env" | "defaultRules">>,
@@ -69,6 +73,7 @@ function harness(): Harness {
   const dir = mkdtempSync(join(tmpdir(), "guard-"));
   const references: VaultReference[] = [];
   let readBroken = false;
+  let appendBroken = false;
   const guard = new Guard({
     name: "host-guard",
     tools: ["shell", "read"],
@@ -106,7 +111,10 @@ function harness(): Harness {
             if (readBroken) throw new Error("records gone");
             return references;
           },
-          append: (reference) => references.push(reference),
+          append: (reference) => {
+            if (appendBroken) throw new Error("disk full");
+            references.push(reference);
+          },
         },
         env: {},
         defaultRules: [],
@@ -118,7 +126,16 @@ function harness(): Harness {
   const breakRead = (): void => {
     readBroken = true;
   };
-  return { guard, ctx, references, breakRead, open };
+  const breakAppend = (): void => {
+    appendBroken = true;
+  };
+  const stores = (): string[] => {
+    const storeDir = join(dir, "stores");
+    return readdirSync(storeDir)
+      .filter((name) => name.endsWith(".json"))
+      .map((name) => readFileSync(join(storeDir, name), "utf8"));
+  };
+  return { guard, ctx, references, breakRead, breakAppend, stores, open };
 }
 
 describe("Guard", () => {
@@ -450,6 +467,14 @@ describe("Guard", () => {
     breakRead();
     guard.attachReferences(ctx);
     await expect(guard.maskText("x")).rejects.toThrow("UNEXPECTED_ERROR");
+  });
+
+  it("writes no real to a store that no reference names", async () => {
+    const { guard, open, breakAppend, stores } = harness();
+    open();
+    breakAppend();
+    await expect(guard.maskText(`key ${REAL}`)).rejects.toThrow("disk full");
+    for (const store of stores()) expect(store).not.toContain(REAL);
   });
 
   it("blocks the session when its open options throw", async () => {
