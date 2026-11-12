@@ -10,6 +10,7 @@ import {
   type ToolCall,
 } from "../../src/core/guard.ts";
 import { Masker } from "../../src/core/masker.ts";
+import { SECRET_RULES } from "../../src/core/secret-rules.ts";
 
 const REAL = "Kx91abQuillHarbor";
 /** Too short to learn on its own: only a restore makes a later request mask it. */
@@ -590,6 +591,22 @@ describe("Guard", () => {
     expect(await guard.maskText("by Hostowner7Name")).not.toContain(
       "Hostowner7Name",
     );
+  });
+
+  it("leaves a later undefined as is after an Authorization: Bearer undefined log", async () => {
+    const { guard, open } = harness();
+    open({}, { defaultRules: SECRET_RULES });
+    await guard.maskText("Authorization: Bearer undefined");
+    expect(await guard.maskText("console.log(undefined)")).toBe(
+      "console.log(undefined)",
+    );
+  });
+
+  it("leaves a later test-token as is after an Authorization: Bearer test-token log", async () => {
+    const { guard, open } = harness();
+    open({}, { defaultRules: SECRET_RULES });
+    await guard.maskText("Authorization: Bearer test-token");
+    expect(await guard.maskText("test-token")).toBe("test-token");
   });
 
   it("fails every mask after close", async () => {

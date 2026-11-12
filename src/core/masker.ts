@@ -999,20 +999,38 @@ export class Masker {
     return this.vault.longestFake();
   }
 
-  /** `restored` collects each real that this restore puts back. */
+  /** `restored` collects each real that this restore puts back. A number keeps its fake, because a request passes numbers unchanged. */
   restoreValue(value: unknown, restored = new Set<string>()): unknown {
     if (typeof value === "string") return this.restoreText(value, restored);
-    if (typeof value === "number") return this.restoreNumber(value, restored);
     if (Array.isArray(value))
       return value.map((item) => this.restoreValue(item, restored));
-    if (isRecord(value))
-      return Object.fromEntries(
-        Object.entries(value).map(([key, item]) => [
-          key,
-          this.restoreValue(item, restored),
-        ]),
-      );
+    if (isRecord(value)) return this.restoreRecord(value, restored);
     return value;
+  }
+
+  /**
+   * A field that a request passes unchanged keeps its fakes, or the next request would send its
+   * reals. The check reads the restored record, as the next request does: a restored sibling, such
+   * as a block type, can make a field pass unchanged.
+   */
+  private restoreRecord(
+    record: Record<string, unknown>,
+    restored: Set<string>,
+  ): Record<string, unknown> {
+    const fields = Object.entries(record).map(([key, item]) => {
+      const reals = new Set<string>();
+      return { key, item, value: this.restoreValue(item, reals), reals };
+    });
+    const copy = Object.fromEntries(
+      fields.map(({ key, value }) => [key, value]),
+    );
+    return Object.fromEntries(
+      fields.map(({ key, item, value, reals }) => {
+        if (this.format.opaque(key, value, copy)) return [key, item];
+        for (const real of reals) restored.add(real);
+        return [key, value];
+      }),
+    );
   }
 
   /**
@@ -1087,14 +1105,6 @@ export class Masker {
       return run;
     for (const value of inner) restored.add(value);
     return view.encode(restoredText);
-  }
-
-  /** A number restores only when its decimal text is exactly a fake whose real is the same number. */
-  private restoreNumber(value: number, restored: Set<string>): number {
-    const real = this.vault.realOf(String(value));
-    if (real === undefined || String(Number(real)) !== real) return value;
-    restored.add(real);
-    return Number(real);
   }
 
   /** An encoded run with inner spans is rewritten as a whole, so outer spans that overlap it are dropped. */
