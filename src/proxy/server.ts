@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import {
   createServer,
   type IncomingHttpHeaders,
@@ -6,16 +5,15 @@ import {
   type ServerResponse,
 } from "node:http";
 import { pipeline } from "node:stream/promises";
-import { errorCode, type Guard, type GuardHost } from "../core/index.ts";
-import { decodeJson, readBody } from "./body.ts";
 import {
-  HIDDEN,
-  type ReplayProfile,
-  replay,
-  type SavedCalls,
-  WITHHELD,
-} from "./calls.ts";
-import { Sessions, type SessionOptions } from "./sessions.ts";
+  errorCode,
+  Guard,
+  type GuardHost,
+  type HostContext,
+  localIdentityRules,
+  type TextRestorer,
+} from "../core/index.ts";
+import { decodeJson, readBody } from "./body.ts";
 import { readEvents, type SseEvent, writeEvent } from "./sse.ts";
 
 /** A tool call that a response stream carries, with its parsed input. */
@@ -31,31 +29,35 @@ export interface StreamCodec {
   push(event: SseEvent): SseEvent[];
 }
 
-/** Replacements for the tool calls and tool results of a request, by call id. */
-export interface TurnEdit {
-  input(id: string, value: unknown): unknown;
-  result(id: string, value: unknown): unknown;
-}
-
 /** What a proxy adapter supplies. */
-export interface ProxyProfile extends GuardHost, ReplayProfile {
-  /** The provider base URL for a request. The request path after the launch token is appended to it. */
-  upstream(headers: IncomingHttpHeaders): string;
+export interface ProxyProfile extends GuardHost {
+  /** The provider base URL. The request path after the token is appended to it. */
+  upstream: string;
   /** Headers that the proxy forwards unchanged besides the credentials, such as ids that the provider checks or that the agent makes per session. */
   keptHeaders: readonly string[];
-  /** The agent session id that a request carries, if any. */
-  sessionId(headers: IncomingHttpHeaders): string | undefined;
-  /** A codec for one response stream; `restore` gives the input that the agent gets for a tool call. */
-  codec(restore: (call: ToolInput) => Record<string, unknown>): StreamCodec;
-  /** Copies a request payload with its tool call inputs and tool results replaced through `edit`. */
-  turns(payload: unknown, edit: TurnEdit): unknown;
+  /** A codec for one response stream: `restore` gives the input that the agent gets for a tool call, `text` restores one text block. */
+  codec(
+    restore: (call: ToolInput) => Record<string, unknown>,
+    text: () => TextRestorer,
+  ): StreamCodec;
+  /** The directory of the proxy process, for relative paths. The agents that the proxy serves run in other directories, so the deny hook, which gets the directory of each call, is the check that counts. */
+  cwd: string;
+  /** The input field that holds a shell command, for a shell tool. */
+  commandKey(tool: string): string | undefined;
+  /** The path that a call to `tool` opens. */
+  pathOf(tool: string, input: Record<string, unknown>): string | undefined;
 }
 
-/** A session's guard and tool calls. */
-interface Turn {
-  guard: Guard;
-  calls: SavedCalls;
-  profile: ProxyProfile;
+export interface ProxyOptions {
+  configPaths: readonly string[];
+  /** The machine vault directory. */
+  stateDir: string;
+  env: Readonly<Record<string, string | undefined>>;
+  notify: HostContext["ui"]["notify"];
+  /** 0 picks a free port. */
+  port: number;
+  /** The first path segment of every request, so that no other local program uses the proxy. */
+  token: string;
 }
 
 interface MaskedRequest {
@@ -64,7 +66,7 @@ interface MaskedRequest {
 }
 
 export interface RunningProxy {
-  /** The base URL to give the agent. It holds the launch token. */
+  /** The base URL to give the agent. It holds the token. */
   url: string;
   close(): Promise<void>;
 }
@@ -102,7 +104,8 @@ const CREDENTIAL_HEADERS = new Set([
 /** Agents put the workspace, such as a git remote URL, in headers too. Call it after the body: the body teaches the vault, so a real gets the same fake in both. */
 async function maskedHeaders(
   headers: IncomingHttpHeaders,
-  { guard, profile }: Turn,
+  guard: Guard,
+  profile: ProxyProfile,
 ): Promise<[string, string][]> {
   const entries = forwardedHeaders(headers);
   const kept = ([name]: [string, string]) =>
@@ -131,52 +134,40 @@ function refuse(
   res.end(`lmsk: ${code}`);
 }
 
-/**
- * The agent resends the reals that the proxy restored into its tool calls. Each call input goes
- * back to the provider's fake input, a blocked call's result and a result that hides a real are
- * withheld, and the reals of the other calls are masked everywhere, also when too short to learn.
- */
-async function maskedBody(
+/** Masks a request. A call id in the body makes the reals that its call got back masked everywhere. */
+async function maskedRequest(
   req: IncomingMessage,
-  { guard, calls, profile }: Turn,
-): Promise<string | undefined> {
-  const body = await readBody(req);
-  if (body.length === 0) return undefined;
-  const payload = decodeJson(body, req.headers["content-encoding"]);
-  const reals: string[] = [];
-  const edited = profile.turns(payload, {
-    input: (id, value) => calls.get(id)?.input ?? value,
-    result(id, value) {
-      const saved = calls.get(id);
-      if (saved === undefined) return value;
-      const replayed = replay(guard, profile, id, saved);
-      if (replayed.blocked) return WITHHELD;
-      reals.push(...replayed.reals);
-      return value;
-    },
-  });
-  // The whole payload teaches the vault first, so a result is checked against every real of the request.
-  const masked = await guard.maskPayload(edited, reals);
-  const results: unknown[] = [];
-  profile.turns(masked, {
-    input: (_id, value) => value,
-    result: (_id, value) => results.push(value),
-  });
-  const hiding = await guard.hidingResults(results);
-  return JSON.stringify(
-    profile.turns(masked, {
-      input: (_id, value) => value,
-      result: (_id, value) => (hiding.has(value) ? HIDDEN : value),
-    }),
-  );
+  guard: Guard,
+  profile: ProxyProfile,
+): Promise<MaskedRequest> {
+  const raw = await readBody(req);
+  const body =
+    raw.length === 0
+      ? undefined
+      : JSON.stringify(
+          await guard.maskPayload(
+            decodeJson(raw, req.headers["content-encoding"]),
+          ),
+        );
+  return { headers: await maskedHeaders(req.headers, guard, profile), body };
 }
 
-/** Saves each streamed call and gives the agent its restored input, or the provider's input when blocked. */
-function restorer({ guard, calls, profile }: Turn) {
+/** Gives the agent a streamed call's restored input, or the provider's input when the call is blocked. */
+function restorer(guard: Guard, profile: ProxyProfile) {
   return ({ id, tool, input }: ToolInput): Record<string, unknown> => {
-    calls.save(id, { tool, input });
-    const replayed = replay(guard, profile, id, { tool, input });
-    return replayed.blocked ? input : replayed.input;
+    const call = {
+      id,
+      tool,
+      input,
+      // The proxy gets the tool names from the model; the configuration's `restoredTools` limits restores to the agent's own tools.
+      verified: true,
+      commandKey: profile.commandKey(tool),
+      cwd: profile.cwd,
+      pathOf: (restored: Record<string, unknown>) =>
+        profile.pathOf(tool, restored),
+    };
+    guard.restoreCall(call);
+    return call.input;
   };
 }
 
@@ -193,7 +184,7 @@ async function forward(
   res: ServerResponse,
   url: string,
   { headers, body }: MaskedRequest,
-  turn: Turn,
+  codec: StreamCodec,
 ): Promise<void> {
   const upstream = await fetch(url, {
     method: req.method,
@@ -206,53 +197,65 @@ async function forward(
   res.writeHead(upstream.status, forwardedHeaders(upstream.headers));
   if (upstream.body === null) res.end();
   else if (
-    upstream.headers.get("content-type")?.startsWith("text/event-stream")
+    upstream.headers
+      .get("content-type")
+      ?.toLowerCase()
+      .startsWith("text/event-stream")
   )
-    await pipeline(
-      restoredStream(upstream.body, turn.profile.codec(restorer(turn))),
-      res,
-    );
+    await pipeline(restoredStream(upstream.body, codec), res);
   else await pipeline(upstream.body, res);
 }
 
-/** Starts a loopback proxy that masks every request body with the session's guard before it reaches `profile.upstream`. */
+/** Starts a loopback proxy that masks every request with one guard over the machine vault before it reaches `profile.upstream`. */
 export async function startProxy(
   profile: ProxyProfile,
-  options: SessionOptions,
+  options: ProxyOptions,
 ): Promise<RunningProxy> {
-  const token = randomBytes(32).toString("base64url");
-  const prefix = `/${token}/`;
-  const sessions = new Sessions(profile, options);
+  const prefix = `/${options.token}/`;
+  const guard = new Guard(profile);
+  guard.open(
+    () => ({
+      configPaths: options.configPaths,
+      projectConfigPath: undefined,
+      stateDir: options.stateDir,
+      env: options.env,
+      defaultRules: localIdentityRules(),
+    }),
+    { ui: { notify: options.notify }, abort: () => undefined },
+  );
+  const restore = restorer(guard, profile);
+  const text = () => guard.textRestorer();
   const server = createServer(async (req, res) => {
     const path = req.url ?? "";
     if (!path.startsWith(prefix)) return refuse(res, 403, "FORBIDDEN");
     let masked: MaskedRequest;
-    let turn: Turn;
     try {
-      const id = profile.sessionId(req.headers);
-      turn = { guard: sessions.guard(id), calls: sessions.calls(id), profile };
-      const body = await maskedBody(req, turn);
-      masked = { headers: await maskedHeaders(req.headers, turn), body };
+      masked = await maskedRequest(req, guard, profile);
     } catch (error) {
       return refuse(res, 400, errorCode(error));
     }
-    const url = `${profile.upstream(req.headers).replace(/\/$/, "")}/${path.slice(prefix.length)}`;
-    await forward(req, res, url, masked, turn).catch(() => {
-      if (res.headersSent) res.destroy();
-      else refuse(res, 502, "UPSTREAM", true);
-    });
+    const url = `${profile.upstream.replace(/\/$/, "")}/${path.slice(prefix.length)}`;
+    await forward(req, res, url, masked, profile.codec(restore, text)).catch(
+      (error: unknown) => {
+        options.notify(`lmsk: a reply stopped: ${errorCode(error)}`, "error");
+        if (res.headersSent) res.destroy();
+        else refuse(res, 502, "UPSTREAM", true);
+      },
+    );
   });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve) =>
+    server.listen(options.port, "127.0.0.1", resolve),
+  );
   const address = server.address();
   if (address === null || typeof address === "string")
     throw new Error("proxy has no TCP address");
   return {
-    url: `http://127.0.0.1:${address.port}/${token}`,
+    url: `http://127.0.0.1:${address.port}/${options.token}`,
     close: () =>
       new Promise((resolve) => {
         server.closeAllConnections();
         server.close(() => {
-          sessions.close();
+          guard.close();
           resolve();
         });
       }),

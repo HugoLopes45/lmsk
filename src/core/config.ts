@@ -117,7 +117,7 @@ export const ConfigSchema = Type.Object(
     ),
     /** Tools whose arguments get real values back. Only the tools that the host restores are allowed, so this setting can only remove tools. */
     restoredTools: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
-    /** Withhold a tool result that holds a secret spaced out, wrapped, reversed or encoded. A plain secret glued to a word is withheld either way. */
+    /** Replace a text that holds a secret spaced out, wrapped, reversed or encoded with a notice. Off, the provider gets such a text as it is. */
     withholdHiddenCopies: Type.Optional(Type.Boolean()),
     /** A scan that takes longer blocks its request or withholds its tool result. At most 2147483647, the longest delay of `setTimeout`. */
     scanTimeoutMs: Type.Optional(

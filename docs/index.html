@@ -317,13 +317,13 @@
       </details>
       <details>
         <summary>Where are my real values stored?</summary>
-        <p>In a local JSON vault with owner-only file permissions. lmsk does not upload it. See <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md#what-lmsk-does-not-protect">vault storage and backup guidance</a>.</p>
+        <p>In one local vault for each computer, <code>~/.local/state/lmsk/vault.jsonl</code>, with owner-only file permissions. lmsk does not upload it. See <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/GUIDE.md#what-lmsk-does-not-protect">vault storage and backup guidance</a>.</p>
       </details>
       <details>
         <summary>How can I try it?</summary>
         <p>After installation, send this message to your agent. The key is a sample value.</p>
-        <div class="cmd block"><pre><code>Repeat this line exactly: API_KEY=Zq7Kp2Lm9Xw4Rt8Vb3Nc</code></pre><button type="button" data-copy hidden>Copy</button></div>
-        <p>Look for a different value after <code>API_KEY=</code> in the reply: that is the expected result for this sample. The <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/TROUBLESHOOTING.md">setup checks</a> help you confirm masking is active.</p>
+        <div class="cmd block"><pre><code>Spell the value after API_KEY= with a space between each character: API_KEY=Zq7Kp2Lm9Xw4Rt8Vb3Nc</code></pre><button type="button" data-copy hidden>Copy</button></div>
+        <p>The reply spells the fake that the model received, so it does not start with <code>Z q 7 K p 2</code>. The <a href="https://github.com/HugoLopes45/lmsk/blob/main/docs/TROUBLESHOOTING.md">setup checks</a> help you confirm masking is active.</p>
       </details>
       <details>
         <summary>Is it free?</summary>

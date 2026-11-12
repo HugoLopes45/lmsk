@@ -1,11 +1,10 @@
-import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { brotliCompressSync, gzipSync, zstdCompressSync } from "node:zlib";
-import { anthropicStream, anthropicTurns } from "../../src/formats/index.ts";
+import { anthropicStream } from "../../src/formats/index.ts";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   type ProxyProfile,
@@ -63,15 +62,10 @@ function profile(upstreamUrl: string): ProxyProfile {
     tools: ["Bash", "Read"],
     protectedPaths: [],
     format: { opaque: () => false },
-    upstream: () => upstreamUrl,
-    sessionId: (headers) => {
-      const id = headers["x-session-id"];
-      return typeof id === "string" ? id : undefined;
-    },
+    upstream: upstreamUrl,
     keptHeaders: ["x-session-id"],
     cwd: "/work",
     codec: anthropicStream,
-    turns: anthropicTurns,
     commandKey: (tool) => (tool === "Bash" ? "command" : undefined),
     pathOf: (_tool, input) =>
       typeof input.file_path === "string" ? input.file_path : undefined,
@@ -92,12 +86,15 @@ function dirs(
 async function proxy(
   upstreamUrl: string,
   paths = dirs(),
+  notify: (message: string) => void = () => undefined,
 ): Promise<RunningProxy> {
   const running = await startProxy(profile(upstreamUrl), {
     configPaths: [paths.configPath],
     stateDir: paths.stateDir,
     env: {},
-    notify: () => undefined,
+    notify,
+    port: 0,
+    token: "test-token",
   });
   closers.push(() => running.close());
   return running;
@@ -261,30 +258,6 @@ describe("startProxy", () => {
     expect(other.received).toEqual([]);
   });
 
-  it("forwards each request to the upstream that its headers select", async () => {
-    const a = await upstream();
-    const b = await upstream();
-    const paths = dirs();
-    const running = await startProxy(
-      {
-        ...profile(a.url),
-        upstream: (headers) => (headers["x-route"] === "b" ? b.url : a.url),
-      },
-      {
-        configPaths: [paths.configPath],
-        stateDir: paths.stateDir,
-        env: {},
-        notify: () => undefined,
-      },
-    );
-    closers.push(() => running.close());
-
-    await post(`${running.url}/v1/responses`, payload, { "x-route": "b" });
-    await post(`${running.url}/v1/responses`, payload);
-
-    expect([a.received.length, b.received.length]).toEqual([1, 1]);
-  });
-
   it.each([
     ["gzip", gzipSync],
     ["br", brotliCompressSync],
@@ -437,7 +410,6 @@ describe("startProxy", () => {
       fake ||= JSON.parse(body).messages[0].content.slice("password=".length);
       return toolUseStream("t1", "Bash", { command: `echo ${fake}` });
     }, "text/event-stream");
-    const headers = { "x-session-id": "session-1" };
     const first = await proxy(up.url, paths);
 
     const reply = await post(
@@ -445,7 +417,6 @@ describe("startProxy", () => {
       JSON.stringify({
         messages: [{ role: "user", content: "password=Sun5et" }],
       }),
-      headers,
     );
     const restored = { command: "echo Sun5et" };
     expect(streamedInput(await reply.text())).toEqual(restored);
@@ -453,7 +424,6 @@ describe("startProxy", () => {
       const res = await post(
         `${first.url}/v1/messages`,
         history(restored, result),
-        headers,
       );
       await res.text();
     }
@@ -462,7 +432,6 @@ describe("startProxy", () => {
     const resumed = await post(
       `${second.url}/v1/messages`,
       history(restored, "Sun5et\n"),
-      headers,
     );
     await resumed.text();
 
@@ -475,189 +444,6 @@ describe("startProxy", () => {
       expect(JSON.parse(body).messages[1].content[0].input).toEqual({
         command: `echo ${fake}`,
       });
-  });
-
-  it.each([
-    ["in the same proxy", false],
-    ["in another proxy", true],
-  ])(
-    "refuses a forked session, whose history holds the tool calls of another session, %s",
-    async (_name, other) => {
-      const up = await upstream(
-        () => toolUseStream("t1", "Bash", { command: "echo hi" }),
-        "text/event-stream",
-      );
-      const paths = dirs();
-      const first = await proxy(up.url, paths);
-      const parent = await post(`${first.url}/v1/messages`, payload, {
-        "x-session-id": "parent",
-      });
-      await parent.text();
-      const fork = other ? await proxy(up.url, paths) : first;
-
-      const res = await post(
-        `${fork.url}/v1/messages`,
-        history({ command: "echo hi" }, "hi\n"),
-        { "x-session-id": "fork" },
-      );
-
-      expect(res.status).toBe(400);
-      expect(res.headers.get("x-should-retry")).toBe("false");
-      expect(await res.text()).toBe("lmsk: FORKED_SESSION");
-      expect(up.received).toHaveLength(1);
-    },
-  );
-
-  it("forwards a session whose tool call is in no saved file, such as one from before lmsk, while other sessions have calls", async () => {
-    const up = await upstream(
-      () => toolUseStream("t2", "Bash", { command: "echo hi" }),
-      "text/event-stream",
-    );
-    const server = await proxy(up.url, dirs());
-    await (
-      await post(`${server.url}/v1/messages`, payload, {
-        "x-session-id": "other",
-      })
-    ).text();
-
-    for (const _ of [1, 2]) {
-      const res = await post(
-        `${server.url}/v1/messages`,
-        history({ command: "echo hi" }, "hi\n"),
-        { "x-session-id": "resumed" },
-      );
-      expect(res.status).toBe(200);
-      await res.text();
-    }
-    expect(up.received).toHaveLength(3);
-  });
-
-  it("keeps the calls of two runs on one session, so a resumed run replays each", async () => {
-    let n = 0;
-    const up = await upstream(() => {
-      n += 1;
-      return toolUseStream(`t${n}`, "Bash", { command: `echo saved${n}` });
-    }, "text/event-stream");
-    const paths = dirs();
-    const headers = { "x-session-id": "session-1" };
-    const [a, b] = [await proxy(up.url, paths), await proxy(up.url, paths)];
-    for (const run of [a, b, a])
-      await (await post(`${run.url}/v1/messages`, payload, headers)).text();
-    const resumed = await proxy(up.url, paths);
-
-    const body = JSON.stringify({
-      messages: [1, 2, 3].map((i) => ({
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            id: `t${i}`,
-            name: "Bash",
-            input: { command: "echo agent" },
-          },
-        ],
-      })),
-    });
-    await (await post(`${resumed.url}/v1/messages`, body, headers)).text();
-
-    expect(up.received).toHaveLength(4);
-    expect(
-      JSON.parse(up.received[3].body).messages.map(
-        (message: { content: { input: unknown }[] }) =>
-          message.content[0].input,
-      ),
-    ).toEqual([1, 2, 3].map((i) => ({ command: `echo saved${i}` })));
-  });
-
-  it.each([
-    ["not JSON", "{"],
-    ["not a list", "{}"],
-  ])(
-    "fails closed when the store references of a session are %s",
-    async (_name, text) => {
-      const up = await upstream();
-      const paths = dirs();
-      const sessions = join(paths.stateDir, "sessions");
-      mkdirSync(sessions, { recursive: true });
-      const hash = createHash("sha256").update("session-1").digest("hex");
-      writeFileSync(join(sessions, `${hash}.json`), text);
-      const { url } = await proxy(up.url, paths);
-
-      const res = await post(`${url}/v1/messages`, payload, {
-        "x-session-id": "session-1",
-      });
-
-      expect(await res.text()).toBe("lmsk: STORE_REFERENCE_INVALID");
-      expect(up.received).toEqual([]);
-    },
-  );
-
-  it.each([
-    ["not JSON", "{"],
-    [
-      "a call without an object input",
-      JSON.stringify({ t1: { tool: "Bash", input: "echo" } }),
-    ],
-  ])(
-    "fails closed when the saved tool calls of a session are %s",
-    async (_name, text) => {
-      const up = await upstream();
-      const paths = dirs();
-      const sessions = join(paths.stateDir, "sessions");
-      mkdirSync(sessions, { recursive: true });
-      const hash = createHash("sha256").update("session-1").digest("hex");
-      writeFileSync(join(sessions, `${hash}.calls.json`), text);
-      const { url } = await proxy(up.url, paths);
-
-      const res = await post(`${url}/v1/messages`, payload, {
-        "x-session-id": "session-1",
-      });
-
-      expect(await res.text()).toBe("lmsk: CALLS_INVALID");
-      expect(up.received).toEqual([]);
-    },
-  );
-
-  it("withholds the result of a call that opens a protected path, on every request", async () => {
-    const up = await upstream(
-      () => toolUseStream("t1", "Read", { file_path: ".env" }),
-      "text/event-stream",
-    );
-    const { url } = await proxy(up.url);
-
-    const reply = await post(`${url}/v1/messages`, payload);
-    expect(streamedInput(await reply.text())).toEqual({ file_path: ".env" });
-    const read = JSON.stringify({
-      messages: [
-        {
-          role: "assistant",
-          content: [
-            {
-              type: "tool_use",
-              id: "t1",
-              name: "Read",
-              input: { file_path: ".env" },
-            },
-          ],
-        },
-        {
-          role: "user",
-          content: [
-            { type: "tool_result", tool_use_id: "t1", content: "API_KEY=abc" },
-          ],
-        },
-      ],
-    });
-    for (const _ of [1, 2])
-      await (await post(`${url}/v1/messages`, read)).text();
-
-    expect(up.received).toHaveLength(3);
-    for (const { body } of up.received.slice(1)) {
-      expect(body).not.toContain("API_KEY=abc");
-      expect(JSON.parse(body).messages[1].content[0].content).toMatch(
-        /^lmsk: withheld/,
-      );
-    }
   });
 
   it("withholds a tool result that holds a reversed or hex-encoded real, and keeps the others", async () => {
@@ -764,22 +550,69 @@ describe("startProxy", () => {
     expect(after).toMatch(/^lmsk: withheld/);
   });
 
-  it("gives a resumed agent session the fakes of its earlier run", async () => {
+  it("gives every run on the machine the same fakes, so a resumed or forked session keeps its history", async () => {
     const up = await upstream();
     const paths = dirs();
-    const headers = { "x-session-id": "session-1" };
     const first = await proxy(up.url, paths);
-    await post(`${first.url}/v1/messages`, payload, headers);
+    await post(`${first.url}/v1/messages`, payload);
     await first.close();
 
     const second = await proxy(up.url, paths);
-    await post(`${second.url}/v1/messages`, payload, headers);
-    await post(`${second.url}/v1/messages`, payload, {
-      "x-session-id": "session-2",
-    });
+    await post(`${second.url}/v1/messages`, payload);
 
-    const [run1, run2, other] = up.received.map((r) => r.body);
+    const [run1, run2] = up.received.map((r) => r.body);
+    expect(run1).not.toContain(SECRET);
     expect(run2).toBe(run1);
-    expect(other).not.toBe(run1);
+  });
+
+  it.each(["text/event-stream", "Text/Event-Stream; charset=utf-8"])(
+    "gives the agent a streamed text reply with the reals back, as %s",
+    async (contentType) => {
+      const up = await upstream((body) => {
+        const text = JSON.parse(body).messages[0].content;
+        const events = [
+          {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "text", text: "" },
+          },
+          {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "text_delta", text },
+          },
+          { type: "content_block_stop", index: 0 },
+        ];
+        return events
+          .map(
+            (data) => `event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`,
+          )
+          .join("");
+      }, contentType);
+      const { url } = await proxy(up.url);
+
+      const reply = await (await post(`${url}/v1/messages`, payload)).text();
+
+      expect(up.received[0].body).not.toContain(SECRET);
+      expect(reply).toContain(SECRET);
+    },
+  );
+
+  it("cuts a streamed reply whose tool call it cannot save, and logs why", async () => {
+    const paths = dirs();
+    const up = await upstream((body) => {
+      const fake = JSON.parse(body).messages[0].content.slice("ticket ".length);
+      appendFileSync(join(paths.stateDir, "vault.jsonl"), "{not json}\n");
+      return toolUseStream("t1", "Bash", { command: `echo ${fake}` });
+    }, "text/event-stream");
+    const notices: string[] = [];
+    const { url } = await proxy(up.url, paths, (message) =>
+      notices.push(message),
+    );
+
+    const reply = post(`${url}/v1/messages`, payload).then((res) => res.text());
+
+    await expect(reply).rejects.toThrow();
+    expect(notices.join("\n")).toContain("STORE_CORRUPT");
   });
 });

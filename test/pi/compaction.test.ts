@@ -11,6 +11,7 @@ import type {
 import { compactMasked, summarizeTreeMasked } from "../../src/pi/compaction.ts";
 import { PI_DEFAULTS } from "../../src/pi/profile.ts";
 import { Masker, Scanner, Vault } from "../../src/core/index.ts";
+import { shared } from "../core/shared-bytes.ts";
 import { harness, type Harness } from "./harness.ts";
 
 const SCAN_TIMEOUT_MS = 5000;
@@ -32,6 +33,8 @@ afterEach(async () => {
   await Promise.all(resources.splice(0).map((h) => h.dispose()));
 });
 
+const noFakes = { shownSpans: () => [], longestFake: () => 0 };
+
 function maskerFor(secret: string): Masker {
   const scanner = new Scanner(SCAN_TIMEOUT_MS);
   scanners.push(scanner);
@@ -46,14 +49,14 @@ function maskerFor(secret: string): Masker {
       },
     ],
     scanner,
-    new Vault(randomBytes),
+    new Vault(shared(randomBytes)),
     {},
     PI_DEFAULTS.format,
   );
 }
 
 async function history(
-  masker: Pick<Masker, "maskPayload">,
+  masker: Pick<Masker, "maskPayload" | "shownSpans" | "longestFake">,
   secret: string,
   prepare?: (ctx: ExtensionContext) => void,
 ) {
@@ -109,6 +112,7 @@ describe("summary egress boundaries", () => {
     const secret = ["SECRET", "VALUE", "123"].join("");
     const h = await history(
       {
+        ...noFakes,
         maskPayload: async () => {
           throw new Error("SCAN_TIMEOUT");
         },
@@ -128,7 +132,7 @@ describe("summary egress boundaries", () => {
 
   it("rejects an undefined masking result instead of reusing the original payload", async () => {
     const h = await history(
-      { maskPayload: async () => undefined },
+      { ...noFakes, maskPayload: async () => undefined },
       "UNMASKED123456",
     );
     await expect(h.session.compact()).rejects.toThrow("cancelled");
@@ -140,6 +144,7 @@ describe("summary egress boundaries", () => {
     const release = deferred<unknown>();
     const h = await history(
       {
+        ...noFakes,
         maskPayload: async () => {
           started.resolve();
           return release.promise;
@@ -180,6 +185,7 @@ describe("summary egress boundaries", () => {
   it("keeps cancellation when the notification boundary throws", async () => {
     const h = await history(
       {
+        ...noFakes,
         maskPayload: async () => {
           throw new Error("SCAN_CRASH");
         },

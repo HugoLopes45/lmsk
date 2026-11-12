@@ -6,6 +6,7 @@ import { IDENTITY_RULE_ID } from "./identity.ts";
 import {
   assertPayloadSize,
   mapPayload,
+  MAX_PAYLOAD_BYTES,
   type PayloadFormat,
   textsOf,
 } from "./payload.ts";
@@ -22,6 +23,7 @@ import {
   isDistinctPart,
   MIN_LEARNED_LENGTH,
   Vault,
+  type VaultEntry,
 } from "./vault.ts";
 
 export type MaskCode = "BLOCKED" | "HIDDEN_REAL";
@@ -36,6 +38,13 @@ const ALNUM = /[A-Za-z0-9]/;
 /** The word characters that `literalPattern` bounds, so a token is one maximal run. */
 const TOKEN = /[\p{L}\p{N}_]+/gu;
 const WORD = /[\p{L}\p{N}_]/u;
+/** `WORD` and a surrogate: `charAt` gives half of a character outside the BMP, which can be a letter. */
+const GLUE = /[\p{L}\p{N}_\p{Cs}]/u;
+/**
+ * A part of a real that is not a word. A word, such as the domain of an email, occurs by chance: masking it
+ * would also change each text that names it, such as the billing header of the Claude Code system prompt.
+ */
+const NOT_A_WORD = /\p{N}|\p{Ll}.*\p{Lu}/u;
 /** Tokens joined by dots or dashes, such as the domain of a `shape` email fake, whose tokens alone are too short to restore. */
 const DOTTED = /[\p{L}\p{N}_]+(?:[.-][\p{L}\p{N}_]+)+/gu;
 /** A line break in wrapped output, with the blanks around it: CRLF, LF or a lone CR. */
@@ -193,7 +202,10 @@ function glueViews(readings: string[][]): {
   return { unwrapped, joined, folded };
 }
 
-/** The tokens of four or more characters in `texts` that occur in a restored real. */
+/**
+ * The tokens of four or more characters in `texts` that occur in a restored real, or that hold one
+ * glued to a word, which the bounded literal of the real does not find.
+ */
 function restoredParts(texts: string[], restored: readonly string[]): string[] {
   if (restored.length === 0) return [];
   const tokens = texts.flatMap((input) =>
@@ -201,7 +213,12 @@ function restoredParts(texts: string[], restored: readonly string[]): string[] {
   );
   return [...new Set(tokens)].filter(
     (token) =>
-      token.length >= 4 && restored.some((real) => real.includes(token)),
+      token.length >= 4 &&
+      restored.some(
+        (real) =>
+          real.includes(token) ||
+          (real.length >= MIN_GLUED_KNOWN_LENGTH && token.includes(real)),
+      ),
   );
 }
 
@@ -219,10 +236,34 @@ function runAround(
   return text.slice(from, to);
 }
 
+/** The word and the letter-and-digit run around each match of `pattern` in `text` whose word is not `real`. */
+function copiesOf(
+  text: string,
+  real: string,
+  pattern: RegExp,
+): [word: string, run: string][] {
+  return [...text.matchAll(pattern)].flatMap((match): [string, string][] => {
+    const end = match.index + match[0].length;
+    const word = runAround(text, match.index, end, WORD);
+    return word === real
+      ? []
+      : [[word, runAround(text, match.index, end, ALNUM)]];
+  });
+}
+
 /** Matches `values` anywhere: each value is a whole letter-and-digit run, so no span splits a token. */
 function copiesPattern(values: readonly string[]): ScanPattern {
   const sorted = [...new Set(values)].sort((a, b) => b.length - a.length);
   return { source: sorted.map(escapeRegex).join("|"), flags: "u", group: 0 };
+}
+
+function holdsAny(
+  text: string,
+  views: readonly View[],
+  values: readonly string[],
+): boolean {
+  const inputs = [text, ...views.map((view) => view.text)];
+  return values.some((value) => inputs.some((input) => input.includes(value)));
 }
 
 function splitsToken(text: string, start: number, end: number): boolean {
@@ -285,6 +326,44 @@ function assertShapeInRun(hit: Hit): void {
     );
 }
 
+/**
+ * Payload texts, least recently used first. Conversations share one masker, so a side request must not
+ * push out the history of another. Its texts total at most one payload at the limit.
+ */
+class TextCache<T> {
+  private readonly values = new Map<string, T>();
+  private chars = 0;
+
+  get(text: string): T | undefined {
+    return this.values.get(text);
+  }
+
+  set(text: string, value: T): void {
+    if (this.values.delete(text)) this.chars -= text.length;
+    this.values.set(text, value);
+    this.chars += text.length;
+    for (const old of this.values.keys()) {
+      if (this.chars <= MAX_PAYLOAD_BYTES) return;
+      this.values.delete(old);
+      this.chars -= old.length;
+    }
+  }
+}
+
+/**
+ * What a text holds of the vault entries before `upTo`. A later entry only adds hits. The vault drops entries
+ * only in a failed `atomic`, and `atomic` runs synchronously, so no cache records an entry that it drops.
+ */
+type VaultHits = {
+  upTo: number;
+  /** The word and run around each copy that `hiddenCopies` takes while the vault has not learned the word. */
+  copies: [word: string, run: string][];
+  /** The vault-real tokens that `mask` describes. */
+  parts: string[];
+  /** Each real that occurs with its own fake. The vault file pairs them, so such a real is masked at any length. */
+  paired: string[];
+};
+
 function fixedReplacement(rule: Rule): string {
   if (rule.replacement === undefined)
     throw new Error(
@@ -302,12 +381,14 @@ export class Masker {
   private readonly scanner: Scanner;
   private readonly vault: Vault;
   private readonly format: PayloadFormat;
-  /** The texts of the last masked payload: each payload repeats the history, which is not scanned again. */
-  private history = new Map<string, Scanned>();
-  /** The texts of the last payload that passed `assertNoHiddenRealInPayload`, with the vault size at their check. */
-  private checked = new Map<string, number>();
-  /** The texts of the tool results of the last payload that passed `hidingResults`, with the vault size at their check. */
-  private resultsChecked = new Map<string, number>();
+  /** The texts of masked payloads: each payload repeats the history, which is not scanned again. */
+  private readonly history = new TextCache<Scanned>();
+  /** The payload texts that passed `assertNoHiddenRealInPayload`, with the vault size at their check. */
+  private readonly checked = new TextCache<number>();
+  /** The payload texts that `hidingTexts` passed, with the vault size at their check. */
+  private readonly hidingChecked = new TextCache<number>();
+  /** The vault hits of payload texts: a text of an earlier payload is searched only for the entries added since. */
+  private readonly hits = new TextCache<VaultHits>();
   /** Fixed templates of every fixed rule, enabled or not: the vault can hold their fakes after a rule is disabled. */
   private readonly fixedFakes: RegExp[];
   /** Identity names are not secrets: their words and case variants occur in ordinary text. An email stays a secret. */
@@ -368,77 +449,129 @@ export class Masker {
    * masked in `texts` even when too short to learn, and so are their tokens of four or more
    * characters, so the call's own result hides them.
    * A command can also print part of a real that it read from a file, so a token that occurs in any
-   * vault real is masked too when it is long enough to learn or looks random.
+   * vault real is masked too when it is not a word and is long enough to learn or looks random.
    */
   async mask(
     texts: string[],
     restored: readonly string[] = [],
+    remember = false,
   ): Promise<string[]> {
-    const reals = [...new Set([...restored, ...this.derivedReals(texts)])];
-    const copies = this.hiddenCopies(texts);
-    const masked = await this.maskBatch(texts, reals, false, copies);
+    const cache = remember ? this.hits : new Map<string, VaultHits>();
+    const hits = this.hitsOf(texts, cache);
+    const reals = [
+      ...new Set([
+        ...restored,
+        ...hits.flatMap(({ parts, paired }) => [...parts, ...paired]),
+      ]),
+    ];
+    const copies = this.hiddenCopies(hits);
+    const masked = await this.maskBatch(texts, reals, remember, copies);
     // A real that these texts teach can have its own copies in them.
-    const later = this.hiddenCopies(texts).filter(
+    const later = this.hiddenCopies(this.hitsOf(texts, cache)).filter(
       (copy) => !copies.includes(copy),
     );
     return later.length === 0
       ? masked
-      : this.maskBatch(texts, reals, false, [...copies, ...later]);
+      : this.maskBatch(texts, reals, remember, [...copies, ...later]);
   }
 
   /**
-   * The letter-and-digit runs around each plain copy of a real that `assertNoHiddenReal` refuses: a
-   * real with a letter and a non-letter, glued to a word or, when it has a digit, in another case.
-   * Each run becomes its own value, so it restores to its own spelling and the output stays readable.
+   * The letter-and-digit runs around each plain copy of a real that `copyPattern` finds. Each run
+   * becomes its own value, so it restores to its own spelling and the output stays readable.
    * A run stops at `_`, so a word glued with `_` stays clear and later output does not mask it as a part.
    * A copy whose word is the real or a learned real is masked as a literal and is left out.
    */
-  private hiddenCopies(texts: string[]): string[] {
+  private hiddenCopies(hits: readonly VaultHits[]): string[] {
     const learned = new Set(this.literalReals([]));
-    const bare = (real: string) => real.replace(/\s+/g, "");
-    const reals = [...learned, ...this.copyable].filter(
-      (real) =>
-        bare(real).length >= MIN_GLUED_KNOWN_LENGTH &&
-        !this.identity.has(real) &&
-        /\p{L}/u.test(real) &&
-        /[^\p{L}]/u.test(bare(real)),
+    return hits.flatMap(({ copies }) =>
+      copies.flatMap(([word, run]) => (learned.has(word) ? [] : [run])),
     );
+  }
+
+  /** The vault hits of each text, from `cache` and extended to the entries added since. */
+  private hitsOf(
+    texts: string[],
+    cache: Pick<TextCache<VaultHits>, "get" | "set">,
+  ): VaultHits[] {
+    const entries = this.vault.entries();
+    // A new text searches every real, so each pattern is built once per call.
+    const patterns = new Map<string, RegExp | undefined>();
+    return texts.map((text) => {
+      const known = cache.get(text) ?? {
+        upTo: 0,
+        copies: this.copiesIn(text, this.copyable, patterns),
+        parts: [],
+        paired: [],
+      };
+      const hits =
+        known.upTo === entries.length
+          ? known
+          : this.extended(text, known, entries.slice(known.upTo), patterns);
+      cache.set(text, hits);
+      return hits;
+    });
+  }
+
+  /** `known` hits of `text` plus the hits of the vault entries `added` after them. */
+  private extended(
+    text: string,
+    known: VaultHits,
+    added: VaultEntry[],
+    patterns: Map<string, RegExp | undefined>,
+  ): VaultHits {
+    const learned = added.flatMap(([real]) =>
+      real.length >= MIN_LEARNED_LENGTH ? [real] : [],
+    );
+    const reals = added.flatMap(([real]) =>
+      this.identity.has(real) ? [] : [real],
+    );
+    const parts = [...new Set(text.match(TOKEN))].filter(
+      (token) =>
+        isDistinctPart(token) &&
+        reals.some((real) => real.includes(token)) &&
+        // Last: its time grows with the square of the length, which the real bounds here.
+        NOT_A_WORD.test(token),
+    );
+    return {
+      upTo: known.upTo + added.length,
+      copies: known.copies.concat(this.copiesIn(text, learned, patterns)),
+      parts: known.parts.concat(parts),
+      paired: known.paired.concat(
+        added.flatMap(([real, fake]) =>
+          text.includes(fake) && text.includes(real) ? [real] : [],
+        ),
+      ),
+    };
+  }
+
+  /** The copies of `reals` in `text`, with the pattern of each real built once in `patterns`. */
+  private copiesIn(
+    text: string,
+    reals: readonly string[],
+    patterns: Map<string, RegExp | undefined>,
+  ): [word: string, run: string][] {
     return reals.flatMap((real) => {
-      const fold = bare(real).length >= MIN_LEARNED_LENGTH && /\d/.test(real);
-      const pattern = new RegExp(escapeRegex(real), fold ? "giu" : "gu");
-      return texts.flatMap((text) =>
-        [...text.matchAll(pattern)].flatMap((match) => {
-          const end = match.index + match[0].length;
-          const word = runAround(text, match.index, end, WORD);
-          return word === real || learned.has(word)
-            ? []
-            : [runAround(text, match.index, end, ALNUM)];
-        }),
-      );
+      if (!patterns.has(real)) patterns.set(real, this.copyPattern(real));
+      const pattern = patterns.get(real);
+      return pattern ? copiesOf(text, real, pattern) : [];
     });
   }
 
   /**
-   * The vault-real tokens that `mask` describes, and each real that occurs with its own fake.
-   * The vault file pairs them, so such a real is masked at any length.
+   * Matches the plain copies of `real` that `assertNoHiddenReal` refuses: a real with a letter and a
+   * non-letter, glued to a word or, when it has a digit, in another case. Undefined for another real.
    */
-  private derivedReals(texts: string[]): string[] {
-    const entries = this.vault.entries();
-    const parts = texts
-      .flatMap((input) => [...input.matchAll(TOKEN)].map(([token]) => token))
-      .filter(
-        (token) =>
-          isDistinctPart(token) &&
-          entries.some(
-            ([real]) => !this.identity.has(real) && real.includes(token),
-          ),
-      );
-    const paired = entries
-      .filter(([real, fake]) =>
-        texts.some((text) => text.includes(fake) && text.includes(real)),
-      )
-      .map(([real]) => real);
-    return [...parts, ...paired];
+  private copyPattern(real: string): RegExp | undefined {
+    const bare = real.replace(/\s+/g, "");
+    if (
+      bare.length < MIN_GLUED_KNOWN_LENGTH ||
+      this.identity.has(real) ||
+      !/\p{L}/u.test(real) ||
+      !/[^\p{L}]/u.test(bare)
+    )
+      return undefined;
+    const fold = bare.length >= MIN_LEARNED_LENGTH && /\d/.test(real);
+    return new RegExp(escapeRegex(real), fold ? "giu" : "gu");
   }
 
   /** The reals to mask as literals: learned reals of learnable length, and `restoredReals`. */
@@ -451,25 +584,24 @@ export class Masker {
   }
 
   /**
-   * Scans each text, except a text of `previous` that holds no `restoredReals` literal and no vault
-   * entry added since its scan: its remembered spans would lack their literal spans.
+   * Scans each text, except a text of `previous` that holds no `added` value and no vault entry
+   * added since its scan: its remembered spans would lack the spans of these values.
    */
   private async scanned(
     texts: string[],
     patterns: ScanPattern[],
-    previous: ReadonlyMap<string, Scanned>,
-    restoredReals: readonly string[],
+    previous: Pick<TextCache<Scanned>, "get">,
+    added: readonly string[],
   ): Promise<Scanned[]> {
     const entries = this.vault.entries();
     const size = entries.length;
     const kept = texts.map((text) => {
       const known = previous.get(text);
       if (!known) return undefined;
-      const inputs = [text, ...known.views.map((view) => view.text)];
-      const touched = [
+      const touched = holdsAny(text, known.views, [
         ...entries.slice(known.size).flat(),
-        ...restoredReals,
-      ].some((value) => inputs.some((input) => input.includes(value)));
+        ...added,
+      ]);
       return touched ? undefined : { ...known, size };
     });
     const missing = texts.filter((_, index) => !kept[index]);
@@ -521,11 +653,12 @@ export class Masker {
     const patterns = this.targets.map(({ pattern }) => pattern);
     if (literals.length > 0) patterns.push(literalPattern(literals, false));
     if (copies.length > 0) patterns.push(copiesPattern(copies));
+    const added = [...restoredReals, ...copies];
     const scanned = await this.scanned(
       texts,
       patterns,
       remember ? this.history : new Map(),
-      restoredReals,
+      added,
     );
     const views = scanned.map((text) => text.views);
     const inputs = [...texts, ...views.flat().map((view) => view.text)];
@@ -574,9 +707,10 @@ export class Masker {
       return rendered;
     });
     if (remember)
-      this.history = new Map(
-        texts.map((text, index) => [text, scanned[index]]),
-      );
+      for (const [index, text] of texts.entries())
+        // The spans of an added value hold only for the calls that add it.
+        if (!holdsAny(text, scanned[index].views, added))
+          this.history.set(text, scanned[index]);
     return masked;
   }
 
@@ -635,14 +769,14 @@ export class Masker {
     );
   }
 
-  /** Masks `restored` everywhere in `payload`, also when too short to learn. */
+  /** `mask` on the texts of `payload`. Each payload repeats the history, so a text of an earlier payload is scanned again only when it may have changed. */
   async maskPayload(
     payload: unknown,
     restored: readonly string[] = [],
   ): Promise<unknown> {
     const texts = this.payloadTexts(payload);
     assertPayloadSize(texts);
-    const masked = await this.maskBatch(texts, restored, true);
+    const masked = await this.mask(texts, restored, true);
     let next = 0;
     return mapPayload(payload, () => masked[next++], this.format);
   }
@@ -660,27 +794,47 @@ export class Masker {
   }
 
   /**
-   * The tool results of a masked payload that `assertNoHiddenReal` refuses. Each payload resends the
-   * history, so a text of a result of the last payload that passed is checked again only once the vault has grown.
+   * The masked payload texts that `assertNoHiddenReal` refuses. Each payload resends the history,
+   * so a text of an earlier payload that passed is checked again only for the vault entries added since.
    */
-  async hidingResults(
-    results: readonly unknown[],
-    transforms: boolean,
-  ): Promise<Set<unknown>> {
-    const size = this.vault.entries().length;
-    const hiding = new Set<unknown>();
-    const passed = new Map<string, number>();
-    for (const result of results) {
-      const texts = this.payloadTexts(result);
-      const fresh = texts.filter(
-        (text) => this.resultsChecked.get(text) !== size,
-      );
-      if (fresh.length > 0 && (await this.hidesReal(fresh, transforms)))
-        hiding.add(result);
-      else for (const text of texts) passed.set(text, size);
-    }
-    this.resultsChecked = passed;
+  async hidingTexts(texts: readonly string[]): Promise<Set<string>> {
+    const entries = this.vault.entries();
+    const since = texts.map((text) => this.hidesSincePass(text, entries));
+    const hiding = new Set(texts.filter((_, index) => since[index] === true));
+    const fresh = texts.filter((_, index) => since[index] === undefined);
+    // A scan per text costs a worker round trip, and most payloads hide nothing.
+    if (fresh.length > 0 && (await this.hidesReal(fresh, true)))
+      for (const text of fresh)
+        if (await this.hidesReal([text], true)) hiding.add(text);
+    for (const text of texts)
+      if (!hiding.has(text)) this.hidingChecked.set(text, entries.length);
     return hiding;
+  }
+
+  /**
+   * Whether `text` hides a real, from its last pass in `hidingTexts`: only a real learned since can match.
+   * Undefined when it has not passed, or holds a fake learned since: `neutral` hides that fake, which
+   * changes the readings.
+   */
+  private hidesSincePass(
+    text: string,
+    entries: VaultEntry[],
+  ): boolean | undefined {
+    const at = this.hidingChecked.get(text);
+    if (at === entries.length) return false;
+    if (at === undefined) return undefined;
+    const added = entries.slice(at);
+    const fakes = added.map(([, fake]) => fake);
+    if (holdsAny(text, decodedViews(text), fakes)) return undefined;
+    const long = added.flatMap(([real]) =>
+      real.replace(/\s+/g, "").length >= MIN_LEARNED_LENGTH ? [real] : [],
+    );
+    return this.hidesGlued(
+      [text],
+      [hiddenReadings(text, this.neutral)],
+      true,
+      long,
+    );
   }
 
   private async hidesReal(
@@ -702,7 +856,7 @@ export class Masker {
 
   /**
    * `assertNoHiddenReal` without transforms for the texts of a payload. Each payload repeats the history,
-   * so a text of the last payload that passed is not checked again, unless a vault entry added since
+   * so a text of an earlier payload that passed is not checked again, unless a vault entry added since
    * its check occurs in it. A real with NUL can match the NUL that hides a fake, so it rechecks every text.
    */
   async assertNoHiddenRealInPayload(texts: string[]): Promise<void> {
@@ -720,7 +874,7 @@ export class Masker {
       );
     });
     await this.assertNoHiddenReal(fresh, false);
-    this.checked = new Map(texts.map((text) => [text, entries.length]));
+    for (const text of texts) this.checked.set(text, entries.length);
   }
 
   /**
@@ -817,6 +971,32 @@ export class Masker {
       readings,
     );
     return spans.some((list) => list.length > 0);
+  }
+
+  /**
+   * Each fake in `text` from `from` on, with the text to show for it: its real when any later mask
+   * turns the real back into the same fake, that is a configured value or a real long enough to learn
+   * that no word character touches: `literalPattern` does not find a real glued to a word.
+   */
+  shownSpans(
+    text: string,
+    from = 0,
+  ): [start: number, end: number, shown: string][] {
+    return this.vault.fakeSpans(text, from).map(([start, end]) => {
+      const fake = text.slice(start, end);
+      const real = this.vault.realOf(fake);
+      const glued =
+        GLUE.test(text.charAt(start - 1)) || GLUE.test(text.charAt(end));
+      const shown =
+        real !== undefined &&
+        !glued &&
+        (real.length >= MIN_LEARNED_LENGTH || this.known.includes(real));
+      return [start, end, shown ? real : fake];
+    });
+  }
+
+  longestFake(): number {
+    return this.vault.longestFake();
   }
 
   /** `restored` collects each real that this restore puts back. */

@@ -11,6 +11,16 @@ class PatternError extends Error {
   }
 }
 
+// Allowlists and keywords come from the configuration, so a few entries serve every message.
+const allowRegexes = new Map();
+const keywordFinders = new Map();
+
+function allowRegex(source) {
+  let regex = allowRegexes.get(source);
+  if (!regex) allowRegexes.set(source, (regex = new RegExp(source)));
+  return regex;
+}
+
 function compile(pattern, index) {
   try {
     return {
@@ -21,7 +31,7 @@ function compile(pattern, index) {
       validate: pattern.validate,
       allow: (pattern.allow ?? []).map((list) => ({
         ...list,
-        regexes: list.regexes.map((source) => new RegExp(source)),
+        regexes: list.regexes.map(allowRegex),
       })),
     };
   } catch {
@@ -124,15 +134,17 @@ function scanPattern(text, rule, index) {
 /** One alternation for all keywords: a pass per keyword costs 6x more on large texts. */
 function keywordFinder(compiled) {
   const words = [...new Set(compiled.flatMap((rule) => rule.keywords))];
+  if (words.length === 0) return () => new Set();
   const source = words
     .toSorted((a, b) => b.length - a.length)
     .map((word) => word.replace(/[\\^$.*+?()[\]{}|/-]/g, "\\$&"))
     .join("|");
+  const known = keywordFinders.get(source);
+  if (known) return known;
   // The alternation reports only the longest keyword at each start; the shorter ones inside it occur too.
   const inside = new Map(words.map((word) => [word, words.filter((other) => word.includes(other))]));
-  return (lower) => {
+  const find = (lower) => {
     const found = new Set();
-    if (words.length === 0) return found;
     const regex = new RegExp(`(?=(${source}))`, "g");
     for (let match = regex.exec(lower); match; match = regex.exec(lower)) {
       for (const word of inside.get(match[1])) found.add(word);
@@ -140,6 +152,8 @@ function keywordFinder(compiled) {
     }
     return found;
   };
+  keywordFinders.set(source, find);
+  return find;
 }
 
 function scanText(text, compiled, findKeywords) {

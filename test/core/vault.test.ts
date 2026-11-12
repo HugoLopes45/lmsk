@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
+import { shared } from "./shared-bytes.ts";
 import { describe, expect, it } from "vitest";
 import type { RandomBytes } from "../../src/core/shape.ts";
+import { keyedBytes } from "../../src/core/keyed-bytes.ts";
 import { Vault, type VaultEntry } from "../../src/core/vault.ts";
 import fc from "fast-check";
 
@@ -26,7 +28,9 @@ function sequence(bytes: number[]): RandomBytes {
 
 describe("Vault", () => {
   it("rolls back both maps and restore patterns while preserving encoded mappings", () => {
-    const vault = new Vault(seeded("rollback"), [["REAL-0001", "FAKE-0001"]]);
+    const vault = new Vault(shared(seeded("rollback")), [
+      ["REAL-0001", "FAKE-0001"],
+    ]);
     vault.bindRun("%53%45", "%56%55", "");
     const before = vault.entries();
     expect(vault.restore("FAKE-0001 %56%55")).toBe("REAL-0001 %53%45");
@@ -51,7 +55,7 @@ describe("Vault", () => {
     { label: "equal real and fake", entries: [["REAL-0001", "REAL-0001"]] },
   ])("rejects restored $label", ({ entries }) => {
     const pairs: VaultEntry[] = entries.map(([real, fake]) => [real, fake]);
-    expect(() => new Vault(seeded("invalid-reload"), pairs)).toThrow(
+    expect(() => new Vault(shared(seeded("invalid-reload")), pairs)).toThrow(
       /^VAULT_COLLISION/,
     );
   });
@@ -61,7 +65,7 @@ describe("Vault", () => {
       `r${index}`,
       `f${index}`,
     ]);
-    expect(() => new Vault(seeded("reload-cap"), entries)).toThrow(
+    expect(() => new Vault(shared(seeded("reload-cap")), entries)).toThrow(
       /^VAULT_FULL/,
     );
   });
@@ -71,14 +75,14 @@ describe("Vault", () => {
       fc.property(fc.stringMatching(/^[A-Z]{12}$/), (value) => {
         expect(
           () =>
-            new Vault(seeded("duplicate-real"), [
+            new Vault(shared(seeded("duplicate-real")), [
               [value, "fake-1"],
               [value, "fake-2"],
             ]),
         ).toThrow(/^VAULT_COLLISION/);
         expect(
           () =>
-            new Vault(seeded("duplicate-fake"), [
+            new Vault(shared(seeded("duplicate-fake")), [
               ["real-1", value],
               ["real-2", value],
             ]),
@@ -90,14 +94,14 @@ describe("Vault", () => {
   it("rejects restored entries that assign the same fake to different reals", () => {
     expect(
       () =>
-        new Vault(seeded("hostile-reload"), [
+        new Vault(shared(seeded("hostile-reload")), [
           ["REAL-0001", "FAKE-0001"],
           ["REAL-0002", "FAKE-0001"],
         ]),
     ).toThrow(/^VAULT_COLLISION/);
   });
   it("returns the same fake for the same real, and a fake that differs from the real", () => {
-    const vault = new Vault(seeded("same"));
+    const vault = new Vault(shared(seeded("same")));
     const fake = vault.fakeFor("Secret-1234", "");
     expect(vault.fakeFor("Secret-1234", "")).toBe(fake);
     expect(fake).not.toBe("Secret-1234");
@@ -105,14 +109,17 @@ describe("Vault", () => {
   });
 
   it("avoids a fake that already occurs in the text being masked", () => {
-    const first = new Vault(seeded("avoid")).fakeFor("Secret-1234", "");
-    const fake = new Vault(seeded("avoid")).fakeFor("Secret-1234", first);
+    const first = new Vault(shared(seeded("avoid"))).fakeFor("Secret-1234", "");
+    const fake = new Vault(shared(seeded("avoid"))).fakeFor(
+      "Secret-1234",
+      first,
+    );
     expect(fake).not.toBe(first);
   });
 
   it("never gives a fake that contains an existing fake", () => {
     // Upper-case letters 23, 24 make "XY"; 23, 24, 25 would make "XYZ", which contains "XY".
-    const vault = new Vault(sequence([23, 24, 23, 24, 25, 0, 1, 2]));
+    const vault = new Vault(shared(sequence([23, 24, 23, 24, 25, 0, 1, 2])));
     const fakeA = vault.fakeFor("aa", "");
     const fakeB = vault.fakeFor("bbb", "");
     expect(fakeA).toBe("XY");
@@ -121,19 +128,19 @@ describe("Vault", () => {
 
   it("throws VAULT_COLLISION when every candidate equals the real", () => {
     const zeros: RandomBytes = (size) => new Uint8Array(size);
-    expect(() => new Vault(zeros).fakeFor("AAAA", "")).toThrow(
+    expect(() => new Vault(shared(zeros)).fakeFor("AAAA", "")).toThrow(
       /^VAULT_COLLISION/,
     );
   });
 
   it("binds an encoded run to its rendering and restores the run as written", () => {
-    const vault = new Vault(seeded("run"));
+    const vault = new Vault(shared(seeded("run")));
     vault.bindRun("%53%45", "%56%55", "");
     expect(vault.restore("x %56%55 y")).toBe("x %53%45 y");
   });
 
   it("throws VAULT_COLLISION when a rendering is already a fake", () => {
-    const vault = new Vault(seeded("run"));
+    const vault = new Vault(shared(seeded("run")));
     vault.bindRun("%53%45", "%56%55", "");
     expect(() => vault.bindRun("%41%42", "%56%55", "")).toThrow(
       /^VAULT_COLLISION/,
@@ -146,12 +153,33 @@ describe("Vault", () => {
       (_, index): [string, string] => [`real${index}`, `fake${index}`],
     );
     expect(() =>
-      new Vault(seeded("full"), entries).fakeFor("new-value", ""),
+      new Vault(shared(seeded("full")), entries).fakeFor("new-value", ""),
     ).toThrow(/^VAULT_FULL/);
   });
 
+  it("throws VAULT_FULL once the values of the vault hold 2000000 characters", () => {
+    const vault = new Vault(shared(seeded("full-chars")), [
+      ["a".repeat(1999990), "b".repeat(1999990)],
+    ]);
+    vault.fakeFor("c1c1c1c1c1", "");
+    expect(() => vault.fakeFor("d", "")).toThrow(/^VAULT_FULL/);
+  });
+
+  it("frees the characters of a value that a failed atomic call drops", () => {
+    const vault = new Vault(shared(seeded("full-chars")), [
+      ["a".repeat(1999990), "b".repeat(1999990)],
+    ]);
+    expect(() =>
+      vault.atomic(() => {
+        vault.fakeFor("c1c1c1c1c1", "");
+        throw new Error("render failed");
+      }),
+    ).toThrow("render failed");
+    expect(() => vault.fakeFor("c1c1c1c1c1", "")).not.toThrow();
+  });
+
   it("restores a fake that sits next to punctuation", () => {
-    const vault = new Vault(seeded("punctuation"));
+    const vault = new Vault(shared(seeded("punctuation")));
     const fake = vault.fakeFor("Alpha1234", "");
     expect(vault.restore(`(${fake}), x=${fake}`)).toBe(
       "(Alpha1234), x=Alpha1234",
@@ -159,16 +187,16 @@ describe("Vault", () => {
   });
 
   it("does not restore two fakes glued inside one token", () => {
-    const vault = new Vault(seeded("glued"));
+    const vault = new Vault(shared(seeded("glued")));
     const first = vault.fakeFor("Alpha1234", "");
     const second = vault.fakeFor("Bravo5678", "");
     expect(vault.restore(first + second)).toBe(first + second);
   });
 
   it("restores a session from its entries", () => {
-    const original = new Vault(seeded("session"));
+    const original = new Vault(shared(seeded("session")));
     const fake = original.fakeFor("Secret-1234", "");
-    const restored = new Vault(seeded("other"), original.entries());
+    const restored = new Vault(shared(seeded("other")), original.entries());
     expect(restored.restore(`id ${fake}`)).toBe("id Secret-1234");
     expect(restored.fakeFor("Secret-1234", "")).toBe(fake);
   });
@@ -176,12 +204,15 @@ describe("Vault", () => {
 
 describe("Vault placeholders", () => {
   it("gives an opaque fake of the same length with only letters and digits", () => {
-    const fake = new Vault(seeded("opaque")).fakeFor("192.168.1.10", "");
+    const fake = new Vault(shared(seeded("opaque"))).fakeFor(
+      "192.168.1.10",
+      "",
+    );
     expect(fake).toMatch(/^[A-Za-z0-9]{12}$/);
   });
 
   it("restores a fake of a fake once, to the fake it names", () => {
-    const vault = new Vault(seeded("chain"), [
+    const vault = new Vault(shared(seeded("chain")), [
       ["Secret-1234", "Qx7Lp9Vb2Nm4"],
       ["Qx7Lp9Vb2Nm4", "Hk3Wd8Rt5Ys1"],
     ]);
@@ -191,7 +222,7 @@ describe("Vault placeholders", () => {
 
 describe("Vault fixed fakes", () => {
   it("gives the variants of one name one number in the shape of each variant", () => {
-    const vault = new Vault(seeded("entity"));
+    const vault = new Vault(shared(seeded("entity")));
     const fakes = [
       "AcmeCorp",
       "ACMECORP",
@@ -219,17 +250,17 @@ describe("Vault fixed fakes", () => {
   });
 
   it("keeps the number of a name after a reload", () => {
-    const first = new Vault(seeded("entity"));
+    const first = new Vault(shared(seeded("entity")));
     first.fixedFor("Globex", "Client{n}", "");
     first.fixedFor("AcmeCorpTheme", "Client{n}", "", [0, 8]);
-    const vault = new Vault(seeded("reload"), first.entries());
+    const vault = new Vault(shared(seeded("reload")), first.entries());
     expect(vault.fixedFor("ACME-CORP", "Client{n}", "", [0, 9])).toBe(
       "CLIENT-2",
     );
   });
 
   it("uses the number of a name when a longer fake of it is in the text", () => {
-    const vault = new Vault(seeded("entity"));
+    const vault = new Vault(shared(seeded("entity")));
     vault.fixedFor("AcmeCorpTheme", "Client{n}", "", [0, 8]);
     expect(
       vault.fixedFor("AcmeCorp", "Client{n}", "import Client1Theme", [0, 8]),
@@ -237,16 +268,48 @@ describe("Vault fixed fakes", () => {
   });
 
   it("numbers a fixed fake without a name apart from an opaque fake that holds its template", () => {
-    const vault = new Vault(seeded("entity"), [
+    const vault = new Vault(shared(seeded("entity")), [
       ["Rk7pQ2mZ4xLw", "Ab3c7Xy9QwEr"],
     ]);
     expect(vault.fixedFor("Globex", "C{n}", "")).toBe("C1");
   });
 
   it("gives a new number to a variant whose shape another variant has", () => {
-    const vault = new Vault(seeded("entity"));
+    const vault = new Vault(shared(seeded("entity")));
     vault.fixedFor("AcmeCorp", "Client{n}", "");
     expect(vault.fixedFor("Acmecorp", "Client{n}", "")).toBe("Client2");
     expect(vault.restore("Client1 Client2")).toBe("AcmeCorp Acmecorp");
+  });
+});
+
+describe("Vault keyed fakes", () => {
+  const key = (byte: number) => new Uint8Array(32).fill(byte);
+  const reals = fc.uniqueArray(fc.stringMatching(/^[A-Za-z0-9]{20}$/), {
+    minLength: 1,
+    maxLength: 12,
+  });
+
+  it("gives each real the same fake whatever order two vaults with one key learn them in", () => {
+    fc.assert(
+      fc.property(reals, fc.func(fc.integer()), (values, rank) => {
+        const shuffled = [...values].sort((a, b) => rank(a) - rank(b));
+        const first = new Vault(keyedBytes(key(1)));
+        const second = new Vault(keyedBytes(key(1)));
+        const fakes = values.map((real) => first.fakeFor(real, ""));
+        for (const real of shuffled) second.fakeFor(real, "");
+        expect(values.map((real) => second.fakeFor(real, ""))).toEqual(fakes);
+      }),
+    );
+  });
+
+  it("gives a real another fake under another key", () => {
+    fc.assert(
+      fc.property(reals, (values) => {
+        const [real] = values;
+        expect(new Vault(keyedBytes(key(1))).fakeFor(real, "")).not.toBe(
+          new Vault(keyedBytes(key(2))).fakeFor(real, ""),
+        );
+      }),
+    );
   });
 });

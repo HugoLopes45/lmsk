@@ -13,7 +13,7 @@ export interface PayloadFormat {
   opaque(key: string, value: unknown, parent: Record<string, unknown>): boolean;
 }
 
-const MAX_PAYLOAD_BYTES = 8 * 1024 * 1024;
+export const MAX_PAYLOAD_BYTES = 8 * 1024 * 1024;
 
 function isPlainObject(value: object): boolean {
   const prototype = Object.getPrototypeOf(value);

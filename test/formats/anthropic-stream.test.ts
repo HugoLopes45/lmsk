@@ -1,4 +1,6 @@
+import fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import { TextRestorer } from "../../src/core/restorer.ts";
 import {
   anthropicStream,
   type SseEvent,
@@ -33,11 +35,20 @@ const textDelta = (index: number, text: string) =>
 const stop = (index: number) => sse({ type: "content_block_stop", index });
 const ping = sse({ type: "ping" });
 
+/** Shows each `FAKE` as `REAL`. */
+const fakes = {
+  shownSpans: (text: string, from: number): [number, number, string][] =>
+    [...text.matchAll(/FAKE/g)]
+      .filter((match) => match.index >= from)
+      .map((match) => [match.index, match.index + 4, "REAL"]),
+  longestFake: () => 4,
+};
+
 function run(
   events: SseEvent[],
   restore: (call: ToolInput) => Record<string, unknown>,
 ): SseEvent[] {
-  const codec = anthropicStream(restore);
+  const codec = anthropicStream(restore, () => new TextRestorer(fakes));
   return events.flatMap((event) => codec.push(event));
 }
 
@@ -78,17 +89,79 @@ describe("anthropicStream", () => {
     ]);
   });
 
-  it("passes text, thinking and other events unchanged and in order", async () => {
+  it("restores the same input for every split of the argument JSON into deltas", () => {
+    fc.assert(
+      fc.property(
+        fc.dictionary(fc.string(), fc.string({ unit: "grapheme" })),
+        fc.array(fc.nat(), { maxLength: 8 }),
+        (input, cuts) => {
+          const json = JSON.stringify(input);
+          const offsets = [
+            ...new Set(cuts.map((cut) => cut % (json.length + 1))),
+          ].sort((a, b) => a - b);
+          const parts = [...offsets, json.length].map((offset, at, all) =>
+            json.slice(at === 0 ? 0 : all[at - 1], offset),
+          );
+          const restored = Object.fromEntries(
+            Object.entries(input).map(([key, value]) => [
+              key,
+              value.toUpperCase(),
+            ]),
+          );
+
+          expect(
+            run(
+              [start(1), ...parts.map((part) => jsonDelta(1, part)), stop(1)],
+              upper,
+            ),
+          ).toEqual([
+            start(1),
+            jsonDelta(1, JSON.stringify(restored)),
+            stop(1),
+          ]);
+        },
+      ),
+    );
+  });
+
+  it("passes thinking and other events unchanged and in order", async () => {
     const events = [
       sse({ type: "message_start", message: { id: "msg_1" } }),
-      start(0, "text"),
-      textDelta(0, "fake value"),
+      start(0, "thinking"),
+      sse({
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "thinking_delta", thinking: "a FAKE" },
+      }),
+      sse({
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "signature_delta", signature: "FAKE" },
+      }),
       stop(0),
       sse({ type: "message_delta", delta: { stop_reason: "end_turn" } }),
       sse({ type: "message_stop" }),
     ];
 
     expect(run(events, upper)).toEqual(events);
+  });
+
+  it("restores a text block for the agent, also a fake split across deltas, and gives the rest at the block end", async () => {
+    const out = run(
+      [
+        start(0, "text"),
+        textDelta(0, "a FA"),
+        textDelta(0, "KE b FAKE"),
+        stop(0),
+      ],
+      upper,
+    );
+
+    expect(out[0]).toEqual(start(0, "text"));
+    expect(out.at(-1)).toEqual(stop(0));
+    const texts = out.slice(1, -1).map((event) => JSON.parse(event.data));
+    expect(texts.every((data) => data.delta.type === "text_delta")).toBe(true);
+    expect(texts.map((data) => data.delta.text).join("")).toBe("a REAL b REAL");
   });
 
   it("keeps parallel tool calls apart by block index", async () => {

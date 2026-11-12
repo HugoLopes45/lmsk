@@ -2,11 +2,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { Worker } from "node:worker_threads";
 import { request } from "node:http";
 import { once } from "node:events";
+import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import fc from "fast-check";
-import { isRecord, loadVaultStore } from "../../src/core/index.ts";
+import { MachineVault, machinePaths } from "../../src/core/index.ts";
 import {
   fakeProvider,
   harness,
@@ -126,7 +127,6 @@ const READ_MARKER = "READ_RESULT_VISIBLE";
 const SECOND = ["SYNTHETIC", "SECOND", "408265"].join("");
 const TOOL_CANARY = ["SYNTHETIC", "TOOL", "550117"].join("");
 const USER_CANARY = ["SYNTHETIC", "USER", "660228"].join("");
-const ASSISTANT_CANARY = ["SYNTHETIC", "ASSISTANT", "770339"].join("");
 
 function configuration(value: string, strategy = "shape"): string {
   return JSON.stringify({
@@ -145,27 +145,15 @@ async function integration(options: Partial<HarnessOptions> = {}) {
   return h;
 }
 
-/**
- * The fake that the external store holds for a real value, read through the store
- * references on the active branch. Other branches are not reachable from the session.
- */
-function learnedFake(h: Harness, real: string): string {
-  let referenced = false;
-  for (const entry of h.session.sessionManager.getBranch()) {
-    if (entry.type !== "custom" || entry.customType !== "lmsk/vault")
-      continue;
-    referenced = true;
-    if (!isRecord(entry.data) || typeof entry.data.namespaceId !== "string")
-      throw new Error("Invalid persisted store reference");
-    const store = loadVaultStore(
-      join(h.agentDir, "lmsk-vaults"),
-      entry.data.namespaceId,
-    );
-    for (const [stored, fake] of store.entries)
-      if (stored === real) return fake;
-  }
-  if (!referenced) throw new Error("Active branch holds no store reference");
-  throw new Error("Expected learned fake was not stored");
+/** The fake that the machine vault of the harness holds for a real value. */
+function learnedFake(real: string): string {
+  const { vault } = MachineVault.open(
+    machinePaths(process.env, homedir()).stateDir,
+  );
+  const entry = vault.entries().find(([stored]) => stored === real);
+  if (entry === undefined)
+    throw new Error("Expected learned fake was not stored");
+  return entry[1];
 }
 
 function assertMasked(h: Harness, value = CANARY): void {
@@ -373,11 +361,11 @@ describe("supplied extension wire integration", () => {
   );
 
   it(
-    "restores real values into bash and keeps its output masked",
+    "restores real values into bash and sends its output masked",
     async () => {
       const h = await integration();
       await h.session.prompt(`Keep ${CANARY}`);
-      const fake = learnedFake(h, CANARY);
+      const fake = learnedFake(CANARY);
       h.provider.replies.push(
         {
           tool: "bash",
@@ -392,11 +380,6 @@ describe("supplied extension wire integration", () => {
       expect(
         readFileSync(join(h.cwd, "bash-result.txt"), "utf8") === CANARY,
       ).toBe(true);
-      const persisted = JSON.stringify(h.session.sessionManager.getEntries());
-      expect(persisted.includes(CANARY)).toBe(false);
-      expect(persisted.includes(Buffer.from(CANARY).toString("base64"))).toBe(
-        false,
-      );
       expect(
         h.provider.bodies.some((body) =>
           body.includes(Buffer.from(CANARY).toString("base64")),
@@ -412,7 +395,7 @@ describe("supplied extension wire integration", () => {
     async () => {
       const h = await integration();
       await h.session.prompt(`Keep ${CANARY}`);
-      const fake = learnedFake(h, CANARY);
+      const fake = learnedFake(CANARY);
       h.provider.replies.push({
         tool: "write",
         args: { path: "written.txt", content: fake },
@@ -440,40 +423,7 @@ describe("supplied extension wire integration", () => {
   );
 
   it(
-    "keeps real values out of every persisted session entry",
-    async () => {
-      const h = await integration({
-        files: { "source.txt": `Source value ${CANARY}` },
-      });
-      h.provider.replies.push(
-        { tool: "read", args: { path: "source.txt" } },
-        { text: `Assistant echoes ${CANARY}` },
-      );
-      await h.session.prompt(`Keep ${CANARY}`);
-      const persisted = JSON.stringify(h.session.sessionManager.getEntries());
-      expect(persisted.includes(CANARY)).toBe(false);
-      expect(persisted.includes("Assistant echoes")).toBe(true);
-      assertMasked(h);
-    },
-    INTEGRATION_TIMEOUT_MS,
-  );
-
-  it(
-    "keeps real values out of the custom session entries",
-    async () => {
-      const h = await integration();
-      await h.session.prompt(`Keep ${CANARY}`);
-      const custom = h.session.sessionManager
-        .getEntries()
-        .filter((entry) => entry.type === "custom");
-      expect(learnedFake(h, CANARY).length > 0).toBe(true);
-      expect(JSON.stringify(custom).includes(CANARY)).toBe(false);
-    },
-    INTEGRATION_TIMEOUT_MS,
-  );
-
-  it(
-    "keeps real values of every role out of the session file bytes, including a failed provider attempt",
+    "keeps the real values of every role in the session file, and sends only fakes",
     async () => {
       const h = await integration({
         persist: true,
@@ -483,24 +433,18 @@ describe("supplied extension wire integration", () => {
             {
               id: "e2e-canary",
               type: "literal",
-              values: [CANARY, TOOL_CANARY, USER_CANARY, ASSISTANT_CANARY],
-            },
-            {
-              id: "e2e-retry-status",
-              type: "literal",
-              values: ["503"],
-              strategy: "fixed",
-              replacement: "400-{n}",
+              values: [CANARY, TOOL_CANARY, USER_CANARY],
             },
           ],
         }),
       });
+      h.provider.replies.push({ tool: "read", args: { path: "source.txt" } });
+      await h.session.prompt(`Keep ${USER_CANARY}`);
       h.provider.replies.push(
-        { tool: "read", args: { path: "source.txt" } },
-        { text: `Assistant echoes ${ASSISTANT_CANARY}` },
+        { text: `Assistant echoes ${learnedFake(USER_CANARY)}` },
         { error: 503, message: `upstream rejected ${CANARY}` },
       );
-      await h.session.prompt(`Keep ${USER_CANARY}`);
+      await h.session.prompt(`Echo ${USER_CANARY}`);
       await h.session.prompt(`Retry ${USER_CANARY}`);
       const file = h.session.sessionManager.getSessionFile();
       if (file === undefined) throw new Error("Session is not file-backed");
@@ -509,21 +453,16 @@ describe("supplied extension wire integration", () => {
       expect(bytes.includes('"role":"toolResult"')).toBe(true);
       expect(bytes.includes('"role":"assistant"')).toBe(true);
       expect(bytes.includes('"stopReason":"error"')).toBe(true);
-      expect(
-        bytes.includes('"errorMessage":"503 provider error, text withheld"'),
-      ).toBe(true);
-      expect(bytes.includes("Assistant echoes")).toBe(true);
-      for (const canary of [CANARY, TOOL_CANARY, USER_CANARY, ASSISTANT_CANARY])
-        expect(bytes.includes(canary)).toBe(false);
+      expect(bytes.includes(`Assistant echoes ${USER_CANARY}`)).toBe(true);
+      for (const canary of [CANARY, TOOL_CANARY, USER_CANARY])
+        expect(bytes.includes(canary)).toBe(true);
       assertMasked(h, TOOL_CANARY);
       assertMasked(h, USER_CANARY);
-      assertMasked(h, ASSISTANT_CANARY);
       assertMasked(h);
     },
     INTEGRATION_TIMEOUT_MS,
   );
 
-  // Each persisted message waits out one scan timeout: the system, user and aborted assistant messages.
   it(
     "blocks a scanner timeout when worker delivery is lost",
     async () => {
@@ -544,7 +483,7 @@ describe("supplied extension wire integration", () => {
         delivery.mockRestore();
       }
     },
-    3 * INTEGRATION_TIMEOUT_MS,
+    INTEGRATION_TIMEOUT_MS,
   );
 
   it(
@@ -590,7 +529,7 @@ describe("supplied extension wire integration", () => {
       await h.session.prompt(`Remember ${path}`);
       h.provider.replies.push({
         tool: "read",
-        args: { path: learnedFake(h, path) },
+        args: { path: learnedFake(path) },
       });
       await h.session.prompt("Try the planned file read");
       expect(reads).toEqual([{ isError: true, durationMs: undefined }]);
@@ -686,7 +625,7 @@ describe("supplied extension wire integration", () => {
   );
 
   it(
-    "keeps a mapping learned after tree navigation reachable from the active branch",
+    "masks a prompt after tree navigation",
     async () => {
       const h = await integration({
         globalConfig: JSON.stringify({
@@ -712,26 +651,22 @@ describe("supplied extension wire integration", () => {
       expect(result.cancelled).toBe(false);
       await h.session.prompt(`Keep ${SECOND}`);
       expect(h.sent()).not.toContain(SECOND);
-      expect(learnedFake(h, CANARY).length > 0).toBe(true);
-      expect(learnedFake(h, SECOND).length > 0).toBe(true);
     },
     INTEGRATION_TIMEOUT_MS,
   );
 
   it.each(["", " 4000"])(
-    "masks adjacent card numbers on the wire and in the session, CVV=%j",
+    "masks adjacent card numbers on the wire, CVV=%j",
     async (code) => {
       const h = await integration({ globalConfig: undefined });
       const first = `5156 3777 8930 3107${code}`;
       const second = "4000 4000 0000 0000 002";
       await h.session.prompt(`card=${first} ${second}`);
-      const fakes = [learnedFake(h, first), learnedFake(h, second)];
+      const fakes = [learnedFake(first), learnedFake(second)];
       expect(h.sent().includes(`card=${fakes.join(" ")}`)).toBe(true);
       assertMasked(h, first);
       assertMasked(h, second);
       assertMasked(h, "4000 0000 0000 002");
-      const session = JSON.stringify(h.session.sessionManager.getEntries());
-      expect(session.includes(first) || session.includes(second)).toBe(false);
     },
     INTEGRATION_TIMEOUT_MS,
   );

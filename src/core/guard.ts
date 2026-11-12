@@ -1,14 +1,17 @@
-import { DEFAULT_SETTINGS } from "./config.ts";
-import { CodedError, errorCode } from "./errors.ts";
 import {
-  attachReferences,
-  type OpenOptions,
-  openSession,
-  persistNewEntries,
-  type Session,
-  type SessionHost,
-  type State,
-} from "./session.ts";
+  DEFAULT_SETTINGS,
+  type HostDefaults,
+  isRecord,
+  loadConfig,
+  type MaskConfig,
+  type Rule,
+} from "./config.ts";
+import { CodedError, errorCode } from "./errors.ts";
+import { MachineVault } from "./machine-vault.ts";
+import { Masker } from "./masker.ts";
+import { mapPayload, type PayloadFormat, textsOf } from "./payload.ts";
+import { type ShownFakes, TextRestorer } from "./restorer.ts";
+import { Scanner } from "./scanner.ts";
 import { isNetworkCommand, isProtectedPath } from "./tool-policy.ts";
 
 export type NoticeLevel = "info" | "warning" | "error";
@@ -21,45 +24,90 @@ export interface HostContext {
 }
 
 /** What the host supplies once. */
-export interface GuardHost extends SessionHost {
+export interface GuardHost extends Omit<HostDefaults, "rules"> {
   /** Starts every notice. */
   name: string;
+  /** The provider fields that masking keeps byte-exact. */
+  format: PayloadFormat;
 }
 
-export interface MaskOptions {
-  /** The reals that the texts' own tool call put back, see `Masker.mask`. */
-  restored?: readonly string[];
-  /**
-   * Rejects with HIDDEN_REAL when a masked text still holds a real: `plain` checks plain
-   * copies, `configured` also checks the readings that `withholdHiddenCopies` turns on.
-   */
-  refuseHidden?: "plain" | "configured";
+export interface OpenOptions {
+  /** Global configuration files, in merge order. */
+  configPaths: readonly string[];
+  /** The project configuration file. Pass it only when the project is trusted. */
+  projectConfigPath: string | undefined;
+  /** The private directory of the machine vault. */
+  stateDir: string;
+  /** The environment of the agent's processes. An `env` rule learns its values from it. */
+  env: Readonly<Record<string, string | undefined>>;
+  /** Rules that the host adds under the configuration, such as `localIdentityRules()`. */
+  defaultRules: readonly Rule[];
 }
+
+export const HIDDEN =
+  "lmsk: withheld. This text holds a secret spaced out, wrapped, reversed or encoded.";
+
+/** Every string of a payload, also the call ids that masking keeps byte-exact. Bytes stay bytes. */
+const EVERY_TEXT: PayloadFormat = {
+  opaque: (_key, value) => value instanceof Uint8Array,
+};
 
 /** A tool call as the host received it. */
 export interface ToolCall {
   id: string;
   tool: string;
-  /** Restored in place. */
   input: Record<string, unknown>;
   /** The host checked that the tool is its own, not a plugin tool of the same name. */
   verified: boolean;
   /** The input field that holds a shell command. */
   commandKey?: string;
   cwd: string;
-  /** The path that the tool opens, read from the input after the restore. */
-  path(): string | undefined;
+  /** The path that the tool opens with `input`. */
+  pathOf(input: Record<string, unknown>): string | undefined;
 }
 
-/** `off` lasts until the session reopens. */
+/** `off` lasts until the guard opens again. */
 export type Redaction = "enabled" | "off";
 
-/** Shown with every status and warning, so that users know which data stays raw. */
-const HISTORY_NOTE = "Entries written while off stay raw.";
+interface Opened {
+  config: MaskConfig;
+  scanner: Scanner;
+  masker: Masker;
+  store: MachineVault;
+}
+
+type State = { ok: true; opened: Opened } | { ok: false; code: string };
+
+function openState(options: OpenOptions, host: GuardHost): State {
+  const loaded = loadConfig(options.configPaths, options.projectConfigPath, {
+    ...host,
+    rules: options.defaultRules,
+  });
+  if (loaded.problems.length > 0) return { ok: false, code: "CONFIG_INVALID" };
+  const store = MachineVault.open(options.stateDir);
+  const scanner = new Scanner(loaded.config.scanTimeoutMs);
+  try {
+    const masker = new Masker(
+      loaded.config.rules,
+      scanner,
+      store.vault,
+      options.env,
+      host.format,
+    );
+    return {
+      ok: true,
+      opened: { config: loaded.config, scanner, masker, store },
+    };
+  } catch (error) {
+    scanner.close();
+    throw error;
+  }
+}
 
 /**
- * The host-independent state of one session: masks run one at a time, mappings
- * are saved, failures close the session, and notices explain it.
+ * The host-independent state of one agent process: masks run one at a time over the machine vault,
+ * a failed open blocks masking until the next open, and notices explain each stop. Masking happens on
+ * the wire only: the host keeps real values, and each request is masked whole.
  */
 export class Guard {
   private readonly host: GuardHost;
@@ -68,21 +116,16 @@ export class Guard {
   private reportedStop = false;
   private reportedBlock = false;
   private queue: Promise<unknown> = Promise.resolve();
-  /** Reals that each verified call put back into its arguments. Kept until the call ends. */
-  private readonly restoredByCall = new Map<string, Set<string>>();
 
   constructor(host: GuardHost) {
     this.host = host;
   }
 
-  /**
-   * Closes the earlier session and opens a new one. A failure, also a throw of `options`, blocks
-   * masking until the next open.
-   */
+  /** Closes the earlier state and opens a new one. A failure, also a throw of `options`, blocks masking until the next open. */
   open(options: () => OpenOptions, ctx: HostContext): void {
-    if (this.state.ok) this.state.session.scanner.close();
+    if (this.state.ok) this.state.opened.scanner.close();
     try {
-      this.state = openSession(options(), this.host);
+      this.state = openState(options(), this.host);
     } catch (error) {
       this.state = { ok: false, code: errorCode(error) };
     }
@@ -92,115 +135,72 @@ export class Guard {
     if (!this.state.ok) this.report(ctx, this.state.code);
   }
 
-  /**
-   * Makes the host's current records reference the session's store. Call it when they change
-   * without a new session. A conflict or a throw of `read` blocks the session.
-   */
-  attachReferences(ctx: HostContext): void {
-    if (!this.state.ok) return;
-    const { session } = this.state;
-    try {
-      attachReferences(session);
-    } catch (error) {
-      this.block(session, error);
-      this.report(ctx, errorCode(error));
-    }
-  }
-
   /** Stops the scanner worker so the process can exit. The closed state keeps a later scan from restarting it. */
   close(): void {
-    if (this.state.ok) this.state.session.scanner.close();
+    if (this.state.ok) this.state.opened.scanner.close();
     this.state = { ok: false, code: "SESSION_SHUTDOWN" };
-    this.restoredByCall.clear();
   }
 
-  /** Whether the user turned masking off in a working session. */
+  /** Whether the user turned masking off in a working guard. */
   get off(): boolean {
     return this.state.ok && this.redaction === "off";
   }
 
   /**
-   * Restores the fakes in a verified call's input, then blocks the call when its path is protected.
-   * The check runs after the restore, so a fake path cannot restore into a protected one. A call
-   * that is not blocked keeps its restored reals until `toolResult` or `toolEnd`.
+   * Restores the fakes in a verified call's input, in place, and saves the reals put back, so that
+   * every later request that holds the call's id masks them, also when they are too short to learn.
+   * A call whose restored path is protected keeps its fakes and is blocked: the check runs after the
+   * restore, so a fake path cannot restore into a protected one. A failed save throws, and the input
+   * keeps its fakes.
    */
-  toolCall(call: ToolCall): { blocked: boolean } {
-    const { blocked, reals } = this.restoredBy(call);
-    if (reals.length > 0) this.restoredByCall.set(call.id, new Set(reals));
-    return { blocked };
-  }
-
-  /**
-   * Restores a call like `toolCall` and returns the reals put back, but keeps nothing for its result.
-   * A host that resends a call's history on every request replays the call to mask that history.
-   */
-  restoredBy(call: ToolCall): { blocked: boolean; reals: string[] } {
-    const restored = call.verified
-      ? this.restoreInput(call.tool, call.input, call.commandKey)
-      : new Set<string>();
-    const path = call.path();
+  restoreCall(call: ToolCall): { blocked: boolean } {
+    const reals = new Set<string>();
+    const input = call.verified
+      ? this.restoreInput(call.tool, call.input, call.commandKey, reals)
+      : call.input;
+    const path = call.pathOf(input);
     if (path !== undefined && this.isProtected(path, call.cwd))
-      return { blocked: true, reals: [] };
-    return { blocked: false, reals: [...restored] };
+      return { blocked: true };
+    if (this.state.ok) this.state.opened.store.recordCall(call.id, [...reals]);
+    Object.assign(call.input, input);
+    return { blocked: false };
   }
 
-  /**
-   * The masker of a call's result: `maskTexts` with `refuseHidden: "configured"`, which also masks the
-   * reals that the call put back, also when they are too short to learn. Call it when the result
-   * arrives, before any step that can fail: it takes the reals, so each call's reals serve one result.
-   */
-  toolResult(callId: string): (texts: string[]) => Promise<string[]> {
-    const restored = this.takeRestored(callId);
-    return (texts) =>
-      this.maskTexts(texts, { restored, refuseHidden: "configured" });
-  }
-
-  /** Forgets a call that ends, also one without a result, such as a blocked call. */
-  toolEnd(callId: string): void {
-    this.restoredByCall.delete(callId);
-  }
-
-  /** A blocked session keeps the default paths and the host's own files protected. */
+  /** A blocked guard keeps the default paths and the host's own files protected. */
   private isProtected(path: string, cwd: string): boolean {
     const patterns = this.state.ok
-      ? this.state.session.config.protectedPaths
+      ? this.state.opened.config.protectedPaths
       : [...DEFAULT_SETTINGS.protectedPaths, ...this.host.protectedPaths];
     return isProtectedPath(path, cwd, patterns);
   }
 
   /**
-   * Restores fakes in the `input` of a call to `tool`, in place, and returns the reals put back.
-   * Call it only for a tool that the host verified as its own. When `input[commandKey]` is a
-   * command that sends to the network after restore, `input` keeps its fakes.
+   * A copy of the `input` of a call to `tool` with its fakes restored, and the reals put back in
+   * `reals`. When `input[commandKey]` is a command that sends to the network after restore, the
+   * input keeps its fakes.
    */
   private restoreInput(
     tool: string,
     input: Record<string, unknown>,
-    commandKey?: string,
-  ): Set<string> {
-    const restored = new Set<string>();
-    if (!this.state.ok) return restored;
-    const { config, masker } = this.state.session;
-    if (!config.restoredTools.includes(tool)) return restored;
-    const masked = { ...input };
-    Object.assign(input, masker.restoreValue(input, restored));
-    // After restore, so a masked client name, such as `curl`, is seen too.
-    const command = commandKey === undefined ? undefined : input[commandKey];
-    if (typeof command === "string" && isNetworkCommand(command, config)) {
-      Object.assign(input, masked);
-      restored.clear();
+    commandKey: string | undefined,
+    reals: Set<string>,
+  ): Record<string, unknown> {
+    if (!this.state.ok) return input;
+    const { config, masker } = this.state.opened;
+    if (!config.restoredTools.includes(tool)) return input;
+    const restored = masker.restoreValue(input, reals);
+    if (isRecord(restored)) {
+      // After restore, so a masked client name, such as `curl`, is seen too.
+      const command =
+        commandKey === undefined ? undefined : restored[commandKey];
+      if (typeof command !== "string" || !isNetworkCommand(command, config))
+        return restored;
     }
-    return restored;
+    reals.clear();
+    return input;
   }
 
-  /** The reals that the call put back. Forgets them. */
-  private takeRestored(callId: string): string[] {
-    const reals = this.restoredByCall.get(callId);
-    this.restoredByCall.delete(callId);
-    return reals === undefined ? [] : [...reals];
-  }
-
-  /** Runs `run` when the session is open. A blocked session or a throw returns `fail` with its code. */
+  /** Runs `run` when the guard is open. A blocked guard or a throw returns `fail` with its code. */
   async guarded<C extends HostContext, R>(
     ctx: C,
     fail: (ctx: C, code: string) => NoInfer<R>,
@@ -215,120 +215,125 @@ export class Guard {
   }
 
   /**
-   * Masks, saves, then returns the masked output. Masks run one at a time, so no
-   * other mapping can change the saved snapshot. A queued mask fails, and saves
-   * nothing, when the session is blocked or replaced during the mask. A failed save blocks the session until
-   * it reopens: the save may have committed.
+   * Runs masks one at a time, each after the vault reads what other processes added, so that no
+   * other mask of this process changes the vault during it. A mask fails when the guard is blocked
+   * or opened again during it.
    */
-  private exclusive<T>(session: Session, mask: () => Promise<T>): Promise<T> {
+  private exclusive<T>(opened: Opened, mask: () => Promise<T>): Promise<T> {
+    const current = (): boolean =>
+      this.state.ok && this.state.opened === opened;
     const run = this.queue.then(async () => {
-      if (!this.state.ok) throw new CodedError(this.state.code);
-      // A replaced session's closed scanner fails its late mask; that failure belongs to no live session.
+      if (!current()) throw new CodedError("SESSION_CHANGED");
+      opened.store.vault.refresh();
+      // A replaced state's closed scanner fails its late mask; that failure belongs to no live state.
       const masked = await mask().catch((error: unknown) => {
-        throw this.state.ok && this.state.session === session
-          ? error
-          : new CodedError("SESSION_CHANGED");
+        throw current() ? error : new CodedError("SESSION_CHANGED");
       });
-      if (!this.state.ok || this.state.session !== session)
-        throw new CodedError("SESSION_CHANGED");
-      try {
-        persistNewEntries(session);
-      } catch (error) {
-        this.block(session, error);
-        throw error;
-      }
+      if (!current()) throw new CodedError("SESSION_CHANGED");
       return masked;
     });
     this.queue = run.catch(() => undefined);
     return run;
   }
 
-  /** The open session. Throws the block code when the session is blocked. */
-  private session(): Session {
+  /** The open state. Throws the block code when the guard is blocked. */
+  private opened(): Opened {
     if (!this.state.ok) throw new CodedError(this.state.code);
-    return this.state.session;
+    return this.state.opened;
   }
 
   /**
-   * Masks a provider payload, and returns it unchanged while masking is off. Rejects when the session is blocked.
-   * `restored` holds the reals that the tool calls in the payload put back, see `restoredBy`.
-   * Masking keeps a secret glued to a word, such as `build_<secret>`, so a glued real rejects.
+   * Masks a provider payload, and returns it unchanged while masking is off. Rejects when the guard is
+   * blocked, and with HIDDEN_REAL when a text still holds a real plainly. The reals that `restoreCall`
+   * put back into a call whose id the payload or `callIds` holds are masked everywhere in it: a host
+   * gives the ids that its payloads change or leave out. A text that hides a real in another reading
+   * becomes HIDDEN, as `withholdHiddenCopies` asks.
    */
   readonly maskPayload = async (
     payload: unknown,
-    restored: readonly string[] = [],
-  ): Promise<unknown> => this.maskPayloadIn(this.session(), payload, restored);
+    callIds: readonly string[] = [],
+  ): Promise<unknown> => this.maskPayloadIn(this.opened(), payload, callIds);
 
   /**
-   * A payload masker bound to the open session, for work that outlives one event, such as a summary.
-   * Throws when the session is blocked. Its masks reject with SESSION_CHANGED once another session opens.
+   * A payload masker and the fakes to show, bound to the open state, for work that outlives one event,
+   * such as a summary. Throws when the guard is blocked. Its masks reject with SESSION_CHANGED once the
+   * guard opens again.
    */
-  payloadMasker(): { maskPayload(payload: unknown): Promise<unknown> } {
-    const session = this.session();
-    return { maskPayload: (payload) => this.maskPayloadIn(session, payload) };
+  payloadMasker(callIds: readonly string[] = []): ShownFakes & {
+    maskPayload(payload: unknown): Promise<unknown>;
+  } {
+    const opened = this.opened();
+    return {
+      maskPayload: (payload) => this.maskPayloadIn(opened, payload, callIds),
+      shownSpans: (text, from) => opened.masker.shownSpans(text, from),
+      longestFake: () => opened.masker.longestFake(),
+    };
   }
 
   private async maskPayloadIn(
-    session: Session,
+    opened: Opened,
     payload: unknown,
-    restored: readonly string[] = [],
+    callIds: readonly string[],
   ): Promise<unknown> {
     if (this.off) return payload;
-    return this.exclusive(session, async () => {
-      const masked = await session.masker.maskPayload(payload, restored);
-      await session.masker.assertNoHiddenRealInPayload(
-        session.masker.payloadTexts(masked),
+    return this.exclusive(opened, async () => {
+      const { config, masker, store } = opened;
+      const ids = textsOf(payload, (value, map) =>
+        mapPayload(value, map, EVERY_TEXT),
       );
-      return masked;
+      const masked = await masker.maskPayload(
+        payload,
+        store.realsOf([...ids, ...callIds]),
+      );
+      const texts = masker.payloadTexts(masked);
+      await masker.assertNoHiddenRealInPayload(texts);
+      if (!config.withholdHiddenCopies) return masked;
+      const hiding = await masker.hidingTexts(texts);
+      return mapPayload(
+        masked,
+        (text) => (hiding.has(text) ? HIDDEN : text),
+        this.host.format,
+      );
     });
   }
 
   /**
    * Masks `texts` and returns them in input order, and unchanged while masking is off.
-   * Rejects when the session is blocked, and with HIDDEN_REAL as `refuseHidden` asks.
+   * Rejects when the guard is blocked, and with HIDDEN_REAL when a text still holds a real plainly.
+   * A text that hides a real in another reading becomes HIDDEN, as `withholdHiddenCopies` asks.
    */
-  async maskTexts(
-    texts: string[],
-    options: MaskOptions = {},
-  ): Promise<string[]> {
-    const session = this.session();
+  async maskTexts(texts: string[]): Promise<string[]> {
+    const opened = this.opened();
     if (this.off) return texts;
-    return this.exclusive(session, async () => {
-      const masked = await session.masker.mask(texts, options.restored);
-      if (options.refuseHidden !== undefined)
-        await session.masker.assertNoHiddenReal(
-          masked,
-          options.refuseHidden === "configured" &&
-            session.config.withholdHiddenCopies,
-        );
-      return masked;
+    return this.exclusive(opened, async () => {
+      const masked = await opened.masker.mask(texts);
+      await opened.masker.assertNoHiddenReal(masked, false);
+      if (!opened.config.withholdHiddenCopies) return masked;
+      const hiding = await opened.masker.hidingTexts(masked);
+      return masked.map((text) => (hiding.has(text) ? HIDDEN : text));
     });
   }
 
-  /** The tool results of a masked payload that hold a hidden real, as `toolResult` checks them. */
-  async hidingResults(results: readonly unknown[]): Promise<Set<unknown>> {
-    const session = this.session();
-    if (this.off) return new Set();
-    return this.exclusive(session, () =>
-      session.masker.hidingResults(
-        results,
-        session.config.withholdHiddenCopies,
-      ),
-    );
-  }
-
-  /** Masks one text, such as a model call input, and refuses a plain hidden real. */
+  /** `maskTexts` for one text, such as a model call input. */
   readonly maskText = async (text: string): Promise<string> => {
-    const [masked] = await this.maskTexts([text], { refuseHidden: "plain" });
+    const [masked] = await this.maskTexts([text]);
     return masked;
   };
 
   /**
-   * Shows one notice per session for a stopped request and one for a blocked session, so that
+   * Restores model output that arrives in pieces for the user: only the fakes whose real any later
+   * mask turns back into the same fake. Throws the code of a blocked guard.
+   */
+  textRestorer(): TextRestorer {
+    return new TextRestorer(this.opened().masker);
+  }
+
+  /**
+   * Shows one notice per open for a stopped request and one for a blocked guard, so that
    * neither repeats on each request and a stopped request does not hide a later block.
    */
   readonly report = (ctx: HostContext, code: string): void => {
-    // A replaced session's late mask must not use up the notice of the new session.
+    // A replaced state's late mask must not use up the notice of the new state.
     if (code === "SESSION_CHANGED") return;
     if (!this.state.ok) {
       if (this.reportedBlock) return;
@@ -347,8 +352,12 @@ export class Guard {
     );
   };
 
-  /** The abort keeps withheld text from reaching a provider request of the current operation. */
-  failClosed(ctx: HostContext, code: string, notify = this.report): void {
+  /** The abort keeps the text that masking refused from reaching a provider request of the current operation. */
+  failClosed(
+    ctx: HostContext,
+    code: string,
+    notify: (ctx: HostContext, code: string) => void,
+  ): void {
     abortSafely(ctx);
     notifySafely(() => notify(ctx, code));
   }
@@ -357,34 +366,32 @@ export class Guard {
   status(): string {
     if (!this.state.ok)
       return `${this.host.name}: blocked (${this.state.code}). Requests that need masking are blocked until the session reloads.`;
-    if (this.redaction === "off") return this.offNotice();
-    return `${this.host.name}: enabled. ${HISTORY_NOTE}`;
+    return this.redaction === "off" ? this.offNotice() : this.onNotice();
   }
 
-  /** Turns masking on or off and returns the notice for the user. Throws the code of a blocked session: only a reopen clears a block. */
+  /** Turns masking on or off and returns the notice for the user. Throws the code of a blocked guard: only a new open clears a block. */
   setRedaction(next: Redaction): string {
-    this.session();
+    this.opened();
     this.redaction = next;
-    return next === "off"
-      ? this.offNotice()
-      : `${this.host.name}: enabled. Masking on does not clean entries written while off.`;
+    return next === "off" ? this.offNotice() : this.onNotice();
   }
 
   /**
-   * The text with the real value in place of each known fake. Throws the code of a blocked session.
+   * The text with the real value in place of each known fake. Throws the code of a blocked guard.
    * Show the result to the user only: it holds real values.
    */
   restoreText(text: string): string {
-    return this.session().vault.restore(text);
+    const { vault } = this.opened().store;
+    vault.refresh();
+    return vault.restore(text);
   }
 
-  private block(session: Session, error: unknown): void {
-    session.scanner.close();
-    this.state = { ok: false, code: errorCode(error) };
+  private onNotice(): string {
+    return `${this.host.name}: enabled. The provider gets fakes, you see real values.`;
   }
 
   private offNotice(): string {
-    return `${this.host.name}: off. Raw data may reach the provider and disk. ${HISTORY_NOTE}`;
+    return `${this.host.name}: off. The provider gets real values.`;
   }
 }
 
@@ -397,7 +404,7 @@ function abortSafely(ctx: HostContext): void {
   }
 }
 
-/** A broken UI must not undo a safe result, such as a cancellation or a withheld message. */
+/** A broken UI must not undo a safe result, such as a cancellation or a blocked request. */
 function notifySafely(notify: () => void): void {
   try {
     notify();

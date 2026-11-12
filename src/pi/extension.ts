@@ -1,46 +1,23 @@
+import { homedir } from "node:os";
 import { join } from "node:path";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
   type ExtensionFactory,
   getAgentDir,
-  type ToolResultEventResult,
 } from "@earendil-works/pi-coding-agent";
 import {
-  assertPayloadSize,
   Guard,
   type HostContext,
   localIdentityRules,
-  type ReferenceRecords,
+  machinePaths,
+  type ToolCall,
 } from "../core/index.ts";
 import { COMMAND, runCommand } from "./command.ts";
 import { compactMasked, summarizeTreeMasked } from "./compaction.ts";
 import { installModelGuard } from "./guard-runtime.ts";
 import type { BranchRecord, HookApi, HookContext } from "./host.ts";
-import {
-  isMaskedMessage,
-  mapToolResultText,
-  maskMessage,
-  maskTexts,
-  withheldMessage,
-  withheldResultFields,
-} from "./messages.ts";
-import {
-  GLOBAL_CONFIG,
-  NAME,
-  PI_DEFAULTS,
-  PROJECT_CONFIG,
-  VAULT_ENTRY,
-  VAULT_STORE_DIR,
-} from "./profile.ts";
+import { GLOBAL_CONFIG, NAME, PI_DEFAULTS, PROJECT_CONFIG } from "./profile.ts";
 import { commandKeyOf, isBuiltinTool, pathOf } from "./tools.ts";
-
-/** The vault references on the branch, in branch order. */
-function referencesOf(branch: readonly BranchRecord[]): unknown[] {
-  return branch.flatMap((entry) =>
-    entry.type === "custom" && entry.customType === VAULT_ENTRY
-      ? [entry.data]
-      : [],
-  );
-}
 
 /** The text of the last assistant message on the branch. */
 function lastReply(ctx: HookContext): string | undefined {
@@ -53,18 +30,27 @@ function lastReply(ctx: HookContext): string | undefined {
     .join("");
 }
 
+/** The ids of the tool calls on the branch. A provider payload can change them or leave them out. */
+function callIdsOf(branch: readonly BranchRecord[]): string[] {
+  return branch.flatMap(({ message }) =>
+    message?.role === "assistant"
+      ? message.content.flatMap((part) =>
+          part.type === "toolCall" ? [part.id] : [],
+        )
+      : [],
+  );
+}
+
+/**
+ * Masks on the wire only: pi, its session and its tools keep real values. Each provider request is
+ * masked whole, and each tool call gets its input restored.
+ */
 function lmsk(pi: HookApi): void {
+  const paths = machinePaths(process.env, homedir());
   const guard = new Guard({
     ...PI_DEFAULTS,
+    protectedPaths: [...PI_DEFAULTS.protectedPaths, ...paths.protectedPaths],
     name: NAME,
-  });
-
-  /** A session replacement fires session_start again, so this session manager serves the whole session. */
-  const branchReferences = (
-    sessionManager: HookContext["sessionManager"],
-  ): ReferenceRecords => ({
-    read: () => referencesOf(sessionManager.getBranch()),
-    append: (reference) => pi.appendEntry(VAULT_ENTRY, reference),
   });
 
   // The glued text stays in the history and blocks each later request, so each block shows the way out.
@@ -85,14 +71,6 @@ function lmsk(pi: HookApi): void {
     return {};
   };
 
-  const withheldResult = (
-    ctx: HostContext,
-    code: string,
-  ): ToolResultEventResult => {
-    guard.failClosed(ctx, code);
-    return withheldResultFields();
-  };
-
   pi.registerCommand(COMMAND, {
     description:
       "Show masking status, turn masking off or on, or reveal the real values of fakes on screen",
@@ -102,92 +80,90 @@ function lmsk(pi: HookApi): void {
   });
 
   pi.on("session_start", (_event, ctx) => {
-    installModelGuard(ctx.modelRegistry, guard.maskText);
-    guard.open(() => {
-      const agentDir = getAgentDir();
-      return {
-        configPaths: [join(agentDir, GLOBAL_CONFIG)],
+    installModelGuard(ctx.modelRegistry, guard.maskText, (payload) =>
+      guard.maskPayload(payload, callIdsOf(ctx.sessionManager.getBranch())),
+    );
+    guard.open(
+      () => ({
+        configPaths: [join(getAgentDir(), GLOBAL_CONFIG)],
         projectConfigPath: ctx.isProjectTrusted()
           ? join(ctx.cwd, PROJECT_CONFIG)
           : undefined,
-        storeDir: join(agentDir, VAULT_STORE_DIR),
-        references: branchReferences(ctx.sessionManager),
+        stateDir: paths.stateDir,
         env: process.env,
         defaultRules: localIdentityRules(),
-      };
-    }, ctx);
-  });
-
-  // Navigation moves the leaf without a new session, so the new branch needs its own reference.
-  pi.on("session_tree", (_event, ctx) => {
-    guard.attachReferences(ctx);
+      }),
+      ctx,
+    );
   });
 
   pi.on("session_shutdown", () => {
     guard.close();
   });
 
-  // A call that ends without a result, such as a blocked one, skips tool_result.
-  pi.on("tool_execution_end", (event) => {
-    guard.toolEnd(event.toolCallId);
-  });
-
   pi.on("before_provider_request", (event, ctx) =>
     guard.guarded(ctx, blockRequest, async () =>
-      guard.off ? undefined : guard.maskPayload(event.payload),
+      guard.off
+        ? undefined
+        : guard.maskPayload(
+            event.payload,
+            callIdsOf(ctx.sessionManager.getBranch()),
+          ),
     ),
   );
 
+  const callOf = (
+    id: string,
+    tool: string,
+    input: Record<string, unknown>,
+    cwd: string,
+  ): ToolCall => ({
+    id,
+    tool,
+    input,
+    verified: isBuiltinTool(pi, tool),
+    commandKey: commandKeyOf(tool),
+    cwd,
+    pathOf: (args) => pathOf(tool, args),
+  });
+
   pi.on("tool_call", (event, ctx) => {
-    const { blocked } = guard.toolCall({
-      id: event.toolCallId,
-      tool: event.toolName,
-      input: event.input,
-      verified: isBuiltinTool(pi, event.toolName),
-      commandKey: commandKeyOf(event),
-      cwd: ctx.cwd,
-      path: () => pathOf(event),
-    });
-    if (blocked) return { block: true, reason: "protected path" };
+    // Pi names a nested call `<caller id>/<n>`. Only the id of the call that the model made reaches the provider.
+    const id =
+      event.parentToolCallId === undefined
+        ? event.toolCallId
+        : event.toolCallId.replace(/(?:\/\d+)+$/, "");
+    const call = callOf(id, event.toolName, event.input, ctx.cwd);
+    if (guard.restoreCall(call).blocked)
+      return { block: true, reason: "protected path" };
   });
 
-  pi.on("message_end", async (event, ctx) => {
-    const message = event.message;
-    if (!isMaskedMessage(message) || guard.off) return;
-    // Before any await: if this handler fails, pi persists the neutral form, not the raw text.
-    const original = { ...message };
-    const withheld = withheldMessage(message);
-    Object.assign(message, withheld);
-    return guard.guarded(
-      ctx,
-      (failed, code) => {
-        guard.failClosed(failed, code);
-        return { message: withheld };
+  /** Thinking keeps its fakes: a provider can sign it, and the wire sends a signed text as written. */
+  const restoredPart = (
+    part: AssistantMessage["content"][number],
+    cwd: string,
+  ): AssistantMessage["content"][number] => {
+    if (part.type === "text") {
+      const restorer = guard.textRestorer();
+      return { ...part, text: restorer.push(part.text) + restorer.end() };
+    }
+    if (part.type !== "toolCall") return part;
+    const input = structuredClone(part.arguments);
+    return guard.restoreCall(callOf(part.id, part.name, input, cwd)).blocked
+      ? part
+      : { ...part, arguments: input };
+  };
+
+  // Pi saves and shows the message that this handler returns, and then runs its tool calls.
+  pi.on("message_end", (event, ctx) => {
+    const { message } = event;
+    if (message.role !== "assistant") return;
+    return {
+      message: {
+        ...message,
+        content: message.content.map((part) => restoredPart(part, ctx.cwd)),
       },
-      async () => ({
-        message: await maskMessage((texts) => guard.maskTexts(texts), original),
-      }),
-    );
-  });
-
-  pi.on("tool_result", async (event, ctx) => {
-    // Before any await: a throw below keeps the fields already set on the event.
-    const maskResult = guard.toolResult(event.toolCallId);
-    if (guard.off) return undefined;
-    const original = {
-      content: event.content,
-      structuredContent: event.structuredContent,
-      details: event.details,
     };
-    Object.assign(event, withheldResultFields());
-    return guard.guarded(
-      ctx,
-      withheldResult,
-      async (): Promise<ToolResultEventResult> => {
-        assertPayloadSize(original.details);
-        return maskTexts(maskResult, original, mapToolResultText);
-      },
-    );
   });
 
   /** Cancels pi's summary, which pi would otherwise build from raw text. */
@@ -200,15 +176,18 @@ function lmsk(pi: HookApi): void {
     return { cancel: true };
   };
 
+  const summaryMasker = (ctx: HookContext) =>
+    guard.payloadMasker(callIdsOf(ctx.sessionManager.getBranch()));
+
   pi.on("session_before_compact", (event, ctx) =>
     guard.guarded(ctx, cancel, () =>
-      compactMasked(event, ctx, guard.payloadMasker()),
+      compactMasked(event, ctx, summaryMasker(ctx)),
     ),
   );
 
   pi.on("session_before_tree", (event, ctx) =>
     guard.guarded(ctx, cancel, () =>
-      summarizeTreeMasked(event, ctx, guard.payloadMasker()),
+      summarizeTreeMasked(event, ctx, summaryMasker(ctx)),
     ),
   );
 }

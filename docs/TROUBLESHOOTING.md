@@ -23,82 +23,81 @@ The first form means that the extension stopped one request and the session cont
 
 | Kind | What happens | How it ends |
 |---|---|---|
-| The request is stopped | The extension cancels one request or withholds one tool result. The agent stops its current work. | Send the request again, or remove the cause. |
+| The request is stopped | The extension cancels one request. The agent stops its current work. | Send the request again, or remove the cause. |
 | The session is blocked | The extension blocks each request that needs masking. `/lmsk status` shows `lmsk: blocked (CODE)`. `/lmsk` cannot change masking. | Correct the cause, then type `/reload`. You can also start a new session with `/new` or open another one with `/resume`. |
-
-While the session is blocked, the extension saves each new message and tool result as `[MASKED]`.
 
 ## Other things that you can see
 
 | What you see | Meaning | What to do |
 |---|---|---|
 | `SUMMARY_BLOCKED: summary could not be safely generated` | pi tried to make a summary of the conversation, for `/compact` or for `/tree`. The extension could not mask it safely, so pi made no summary. The causes include: no model is selected, a masking error, a secret glued to a word, or an empty summary. | Try again. If the summary is blocked again, start a new session with `/new`. Or type `/tree`, and when pi asks `Summarize branch?`, choose `No summary`. |
-| `[MASKED]` in place of a tool result or a message | The extension withheld the text, because it could not mask it safely. For a tool result, it can also hold a secret in a hidden form, such as reversed or encoded. | Read the error code that pi showed. If the tool output was ordinary text, you can set `withholdHiddenCopies` to `false`. See [Settings](CONFIGURATION.md#settings). |
+| The model says that it got `lmsk: withheld.` in place of a text | The text holds a secret in a hidden form, such as spaced out, reversed or encoded. The model provider got `lmsk: withheld. This text holds a secret spaced out, wrapped, reversed or encoded.` in its place. You still see the real text. | If the text was ordinary output, you can set `withholdHiddenCopies` to `false`. See [Settings](CONFIGURATION.md#settings). |
 | `protected path` as the reason that a tool call was refused | The agent tried to `read`, `grep`, `find` or `ls` a protected file, such as `.env`. | This is the normal protection. To allow a path, remove its glob with `!` in the global configuration. See [Default protected paths](CONFIGURATION.md#default-protected-paths). |
-| `400 provider error, text withheld`, or the same text with `503` or `context_length_exceeded` | The model provider returned an error. Masking would change how pi reacts to it, so the extension saves this fixed text. The number and the words keep the reaction of pi: `503` means that pi can try again, and `context_length_exceeded` means that the conversation is too long. The rest of the error text is not saved. | Try again. If the conversation is too long, type `/compact` or start a new session with `/new`. |
-| `lmsk: off. Raw data may reach the provider and disk.` | You typed `/lmsk off`. Masking is off. | Type `/lmsk on` to start masking again. Messages saved while masking was off stay unmasked. |
-| `Usage: /lmsk status\|on\|off` | The `/lmsk` command got an unknown word. | Type `/lmsk status`, `/lmsk on` or `/lmsk off`. |
+| `lmsk: off. The provider gets real values.` | You typed `/lmsk off`. Masking is off. | Type `/lmsk on` to start masking again. The model provider keeps the real values that it got while masking was off. |
+| `Usage: /lmsk status\|on\|off\|reveal [text]` | The `/lmsk` command got an unknown word. | Type `/lmsk status`, `/lmsk on`, `/lmsk off` or `/lmsk reveal`. |
 
 ## Codes that stop a request
 
 | Code | Meaning | What to do |
 |---|---|---|
-| `HIDDEN_REAL` | A secret is glued to a word, for example `build_<secret>`, or is in a hidden form in a tool result. The extension cannot replace it there. A glued secret in the conversation stops each later request. | Do not type `/lmsk off` to get past this message. It sends the secret to the model provider. The easiest way out: start a new session with `/new`. To keep the conversation: type `/tree` and pick the message just before the one that contains the secret. When pi asks `Summarize branch?`, choose `No summary`. If pi puts your old message back in the input box, delete the secret before you send it. If the secret is in a context file, such as `AGENTS.md`, remove it from the file, then type `/reload`. |
+| `HIDDEN_REAL` | A token with a known prefix, or a value of a `mask` or `block` rule, is glued to a word. An example is `x` before a GitHub token. The extension cannot replace it there. A glued secret in the conversation stops each later request. | Do not type `/lmsk off` to get past this message. It sends the secret to the model provider. The easiest way out: start a new session with `/new`. To keep the conversation: type `/tree` and pick the message just before the one that contains the secret. When pi asks `Summarize branch?`, choose `No summary`. If pi puts your old message back in the input box, delete the secret before you send it. If the secret is in a context file, such as `AGENTS.md`, remove it from the file, then type `/reload`. |
 | `SCAN_TIMEOUT` | The search for secrets took longer than `scanTimeoutMs` (5 seconds by default). A very long conversation can cause it. | Send the request again. If it is blocked again, start a new session with `/new`. You can also increase `scanTimeoutMs` in the global configuration. |
 | `SCAN_CRASH` | The worker that searches for secrets stopped. | Send the request again. If the error comes back, type `/reload`. |
 | `SCAN_PATTERN` | A regex failed during the search. | Check the `pattern` of your `regex` rules. Then type `/reload`. |
 | `BLOCKED` | A rule with the `block` strategy found a value. Other causes: a found value overlaps a fake, or a value in an encoded text cannot get a safe fake. | If you made a `block` rule, remove the value from the conversation, as for `HIDDEN_REAL`. Otherwise, start a new session with `/new`. |
-| `PAYLOAD_SIZE` | The text that masking scans in a request, or the `details` of a tool result or custom message, is larger than 8 MiB. Images, signatures and encrypted content do not count. | Start a new session with `/new`. Ask the agent for smaller outputs, for example part of a file. |
+| `PAYLOAD_SIZE` | The text that masking scans in a request is larger than 8 MiB. Images, signatures and encrypted content do not count. | Start a new session with `/new`. Ask the agent for smaller outputs, for example part of a file. |
 | `PAYLOAD_SHAPE` | The request is not plain JSON data. | Report the problem as an issue. Do not include secrets. |
-| `SIGNED_CHANGE` | A message has a provider signature, and masking would change the signed text. The extension withholds the message. | Start a new session with `/new`. |
-| `VAULT_FULL` | The vault has 50000 values, the maximum. | Start a new session with `/new`. |
-| `VAULT_COLLISION` | The extension found no unused fake for a value, or a saved vault entry is not valid. | Start a new session with `/new`. If the error comes back, report it as an issue. |
+| `VAULT_FULL` | The vault has 50000 values, or its values have 2000000 characters together. This is the maximum. | [Start a new vault](#start-a-new-vault). |
+| `VAULT_COLLISION` | The extension found no unused fake for a value, or a line of the vault gives one fake to two values. | Send the request again. If the error comes back, [start a new vault](#start-a-new-vault). |
 
 ## Codes that block the session
 
-The vault is a file that keeps each real value next to its fake. By default, its folder is `~/.pi/agent/lmsk-vaults/`. If you set the `PI_CODING_AGENT_DIR` environment variable, the folder is `lmsk-vaults` in that folder. Each session uses one vault file.
+The vault is the file `vault.jsonl` that keeps each real value next to its fake. Its folder is `~/.local/state/lmsk/`, or `lmsk/` in `XDG_STATE_HOME` if you set it. Each agent on your computer uses this vault. The `key` file in the same folder makes the fakes.
 
 | Code | Meaning | What to do |
 |---|---|---|
 | `CONFIG_INVALID` | A configuration file has an error. See [CONFIG_INVALID](#config_invalid). | Correct the file, then type `/reload`. |
-| `STORE_BUSY` | A lock file blocks the vault. A pi process that stopped during a save can leave it. | Close the other pi windows. If the error stays, delete the `.lock` file in the vault folder by hand. Then type `/reload`. |
-| `STORE_CONFLICT` | The vault file changed after this session loaded it. Another pi process can cause it. | Close the other pi windows that use the same session. Then type `/reload`. |
-| `STORE_UNSAFE` | The vault folder or file has wrong permissions or a wrong owner. The folder must have mode 700 and the file mode 600, both owned by your user. | On macOS or Linux, run `chmod 700` on the folder and `chmod 600` on the file. Then type `/reload`. |
-| `STORE_MISSING` | The session refers to a vault file that does not exist. | Start a new session with `/new`. Old fakes in this session cannot get their real values back. |
-| `STORE_CORRUPT` | The vault file is not valid JSON, or has a wrong structure. | Start a new session with `/new`. |
+| `STORE_BUSY` | Another process holds the lock file `vault.lock` of the vault, and does not release it. | Close your other agents. If the error stays, delete the `vault.lock` file in the vault folder by hand. Then type `/reload`. |
+| `STORE_UNSAFE` | The vault folder, `vault.jsonl` or `key` has wrong permissions or a wrong owner. The folder must have mode 700 and the two files mode 600, all owned by your user. | On macOS or Linux, run `chmod 700` on the folder and `chmod 600` on the two files. Then type `/reload`. |
+| `STORE_CORRUPT` | A line of `vault.jsonl` is not valid, or the `key` file has a wrong length. | [Start a new vault](#start-a-new-vault). If the `key` file is bad, move it too. |
 | `STORE_IO` | The computer could not read or write the vault file, for example because the disk is full. | Correct the disk problem, then type `/reload`. |
-| `STORE_EXISTS`, `STORE_INVALID_ID`, `STORE_INVALID`, `STORE_EXHAUSTED` | An internal vault error. | Start a new session with `/new`. Report the problem as an issue. |
-| `STORE_REFERENCE_INVALID`, `STORE_REFERENCE_AMBIGUOUS`, `STORE_REFERENCE_CONFLICT` | The session file refers to a vault in a way that is not valid, or this part of the session refers to another vault. | Start a new session with `/new`. |
-| `VAULT_LEGACY` | The session was made by an older version of the extension. This version does not convert it. | Start a new session with `/new`. |
 | `UNEXPECTED_ERROR` | Another error. A `fixed` rule without `{n}` in its `replacement` causes it. A failure to read your user name, host name or git identity causes it too. | Check your `fixed` rules. Then type `/reload`. If the error stays, report it as an issue. |
 | `NOT_STARTED` | The session has not started yet. | Wait, or type `/reload`. |
 | `SESSION_SHUTDOWN` | The session is closing. | Start or open a session. |
 
-A failed save of the vault always blocks the session until it reloads, because the save may have completed.
+A failed read or save of the vault during a request stops only that request. But a line of `vault.jsonl` that is not valid stops each later request with `STORE_CORRUPT` or `VAULT_COLLISION`, until you [start a new vault](#start-a-new-vault).
+
+### Start a new vault
+
+1. Close each pi session.
+2. If you use Claude Code, stop the proxy. On macOS, run `launchctl bootout gui/$(id -u)/io.github.hugolopes45.lmsk`. On Linux, run `systemctl --user stop lmsk.service`.
+3. Move the file `vault.jsonl` out of the vault folder. Keep the `key` file, so that each value gets the same fake again.
+4. If you use Claude Code, run `lmsk install claude`. It starts the proxy again.
+
+If you move the `key` file too, each value gets a new fake.
 
 ## Claude Code
 
-With `lmsk claude`, the codes above have the same meaning, with these differences:
+With Claude Code, the codes above have the same meaning, with these differences:
 
-- The agent shows a stopped request as an API error with the text `lmsk: CODE`. `lmsk` writes a message to the terminal only when it blocks a session.
-- There is no `/lmsk` command and no `/reload`. To clear a blocked session, correct the cause, then close the agent and start it again with `lmsk`.
-- `/new` is a pi command. Start a new session of your agent instead.
-- The vault folder is `~/.local/state/lmsk/vaults/`.
+- Claude Code shows a stopped request as an API error with the text `lmsk: CODE`, for example `API Error: 400 lmsk: SCAN_TIMEOUT`.
+- There is no `/lmsk` command and no `/reload`. To clear a block, correct the cause, then run `lmsk install claude`. It starts the proxy again.
+- Where this page says `/tree`, type `/rewind`, then choose `Restore conversation`.
+- The proxy writes its messages to `serve.log` in the vault folder on macOS. On Linux, run `journalctl --user -u lmsk.service`.
 
 These messages occur only with Claude Code:
 
 | What you see | Meaning | What to do |
 |---|---|---|
-| `lmsk: withheld. This tool call opened a protected path.` as a tool result | A Claude Code `Read`, `Write`, `Edit`, `Grep` or `Glob` call opened a protected path. The proxy withheld its result. | This is the normal protection. See [Default protected paths](CONFIGURATION.md#default-protected-paths). |
-| `lmsk: withheld. This tool result holds a secret spaced out, wrapped, reversed or encoded.` as a tool result | The output holds a secret in a hidden form, such as reversed or encoded. The proxy withheld it from the provider. | If the output was ordinary text, you can set `withholdHiddenCopies` to `false` in `~/.config/lmsk/config.json`. See [Settings](CONFIGURATION.md#settings). |
-| `lmsk: <path> is a protected path` as the reason that a tool call was refused | The deny hook refused a call that opens a protected path. | This is the normal protection. |
-| `lmsk: hook failed: CODE.` | The deny hook could not read its input, so it refused the call. | Report the problem as an issue, with the code. |
-| `lmsk: UPSTREAM` | The proxy could not reach the model provider. | Check your network connection, then send the request again. |
-| `lmsk: FORBIDDEN` | A program sent a request to the proxy without its private address. | Start the agent with `lmsk`. Do not copy the proxy address into another program. |
-| `lmsk: FORKED_SESSION` | The request holds tool calls of another session, such as after `claude --fork-session` or a branch of a conversation. The proxy cannot put back the fakes of those calls, so it sent nothing to the provider. | Start a new session, or resume the original session without forking it. |
-| `lmsk: <file> sets ANTHROPIC_BASE_URL.` | A Claude Code settings file sends Claude Code to a gateway. The proxy would replace it with Anthropic. | Remove `ANTHROPIC_BASE_URL` from the file and set it in your shell. Then start `lmsk claude` again. |
-| `CALLS_INVALID` | A file that keeps the tool calls of a session, in `~/.local/state/lmsk/sessions/`, does not hold a JSON object. The proxy reads the files of the other sessions to find a fork, so the invalid file can belong to another session. | Move the `.calls.json` file that is not valid JSON out of the folder. |
-| `lmsk: claude is not on your PATH.` | `lmsk` did not find Claude Code. | Install Claude Code, or add its folder to your `PATH`. Then start `lmsk` again. |
+| `lmsk: <path> is a protected path` as the reason that a tool call was refused | The hook refused a call that opens a protected path. | This is the normal protection. See [Default protected paths](CONFIGURATION.md#default-protected-paths). |
+| `lmsk: hook failed: CODE.` | The hook failed, for example on an input that it cannot read. Claude Code then refuses the call. | Report the problem as an issue, with the code. |
+| `lmsk: UPSTREAM` | The proxy could not reach Anthropic or your gateway. | Check your network connection, then send the request again. |
+| `lmsk: FORBIDDEN` | A program sent a request to the proxy without its private token. | Run `lmsk install claude`, then restart Claude Code. Do not copy the proxy address into another program. |
+| `Connection refused` (`ECONNREFUSED`) | The proxy does not run. | Run `lmsk install claude`. If the error comes back, read the messages of the proxy. |
+| `lmsk: SETTINGS_INVALID: <detail>.` from `lmsk install claude` | Your user settings file is not JSON, or one of its keys that lmsk changes has a wrong type. | Correct the file, then run the command again. |
+| `lmsk: SERVICE_FAILED: <command> exited <number>.` from `lmsk install claude` | `launchctl` or `systemctl` could not start the service. | Read the output of the command above the message. Correct the cause, then run the command again. |
+| `lmsk: PLATFORM_UNSUPPORTED: lmsk runs on macOS and Linux.` | Your operating system is not macOS or Linux. | Use pi, or use Claude Code on macOS or Linux. |
+| `TOKEN_CORRUPT` in the messages of the proxy | The file `serve-token` in the vault folder is not valid. | Delete the file, run `lmsk install claude`, then restart Claude Code. |
 
 ## CONFIG_INVALID
 

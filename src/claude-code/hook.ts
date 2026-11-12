@@ -1,4 +1,5 @@
-import { commandWords, hookDenial, proxyPaths } from "../proxy/index.ts";
+import { machinePaths } from "../core/index.ts";
+import { commandWords, hookDenial } from "../proxy/index.ts";
 import { pathOf, TOOLS } from "./profile.ts";
 
 export interface HookEnv {
@@ -11,7 +12,7 @@ export function claudeHook(
   input: unknown,
   { env, home }: HookEnv,
 ): string | undefined {
-  const paths = proxyPaths(env, home);
+  const paths = machinePaths(env, home);
   return hookDenial(input, {
     configPath: paths.configPath,
     home,

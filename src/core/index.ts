@@ -13,6 +13,7 @@ export {
   type GuardHost,
   type HostContext,
   type Redaction,
+  type ToolCall,
 } from "./guard.ts";
 export { localIdentityRules } from "./identity.ts";
 export { isProtectedPath } from "./tool-policy.ts";
@@ -29,6 +30,7 @@ export {
   type ScanPattern,
   Scanner,
 } from "./scanner.ts";
-export type { ReferenceRecords } from "./session.ts";
 export { Vault } from "./vault.ts";
-export { loadVaultStore } from "./vault-store.ts";
+export { MachineVault } from "./machine-vault.ts";
+export { machinePaths } from "./paths.ts";
+export { TextRestorer } from "./restorer.ts";

@@ -76,12 +76,4 @@ export const allFormats: PayloadFormat = {
 };
 
 export { anthropicStream } from "./anthropic-stream.ts";
-export { anthropicTurns } from "./anthropic-turns.ts";
-export type {
-  Restore,
-  SseEvent,
-  StreamCodec,
-  ToolInput,
-  ToolTurns,
-  TurnEdit,
-} from "./stream.ts";
+export type { Restore, SseEvent, StreamCodec, ToolInput } from "./stream.ts";

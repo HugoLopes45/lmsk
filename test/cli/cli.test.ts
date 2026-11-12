@@ -1,21 +1,17 @@
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
 import { main } from "../../src/cli/main.ts";
 
-async function run(
-  args: string[],
-  stdin = "",
-  env: Record<string, string> = {},
-) {
+async function run(args: string[], stdin = "") {
   const out = { stdout: "", stderr: "" };
   const home = mkdtempSync(join(tmpdir(), "lmsk-cli-"));
   const code = await main(args, {
     cwd: home,
     home,
-    env,
+    env: {},
     stdin: Readable.from([stdin]),
     stdout: { write: (text: string) => (out.stdout += text) },
     stderr: { write: (text: string) => (out.stderr += text) },
@@ -35,13 +31,13 @@ describe("lmsk", () => {
   it("prints the usage on --help and fails with it on an unknown command", async () => {
     expect(await run(["--help"])).toEqual({
       code: 0,
-      stdout: expect.stringContaining("lmsk claude"),
+      stdout: expect.stringContaining("lmsk install claude"),
       stderr: "",
     });
     expect(await run(["nope"])).toEqual({
       code: 1,
       stdout: "",
-      stderr: expect.stringContaining("lmsk claude"),
+      stderr: expect.stringContaining("lmsk install claude"),
     });
   });
 
@@ -65,13 +61,5 @@ describe("lmsk", () => {
     expect((await run(["hook", "claude"], "{}")).stderr).toBe(
       "lmsk: hook failed: HOOK_INPUT.\n",
     );
-  });
-
-  it("launches Claude Code and returns its exit code", async () => {
-    const bin = mkdtempSync(join(tmpdir(), "lmsk-cli-bin-"));
-    writeFileSync(join(bin, "claude"), "#!/bin/sh\nexit 7\n");
-    chmodSync(join(bin, "claude"), 0o755);
-    const env = { PATH: `${bin}:${process.env.PATH ?? ""}` };
-    expect((await run(["claude", "-p", "x"], "", env)).code).toBe(7);
   });
 });

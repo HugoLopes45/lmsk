@@ -1,12 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { EventEmitter, once } from "node:events";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -14,58 +7,36 @@ import {
   createSyntheticSourceInfo,
   type BeforeProviderRequestEvent,
   type MessageEndEvent,
-  type ModelRegistry,
   type SessionBeforeCompactEvent,
   type SessionBeforeTreeEvent,
   type SessionShutdownEvent,
   type SessionStartEvent,
-  type SessionTreeEvent,
   type ToolCallEvent,
-  type ToolExecutionEndEvent,
   type ToolInfo,
-  type ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
-import type {
-  AssistantMessage,
-  ClassifierContext,
-  ImagesContext,
-  Model,
-} from "@earendil-works/pi-ai";
 import {
-  isContextOverflow,
-  isRetryableAssistantError,
-  normalizeContext,
-  validateToolArguments,
+  createAssistantMessageEventStream,
+  type Api,
+  type AssistantMessage,
+  type ClassifierContext,
+  type Context,
+  type ImagesContext,
+  type Model,
+  type StreamOptions,
 } from "@earendil-works/pi-ai";
-import { convertMessages } from "@earendil-works/pi-ai/api/google-shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import lmsk from "../../src/pi/extension.ts";
-import { installModelGuard } from "../../src/pi/guard-runtime.ts";
+import {
+  type GuardedRegistry,
+  installModelGuard,
+} from "../../src/pi/guard-runtime.ts";
 import type { BranchRecord } from "../../src/pi/host.ts";
-import { loadVaultStore, Scanner } from "../../src/core/index.ts";
-
-/** Fault hook at the fs boundary; unset hooks call the real functions. */
-const faults = vi.hoisted(() => ({ directoryFlushFails: false }));
-
-vi.mock("node:fs", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs")>();
-  return {
-    ...actual,
-    fsyncSync: (fd: number) => {
-      if (faults.directoryFlushFails && actual.fstatSync(fd).isDirectory())
-        throw Object.assign(new Error("EIO"), { code: "EIO" });
-      return actual.fsyncSync(fd);
-    },
-  };
-});
+import { HIDDEN } from "../../src/core/guard.ts";
+import { Scanner } from "../../src/core/index.ts";
 
 /** A made-up project codename that no default rule matches, so only a configured rule masks it. */
 const CODENAME = "Quill-Harbor-Ninety";
-/** The JSON of a string this long is over the 8 MiB payload limit: the quotes and keys add bytes. */
-const PAYLOAD_LIMIT_TEXT_LENGTH = 8 * 1024 * 1024;
-const OTHER = "Basalt-Lantern-Forty";
-const VAULT_ENTRY = "lmsk/vault";
-const VAULT_STORE_DIR = "lmsk-vaults";
+const GITHUB_TOKEN = "ghp_VATh4IXRGeKOgzW5pO0KGKWzXxyMAkXSCsuB";
 
 let root: string;
 let agentDir: string;
@@ -79,10 +50,11 @@ beforeEach(() => {
   mkdirSync(projectDir, { recursive: true });
   vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
   vi.stubEnv("GIT_CONFIG_GLOBAL", join(root, "gitconfig"));
+  // The extension keeps its key and vault under XDG_STATE_HOME, so a test must not reach the user's.
+  vi.stubEnv("XDG_STATE_HOME", join(root, "state"));
 });
 
 afterEach(() => {
-  faults.directoryFlushFails = false;
   vi.unstubAllEnvs();
 });
 
@@ -101,23 +73,6 @@ function writeGlobalConfig(value: unknown): void {
   writeJson(join(agentDir, "lmsk", "config.json"), value);
 }
 
-/** The namespace ID of a session reference. Throws on any other shape. */
-function namespaceOf(data: unknown): string {
-  if (
-    typeof data !== "object" ||
-    data === null ||
-    !("namespaceId" in data) ||
-    typeof data.namespaceId !== "string"
-  )
-    throw new Error("session entry is not a store reference");
-  return data.namespaceId;
-}
-
-/** The mappings in the external store that a session reference names. */
-function storeEntries(namespaceId: string) {
-  return loadVaultStore(join(agentDir, VAULT_STORE_DIR), namespaceId).entries;
-}
-
 interface Notice {
   message: string;
   level: string | undefined;
@@ -132,9 +87,7 @@ interface TestContext {
     getBranch(): BranchRecord[];
   };
   model: { id: string; provider: string };
-  modelRegistry: Pick<ModelRegistry, "classify" | "generateImages"> & {
-    streamSimple: ProviderStub["streamSimple"];
-  };
+  modelRegistry: GuardedRegistry;
   aborts: number;
   notices: Notice[];
 }
@@ -145,16 +98,14 @@ const GLUED_NOTICE = {
   level: "error",
 };
 
-/** Stands in for the provider stream: runs `onPayload` as the transport does, then answers. */
-interface ProviderStub {
+/** Stands in for the provider calls of the registry: each runs `onPayload` as the transport does, then answers. */
+type ProviderStub = Pick<
+  GuardedRegistry,
+  "stream" | "streamSimple" | "complete"
+> & {
   /** Request bodies that reached the provider, after the masking hook ran. */
   bodies: unknown[];
-  streamSimple(
-    model: unknown,
-    context: unknown,
-    options: { onPayload?: (payload: unknown, model: unknown) => unknown },
-  ): { result(): Promise<AssistantMessage> };
-}
+};
 
 function providerStub(
   reply: { text: string; stopReason?: "stop" | "length" | "error" } = {
@@ -162,19 +113,42 @@ function providerStub(
   },
 ): ProviderStub {
   const bodies: unknown[] = [];
+  const send = async (
+    model: Model<Api>,
+    context: Context,
+    options?: StreamOptions,
+  ): Promise<AssistantMessage> => {
+    const body = (await options?.onPayload?.(context, model)) ?? context;
+    bodies.push(body);
+    return {
+      ...assistantMessage([{ type: "text", text: reply.text }]),
+      stopReason: reply.stopReason ?? "stop",
+    };
+  };
+  // As in pi-ai, a failure before the request ends the stream with an error result.
+  const stream = (
+    model: Model<Api>,
+    context: Context,
+    options?: StreamOptions,
+  ) => {
+    const events = createAssistantMessageEventStream();
+    void send(model, context, options).then(
+      (message) => events.end(message),
+      (error: unknown) =>
+        events.end({
+          ...assistantMessage([]),
+          stopReason: "error",
+          errorMessage: String(error),
+        }),
+    );
+    return events;
+  };
   return {
     bodies,
-    streamSimple: (model, context, options) => {
-      const answer = (async (): Promise<AssistantMessage> => {
-        const body = (await options.onPayload?.(context, model)) ?? context;
-        bodies.push(body);
-        return {
-          ...assistantMessage([{ type: "text", text: reply.text }]),
-          stopReason: reply.stopReason ?? "stop",
-        };
-      })();
-      return { result: () => answer };
-    },
+    stream,
+    streamSimple: stream,
+    complete: (model, context, options) =>
+      stream(model, context, options).result(),
   };
 }
 
@@ -203,7 +177,9 @@ function testContext(
     modelRegistry: {
       classify: vi.fn(),
       generateImages: vi.fn(),
+      stream: provider.stream,
       streamSimple: provider.streamSimple,
+      complete: provider.complete,
     },
     aborts: 0,
     notices: [],
@@ -230,7 +206,7 @@ const BUILTIN_TOOLS: ToolSource[] = [
 }));
 
 /** Hands the extension a fake pi that stores the handlers it registers. */
-function fakePi(options: { appendFails?: boolean; tools?: ToolSource[] } = {}) {
+function fakePi(options: { tools?: ToolSource[] } = {}) {
   const handlers: {
     session_start?: (event: SessionStartEvent, ctx: TestContext) => unknown;
     before_provider_request?: (
@@ -238,7 +214,6 @@ function fakePi(options: { appendFails?: boolean; tools?: ToolSource[] } = {}) {
       ctx: TestContext,
     ) => unknown;
     tool_call?: (event: ToolCallEvent, ctx: TestContext) => unknown;
-    tool_result?: (event: ToolResultEvent, ctx: TestContext) => unknown;
     message_end?: (event: MessageEndEvent, ctx: TestContext) => unknown;
     session_before_compact?: (
       event: SessionBeforeCompactEvent,
@@ -248,29 +223,21 @@ function fakePi(options: { appendFails?: boolean; tools?: ToolSource[] } = {}) {
       event: SessionBeforeTreeEvent,
       ctx: TestContext,
     ) => unknown;
-    session_tree?: (event: SessionTreeEvent, ctx: TestContext) => unknown;
     session_shutdown?: (
       event: SessionShutdownEvent,
       ctx: TestContext,
     ) => unknown;
-    tool_execution_end?: (event: ToolExecutionEndEvent) => unknown;
   } = {};
-  const appended: { customType: string; data: unknown }[] = [];
   const commands: Record<
     string,
     (args: string, ctx: TestContext) => Promise<void>
   > = {};
   return {
     handlers,
-    appended,
     commands,
     pi: {
       on(event: keyof typeof handlers, handler: never) {
         handlers[event] = handler;
-      },
-      appendEntry(customType: string, data: unknown) {
-        if (options.appendFails) throw new Error("disk full");
-        appended.push({ customType, data });
       },
       registerCommand(
         name: string,
@@ -287,19 +254,6 @@ function startSession(ctx: TestContext, pi: ReturnType<typeof fakePi>): void {
   lmsk(pi.pi);
   void pi.handlers.session_start?.(
     { type: "session_start", reason: "startup" },
-    ctx,
-  );
-}
-
-/** Moves the session to a branch that holds `branch`, then fires the tree navigation event. */
-function navigateTo(
-  pi: ReturnType<typeof fakePi>,
-  ctx: TestContext,
-  branch: BranchRecord[],
-): unknown {
-  ctx.sessionManager.getBranch = () => branch;
-  return pi.handlers.session_tree?.(
-    { type: "session_tree", newLeafId: null, oldLeafId: null },
     ctx,
   );
 }
@@ -357,49 +311,27 @@ describe("provider requests", () => {
   it.each([
     ["an environment secret", "Zq7fakeEnvValue99"],
     ["a vault value", CODENAME],
-  ])(
-    "blocks a request that holds %s glued to a word, which masking keeps",
-    async (_, secret) => {
-      writeProjectConfig();
-      vi.stubEnv("PROBE_API_TOKEN", "Zq7fakeEnvValue99");
-      const pi = fakePi();
-      const ctx = testContext();
-      startSession(ctx, pi);
-
-      const result = await pi.handlers.before_provider_request?.(
-        {
-          type: "before_provider_request",
-          payload: {
-            system: "You are a coding agent.",
-            messages: [{ role: "user", content: `see build_${secret}` }],
-          },
-        },
-        ctx,
-      );
-
-      expect(result).toEqual({});
-      expect(ctx.aborts).toBe(1);
-      expect(ctx.notices).toEqual([
-        { message: expect.stringContaining("HIDDEN_REAL"), level: "error" },
-      ]);
-    },
-  );
-
-  it("blocks a request that holds a configured value shorter than 8 characters glued to a word", async () => {
-    writeJson(join(projectDir, ".pi", "lmsk.json"), {
-      rules: [{ id: "pin", type: "literal", values: ["Kx-91ab"] }],
-    });
+  ])("masks %s glued to a word as its own value", async (_, secret) => {
+    writeProjectConfig();
+    vi.stubEnv("PROBE_API_TOKEN", "Zq7fakeEnvValue99");
     const pi = fakePi();
     const ctx = testContext();
     startSession(ctx, pi);
 
     const result = await pi.handlers.before_provider_request?.(
-      providerRequest("see build_Kx-91ab"),
+      {
+        type: "before_provider_request",
+        payload: {
+          system: "You are a coding agent.",
+          messages: [{ role: "user", content: `see build_${secret}` }],
+        },
+      },
       ctx,
     );
 
-    expect(result).toEqual({});
-    expect(ctx.aborts).toBe(1);
+    expect(maskedContent(result)).toContain("see build_");
+    expect(maskedContent(result)).not.toContain(secret);
+    expect(ctx.aborts).toBe(0);
   });
 
   it("sends a configured value shorter than 4 characters glued to a word", async () => {
@@ -419,52 +351,42 @@ describe("provider requests", () => {
     expect(ctx.aborts).toBe(0);
   });
 
-  it.each(["request", "saved message"])(
-    "masks every segment of a default match that a project rule overlaps, in the %s",
-    async (path) => {
-      // Built at run time, so no token literal is in the file.
-      const jwt = [
-        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
-        "eyJzdWIiOiJvdmVybGFwLXVzZXIiLCJyb2xlIjoiYWRtaW4ifQ",
-        ["Qm9yZWFs", "TGFudGVybjk3", "WHlsb3Bob25l"].join(""),
-      ].join(".");
-      writeJson(join(projectDir, ".pi", "lmsk.json"), {
-        rules: [
-          {
-            id: "project-bearer",
-            type: "regex",
-            pattern: "Bearer eyJ[A-Za-z0-9_-]*",
-          },
-        ],
-      });
-      const pi = fakePi();
-      const ctx = testContext();
-      startSession(ctx, pi);
-      const text = `Authorization: Bearer ${jwt} ok`;
-
-      const result =
-        path === "request"
-          ? await pi.handlers.before_provider_request?.(
-              providerRequest(text),
-              ctx,
-            )
-          : await pi.handlers.message_end?.(
-              { type: "message_end", message: userMessage(text) },
-              ctx,
-            );
-
-      const out = JSON.stringify(result);
-      expect(out).toContain("Authorization: ");
-      for (const segment of jwt.split(".")) expect(out).not.toContain(segment);
-    },
-  );
-
-  it("notifies with the way out on every request blocked for a glued secret", async () => {
-    vi.stubEnv("PROBE_API_TOKEN", "Zq7fakeEnvValue99");
+  it("masks every segment of a default match that a project rule overlaps", async () => {
+    // Built at run time, so no JWT literal is in the file.
+    const jwt = [
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+      "eyJzdWIiOiJvdmVybGFwLXVzZXIiLCJyb2xlIjoiYWRtaW4ifQ",
+      ["Qm9yZWFs", "TGFudGVybjk3", "WHlsb3Bob25l"].join(""),
+    ].join(".");
+    writeJson(join(projectDir, ".pi", "lmsk.json"), {
+      rules: [
+        {
+          id: "project-bearer",
+          type: "regex",
+          pattern: "Bearer eyJ[A-Za-z0-9_-]*",
+        },
+      ],
+    });
     const pi = fakePi();
     const ctx = testContext();
     startSession(ctx, pi);
-    const request = providerRequest("see build_Zq7fakeEnvValue99");
+    const text = `Authorization: Bearer ${jwt} ok`;
+
+    const result = await pi.handlers.before_provider_request?.(
+      providerRequest(text),
+      ctx,
+    );
+
+    const out = JSON.stringify(result);
+    expect(out).toContain("Authorization: ");
+    for (const segment of jwt.split(".")) expect(out).not.toContain(segment);
+  });
+
+  it("notifies with the way out on every request blocked for a glued secret", async () => {
+    const pi = fakePi();
+    const ctx = testContext();
+    startSession(ctx, pi);
+    const request = providerRequest(`see x${GITHUB_TOKEN}`);
 
     await pi.handlers.before_provider_request?.(request, ctx);
     await pi.handlers.before_provider_request?.(request, ctx);
@@ -474,14 +396,13 @@ describe("provider requests", () => {
   });
 
   it("blocks each request for a glued secret when the notice throws", async () => {
-    vi.stubEnv("PROBE_API_TOKEN", "Zq7fakeEnvValue99");
     const pi = fakePi();
     const ctx = testContext();
     ctx.ui.notify = () => {
       throw new Error("ui broken");
     };
     startSession(ctx, pi);
-    const request = providerRequest("see build_Zq7fakeEnvValue99");
+    const request = providerRequest(`see x${GITHUB_TOKEN}`);
 
     const first = await pi.handlers.before_provider_request?.(request, ctx);
     const second = await pi.handlers.before_provider_request?.(request, ctx);
@@ -491,7 +412,6 @@ describe("provider requests", () => {
   });
 
   it("blocks a request for a glued secret when the abort throws", async () => {
-    vi.stubEnv("PROBE_API_TOKEN", "Zq7fakeEnvValue99");
     const pi = fakePi();
     const ctx = testContext();
     ctx.abort = () => {
@@ -500,32 +420,35 @@ describe("provider requests", () => {
     startSession(ctx, pi);
 
     const result = await pi.handlers.before_provider_request?.(
-      providerRequest("see build_Zq7fakeEnvValue99"),
+      providerRequest(`see x${GITHUB_TOKEN}`),
       ctx,
     );
 
     expect(result).toEqual({});
   });
 
-  it("blocks a history once a later output teaches the value glued in it", async () => {
+  it("masks a value glued in the history once a later output teaches it", async () => {
     const pi = fakePi();
     const ctx = testContext();
     startSession(ctx, pi);
-    const request = providerRequest("see build_Xk9-pL2q-Wm7z");
+    const history = { role: "user", content: "see build_Xk9-pL2q-Wm7z" };
+    const output = { role: "tool", content: 'password: "Xk9-pL2q-Wm7z"' };
 
-    const first = await pi.handlers.before_provider_request?.(request, ctx);
-    await pi.handlers.tool_result?.(
-      toolResult("t-1", {
-        toolName: "bash",
-        content: textOf('password: "Xk9-pL2q-Wm7z"'),
-      }),
+    const first = await pi.handlers.before_provider_request?.(
+      { type: "before_provider_request", payload: { messages: [history] } },
       ctx,
     );
-    const second = await pi.handlers.before_provider_request?.(request, ctx);
+    const second = await pi.handlers.before_provider_request?.(
+      {
+        type: "before_provider_request",
+        payload: { messages: [history, output] },
+      },
+      ctx,
+    );
 
     expect(maskedContent(first)).toContain("build_Xk9-pL2q-Wm7z");
-    expect(second).toEqual({});
-    expect(ctx.aborts).toBe(1);
+    expect(maskedContent(second)).not.toContain("Xk9-pL2q-Wm7z");
+    expect(ctx.aborts).toBe(0);
   });
 
   it("passes a request whose history holds a fake glued to a word", async () => {
@@ -595,44 +518,6 @@ describe("provider requests", () => {
     expect(ctx.notices[0]?.message).toContain("PAYLOAD_SHAPE");
     expect(ctx.notices[0]?.message).toContain("stopped");
     expect(ctx.notices[0]?.message).not.toContain("blocked");
-  });
-
-  it("shows the block notice after an earlier stopped-request notice", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    await pi.handlers.before_provider_request?.(
-      providerRequest(`codename ${CODENAME}`),
-      ctx,
-    );
-    const payload: { self?: unknown; content: string } = { content: CODENAME };
-    payload.self = payload;
-    await pi.handlers.before_provider_request?.(
-      { type: "before_provider_request", payload },
-      ctx,
-    );
-
-    await navigateTo(pi, ctx, [
-      {
-        type: "custom",
-        customType: VAULT_ENTRY,
-        data: { namespaceId: "1".repeat(32) },
-      },
-    ]);
-    const result = await pi.handlers.before_provider_request?.(
-      providerRequest("plain text"),
-      ctx,
-    );
-
-    expect(result).toEqual({});
-    expect(ctx.notices).toEqual([
-      { message: expect.stringContaining("PAYLOAD_SHAPE"), level: "error" },
-      {
-        message: expect.stringContaining("STORE_REFERENCE_CONFLICT"),
-        level: "error",
-      },
-    ]);
   });
 
   it("blocks every provider request when the config is invalid, and notifies once", async () => {
@@ -1066,11 +951,16 @@ describe("client names from a configured regex rule", () => {
       { type: "tool_call", toolCallId: "1", toolName: "bash", input: bash },
       ctx,
     );
-    const result = await pi.handlers.tool_result?.(
-      toolResult("1", {
-        toolName: "bash",
-        content: textOf("@acmecorpcode/ui\nAcmeCorpTheme\nACMECORP\nAcme Corp"),
-      }),
+    const output = {
+      role: "tool",
+      tool_call_id: "1",
+      content: "@acmecorpcode/ui\nAcmeCorpTheme\nACMECORP\nAcme Corp",
+    };
+    const result = await pi.handlers.before_provider_request?.(
+      {
+        type: "before_provider_request",
+        payload: { messages: [question, output] },
+      },
       ctx,
     );
     const later = await pi.handlers.before_provider_request?.(
@@ -1086,11 +976,9 @@ describe("client names from a configured regex rule", () => {
     expect(maskedContent(first)).toContain("how often do we name Client1");
     expect(bash.command).toBe('rg -i -o "[@\\w/-]*AcmeCorp[\\w/-]*"');
     expect(result).toMatchObject({
-      content: [
-        {
-          type: "text",
-          text: "@client1code/ui\nClient1Theme\nCLIENT1\nClient 1",
-        },
+      messages: [
+        {},
+        { content: "@client1code/ui\nClient1Theme\nCLIENT1\nClient 1" },
       ],
     });
     expect(later).toMatchObject({
@@ -1362,1755 +1250,225 @@ describe("local restore", () => {
 
     expect(input.text).toBe(`codename ${fake}`);
   });
+});
 
-  // Contract change: assistant text is no longer restored to real values in the session.
-  it("keeps assistant text masked but signed thinking byte-exact", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
+describe("real values in the session", () => {
+  async function learnFake(
+    pi: ReturnType<typeof fakePi>,
+    ctx: TestContext,
+  ): Promise<string> {
     const masked = maskedContent(
       await pi.handlers.before_provider_request?.(
         providerRequest(`codename ${CODENAME}`),
         ctx,
       ),
     );
-    const fake = /"content":"codename ([^"]+)"/.exec(masked)?.[1] ?? "";
-
-    const result = await pi.handlers.message_end?.(
-      {
-        type: "message_end",
-        message: assistantMessage([
-          { type: "text", text: fake },
-          { type: "thinking", thinking: fake, thinkingSignature: "sig" },
-        ]),
-      },
-      ctx,
-    );
-
-    expect(result).toMatchObject({
-      message: {
-        content: [
-          { type: "text", text: fake },
-          { type: "thinking", thinking: fake, thinkingSignature: "sig" },
-        ],
-      },
-    });
-  });
-});
-
-describe("tool-call arguments in the transcript", () => {
-  it("gets a copy from pi, so restoring the tool_call input in place cannot write reals to the transcript", () => {
-    const fake = "Kx91abQuillHarbor";
-    const toolCall = {
-      type: "toolCall" as const,
-      id: "call-1",
-      name: "read",
-      arguments: { path: fake, options: { limit: 1 } },
-    };
-    const tool = {
-      name: "read",
-      description: "read a file",
-      parameters: {
-        type: "object",
-        properties: {
-          path: { type: "string" },
-          options: {
-            type: "object",
-            properties: { limit: { type: "number" } },
-          },
-        },
-      },
-    };
-
-    const args = validateToolArguments(tool, toolCall);
-    expect(args).not.toBe(toolCall.arguments);
-    Object.assign(args, { path: "real" });
-    args.options.limit = 2;
-
-    expect(toolCall.arguments).toEqual({ path: fake, options: { limit: 1 } });
-  });
-});
-
-describe("message masking before persistence", () => {
-  it("masks user text in the persisted message object", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const message = userMessage(`codename ${CODENAME}`);
-
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message },
-      ctx,
-    );
-
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-    expect(JSON.stringify(message)).not.toContain(CODENAME);
-  });
-
-  it("masks assistant text and tool call arguments", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.message_end?.(
-      {
-        type: "message_end",
-        message: assistantMessage([
-          { type: "text", text: `codename ${CODENAME}` },
-          {
-            type: "toolCall",
-            id: "call-1",
-            name: "bash",
-            arguments: { command: `echo ${CODENAME}` },
-          },
-        ]),
-      },
-      ctx,
-    );
-
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-  });
-
-  it("preserves a retryable provider status rejected by the default validators", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const errorMessage = '503: {"message":"Injected provider failure"}';
-    const message = {
-      ...assistantMessage([]),
-      stopReason: "error" as const,
-      errorMessage,
-    };
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message },
-      ctx,
-    );
-    expect(result).toMatchObject({
-      message: { errorMessage, stopReason: "error" },
-    });
-  });
-
-  it("keeps the retry decision of a provider error whose masking changes its status", async () => {
-    writeJson(join(projectDir, ".pi", "lmsk.json"), {
-      rules: [
-        {
-          id: "retry-status",
-          type: "literal",
-          values: ["503"],
-          strategy: "fixed",
-          replacement: "400-{n}",
-        },
-      ],
-    });
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const message = {
-      ...assistantMessage([]),
-      stopReason: "error" as const,
-      errorMessage: '503: {"message":"Injected provider failure"}',
-    };
-
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message },
-      ctx,
-    );
-    expect(ctx.notices).toEqual([]);
-    const persisted = (result as { message: AssistantMessage }).message;
-
-    expect(persisted.errorMessage).toBe("503 provider error, text withheld");
-    expect(isRetryableAssistantError(persisted)).toBe(true);
-  });
-
-  it("masks system context text and sections", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.message_end?.(
-      {
-        type: "message_end",
-        message: {
-          role: "system",
-          content: "",
-          sections: { context: `<context>codename ${CODENAME}</context>` },
-          timestamp: 1,
-        },
-      },
-      ctx,
-    );
-
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-  });
-
-  it("masks tool result content and details", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.message_end?.(
-      {
-        type: "message_end",
-        message: {
-          role: "toolResult",
-          toolCallId: "call-1",
-          toolName: "bash",
-          content: [{ type: "text", text: `codename ${CODENAME}` }],
-          details: { path: CODENAME },
-          isError: false,
-          timestamp: 1,
-        },
-      },
-      ctx,
-    );
-
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-  });
-
-  it("withholds a tool result and aborts the run when its masking is blocked", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    await pi.handlers.session_shutdown?.(
-      { type: "session_shutdown", reason: "quit" } as SessionShutdownEvent,
-      ctx,
-    );
-
-    const result = await pi.handlers.tool_result?.(
-      {
-        type: "tool_result",
-        toolCallId: "call-1",
-        toolName: "custom",
-        input: {},
-        content: [{ type: "text", text: `codename ${CODENAME}` }],
-        details: { path: CODENAME },
-        isError: false,
-      } as ToolResultEvent,
-      ctx,
-    );
-
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-    expect(ctx.aborts).toBe(1);
-  });
-
-  it("withholds a tool result whose details are over the payload limit", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.tool_result?.(
-      {
-        type: "tool_result",
-        toolCallId: "call-1",
-        toolName: "custom",
-        input: {},
-        content: [{ type: "text", text: "done" }],
-        details: { blob: "a".repeat(PAYLOAD_LIMIT_TEXT_LENGTH) },
-        isError: false,
-      } as ToolResultEvent,
-      ctx,
-    );
-
-    expect(result).toMatchObject({
-      content: [{ type: "text", text: "[MASKED]" }],
-      details: "[MASKED]",
-    });
-    expect(ctx.aborts).toBe(1);
-  });
-
-  it("masks tool result content, details and structured content", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.tool_result?.(
-      {
-        type: "tool_result",
-        toolCallId: "call-1",
-        toolName: "custom",
-        input: {},
-        content: [{ type: "text", text: `codename ${CODENAME}` }],
-        details: { path: CODENAME },
-        structuredContent: { value: CODENAME },
-        isError: false,
-      } as ToolResultEvent,
-      ctx,
-    );
-
-    expect(result).toMatchObject({
-      content: [{ type: "text" }],
-      details: { path: expect.any(String) },
-      structuredContent: { value: expect.any(String) },
-    });
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-  });
-
-  it("withholds a tool result message whose details are over the payload limit", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.message_end?.(
-      {
-        type: "message_end",
-        message: {
-          role: "toolResult",
-          toolCallId: "call-1",
-          toolName: "custom",
-          content: [{ type: "text", text: "done" }],
-          details: { blob: "a".repeat(PAYLOAD_LIMIT_TEXT_LENGTH) },
-          isError: false,
-          timestamp: 1,
-        },
-      },
-      ctx,
-    );
-
-    expect(result).toMatchObject({
-      message: { content: [{ type: "text", text: "[MASKED]" }] },
-    });
-    expect(JSON.stringify(result)).not.toContain("aaaa");
-    expect(ctx.aborts).toBe(1);
-  });
-
-  it("masks a message that arrives during another mask, and keeps raw text out of it", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const first = userMessage(`codename ${CODENAME}`);
-    const second = userMessage(`codename ${CODENAME}`);
-
-    const pending = pi.handlers.message_end?.(
-      { type: "message_end", message: first },
-      ctx,
-    );
-    const masked = await pi.handlers.message_end?.(
-      { type: "message_end", message: second },
-      ctx,
-    );
-    await pending;
-
-    expect(JSON.stringify(second)).not.toContain(CODENAME);
-    expect(JSON.stringify(masked)).not.toContain(CODENAME);
-    expect(masked).toMatchObject({
-      message: {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: expect.stringMatching(/^codename [A-Za-z0-9]{19}$/),
-          },
-        ],
-      },
-    });
-    expect(ctx.aborts).toBe(0);
-  });
-
-  it("withholds a message when the UI report throws", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    ctx.ui.notify = () => {
-      throw new Error("no ui");
-    };
-    startSession(ctx, pi);
-    await pi.handlers.session_shutdown?.(
-      { type: "session_shutdown", reason: "quit" } as SessionShutdownEvent,
-      ctx,
-    );
-    const message = userMessage(`codename ${CODENAME}`);
-
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message },
-      ctx,
-    );
-
-    expect(JSON.stringify(message)).not.toContain(CODENAME);
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-  });
-
-  it("masks a configured secret in the provider error and keeps it retryable", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const message = {
-      ...assistantMessage([]),
-      stopReason: "error" as const,
-      errorMessage: `503: {"message":"upstream rejected ${CODENAME}"}`,
-    };
-
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message },
-      ctx,
-    );
-    const persisted = (result as { message: AssistantMessage }).message;
-
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-    expect(persisted.errorMessage).toContain("503");
-    expect(isRetryableAssistantError(persisted)).toBe(true);
-  });
-
-  it("keeps a masked quota error non-retryable", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const message = {
-      ...assistantMessage([]),
-      stopReason: "error" as const,
-      errorMessage: `429 insufficient_quota for ${CODENAME}`,
-    };
-
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message },
-      ctx,
-    );
-    const persisted = (result as { message: AssistantMessage }).message;
-
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-    expect(isRetryableAssistantError(persisted)).toBe(false);
-  });
-
-  it("masks a configured override of a personal-data rule in the provider error", async () => {
-    writeGlobalConfig({
-      rules: [{ id: "email", pattern: "\\bUmbra-Vellum-Sixty\\b" }],
-    });
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const message = {
-      ...assistantMessage([]),
-      stopReason: "error" as const,
-      errorMessage: `503: {"message":"upstream rejected Umbra-Vellum-Sixty"}`,
-    };
-
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message },
-      ctx,
-    );
-    const persisted = (result as { message: AssistantMessage }).message;
-
-    expect(JSON.stringify(result)).not.toContain("Umbra-Vellum-Sixty");
-    expect(isRetryableAssistantError(persisted)).toBe(true);
-  });
-
-  it("keeps a retryable error retryable when a learned value matches its status text", async () => {
-    writeGlobalConfig({
-      rules: [
-        {
-          id: "status-line",
-          type: "regex",
-          pattern: "status: (HTTP 503)",
-          group: 1,
-          strategy: "fixed",
-          replacement: "hidden-{n}",
-        },
-      ],
-    });
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    await pi.handlers.message_end?.(
-      { type: "message_end", message: userMessage("status: HTTP 503") },
-      ctx,
-    );
-    const message = {
-      ...assistantMessage([]),
-      stopReason: "error" as const,
-      errorMessage: "upstream returned HTTP 503",
-    };
-
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message },
-      ctx,
-    );
-    const persisted = (result as { message: AssistantMessage }).message;
-
-    expect(JSON.stringify(result)).not.toContain("HTTP 503");
-    expect(isRetryableAssistantError(persisted)).toBe(true);
-  });
-
-  it("keeps a quota error non-retryable when a learned value matches its quota text", async () => {
-    writeGlobalConfig({
-      rules: [
-        {
-          id: "quota-line",
-          type: "regex",
-          pattern: "quota: (insufficient_quota)",
-          group: 1,
-          strategy: "fixed",
-          replacement: "hidden-{n}",
-        },
-      ],
-    });
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    await pi.handlers.message_end?.(
-      {
-        type: "message_end",
-        message: userMessage("quota: insufficient_quota"),
-      },
-      ctx,
-    );
-    const message = {
-      ...assistantMessage([]),
-      stopReason: "error" as const,
-      errorMessage: "429 insufficient_quota",
-    };
-
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message },
-      ctx,
-    );
-    const persisted = (result as { message: AssistantMessage }).message;
-
-    expect(JSON.stringify(result)).not.toContain("insufficient_quota");
-    expect(isRetryableAssistantError(persisted)).toBe(false);
-  });
-
-  it("keeps a context overflow error an overflow when masking removes its overflow text", async () => {
-    writeGlobalConfig({
-      rules: [
-        {
-          id: "overflow-phrase",
-          type: "literal",
-          values: ["prompt is too long"],
-          strategy: "fixed",
-          replacement: "hidden-{n}",
-        },
-      ],
-    });
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const message = {
-      ...assistantMessage([]),
-      stopReason: "error" as const,
-      errorMessage: "prompt is too long",
-    };
-    expect(isContextOverflow(message)).toBe(true);
-
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message },
-      ctx,
-    );
-    const persisted = (result as { message: AssistantMessage }).message;
-
-    expect(JSON.stringify(result)).not.toContain("prompt is too long");
-    expect(isContextOverflow(persisted)).toBe(true);
-    expect(isRetryableAssistantError(persisted)).toBe(false);
-  });
-
-  it("keeps a retryable context overflow error an overflow and retryable when masking removes its overflow text", async () => {
-    writeGlobalConfig({
-      rules: [
-        {
-          id: "overflow-phrase",
-          type: "literal",
-          values: ["prompt is too long"],
-          strategy: "fixed",
-          replacement: "hidden-{n}",
-        },
-      ],
-    });
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const message = {
-      ...assistantMessage([]),
-      stopReason: "error" as const,
-      errorMessage: "503 prompt is too long",
-    };
-    expect(isContextOverflow(message)).toBe(true);
-    expect(isRetryableAssistantError(message)).toBe(true);
-
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message },
-      ctx,
-    );
-    const persisted = (result as { message: AssistantMessage }).message;
-
-    expect(JSON.stringify(result)).not.toContain("prompt is too long");
-    expect(isContextOverflow(persisted)).toBe(true);
-    expect(isRetryableAssistantError(persisted)).toBe(true);
-  });
-
-  it("does not make a non-overflow error an overflow when masking adds overflow text", async () => {
-    writeGlobalConfig({
-      rules: [
-        {
-          id: "rejection",
-          type: "literal",
-          values: ["upstream rejected"],
-          strategy: "fixed",
-          replacement: "prompt is too long {n}",
-        },
-      ],
-    });
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const message = {
-      ...assistantMessage([]),
-      stopReason: "error" as const,
-      errorMessage: "upstream rejected",
-    };
-    expect(isContextOverflow(message)).toBe(false);
-
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message },
-      ctx,
-    );
-    const persisted = (result as { message: AssistantMessage }).message;
-
-    expect(isContextOverflow(persisted)).toBe(false);
-    expect(isRetryableAssistantError(persisted)).toBe(false);
-  });
-
-  it("does not make a retryable error an overflow when masking changes its retry decision", async () => {
-    writeGlobalConfig({
-      rules: [
-        {
-          id: "status",
-          type: "literal",
-          values: ["503"],
-          strategy: "fixed",
-          replacement: "400-{n}",
-        },
-      ],
-    });
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const message = {
-      ...assistantMessage([]),
-      stopReason: "error" as const,
-      errorMessage: "503 upstream failure",
-    };
-    expect(isRetryableAssistantError(message)).toBe(true);
-
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message },
-      ctx,
-    );
-    const persisted = (result as { message: AssistantMessage }).message;
-
-    expect(isRetryableAssistantError(persisted)).toBe(true);
-    expect(isContextOverflow(persisted)).toBe(false);
-  });
-
-  it("keeps an unchanged signed text block byte-exact", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.message_end?.(
-      {
-        type: "message_end",
-        message: assistantMessage([
-          { type: "text", text: "plain answer", textSignature: "sig" },
-        ]),
-      },
-      ctx,
-    );
-
-    expect(result).toEqual({
-      message: expect.objectContaining({
-        content: [{ type: "text", text: "plain answer", textSignature: "sig" }],
-      }),
-    });
-    expect(ctx.aborts).toBe(0);
-  });
-
-  it("withholds a signed text block that would change under masking", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.message_end?.(
-      {
-        type: "message_end",
-        message: assistantMessage([
-          {
-            type: "text",
-            text: `codename ${CODENAME}`,
-            textSignature: "sig",
-          },
-        ]),
-      },
-      ctx,
-    );
-
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-    expect(result).toMatchObject({
-      message: { content: [{ type: "text", text: "[MASKED]" }] },
-    });
-    expect(ctx.aborts).toBe(1);
-  });
-
-  it("withholds a signed tool call whose arguments would change under masking", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.message_end?.(
-      {
-        type: "message_end",
-        message: assistantMessage([
-          {
-            type: "toolCall",
-            id: "call-1",
-            name: "bash",
-            arguments: { command: `echo ${CODENAME}` },
-            thoughtSignature: "sig",
-          },
-        ]),
-      },
-      ctx,
-    );
-
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-    expect(result).toMatchObject({
-      message: { content: [{ type: "text", text: "[MASKED]" }] },
-    });
-    expect(ctx.aborts).toBe(1);
-  });
-
-  it("withholds a signed tool call so its same-model replay carries no call or signature", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message: googleToolCall(`echo ${CODENAME}`) },
-      ctx,
-    );
-    const replay = googleReplay(
-      (result as { message: AssistantMessage }).message,
-    );
-
-    expect(replay).not.toContain(GOOGLE_SIGNATURE);
-    expect(replay).not.toContain("functionCall");
-    expect(ctx.aborts).toBe(1);
-  });
-
-  it("keeps the signature of an unchanged signed tool call in its same-model replay", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message: googleToolCall("echo ok") },
-      ctx,
-    );
-    const replay = googleReplay(
-      (result as { message: AssistantMessage }).message,
-    );
-
-    expect(replay).toContain(GOOGLE_SIGNATURE);
-    expect(replay).toContain("functionCall");
-    expect(ctx.aborts).toBe(0);
-  });
-
-  it("masks nested call arguments and error text", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message: nestedToolResult(CODENAME) },
-      ctx,
-    );
-
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-    expect(result).toMatchObject({
-      message: {
-        nestedCalls: { calls: [{ name: "bash", status: "error" }] },
-      },
-    });
-  });
-
-  it("withholds nested call records when masking is blocked", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    await pi.handlers.session_shutdown?.(
-      { type: "session_shutdown", reason: "quit" } as SessionShutdownEvent,
-      ctx,
-    );
-    const message = nestedToolResult(CODENAME);
-
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message },
-      ctx,
-    );
-
-    expect(JSON.stringify(message)).not.toContain(CODENAME);
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-    expect(JSON.stringify(result)).not.toContain("nestedCalls");
-    expect(message.nestedCalls).toBeUndefined();
-  });
-
-  it("keeps nested call records of a message that waits for a concurrent mask", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const second = nestedToolResult(CODENAME);
-
-    const pending = pi.handlers.message_end?.(
-      { type: "message_end", message: userMessage(`codename ${CODENAME}`) },
-      ctx,
-    );
-    const masked = await pi.handlers.message_end?.(
-      { type: "message_end", message: second },
-      ctx,
-    );
-    await pending;
-
-    expect(JSON.stringify(second)).not.toContain(CODENAME);
-    expect(JSON.stringify(masked)).not.toContain(CODENAME);
-    expect(masked).toMatchObject({
-      message: {
-        nestedCalls: { calls: [{ name: "bash", status: "error" }] },
-      },
-    });
-    expect(ctx.aborts).toBe(0);
-  });
-
-  it("masks custom message content and details", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.message_end?.(
-      {
-        type: "message_end",
-        message: {
-          role: "custom",
-          customType: "notes",
-          content: `codename ${CODENAME}`,
-          display: true,
-          details: { nested: [CODENAME] },
-          timestamp: 1,
-        },
-      },
-      ctx,
-    );
-
-    expect(result).toMatchObject({
-      message: { role: "custom", customType: "notes" },
-    });
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-  });
-
-  it("masks custom message content blocks", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.message_end?.(
-      {
-        type: "message_end",
-        message: {
-          role: "custom",
-          customType: "notes",
-          content: [{ type: "text", text: `codename ${CODENAME}` }],
-          display: true,
-          timestamp: 1,
-        },
-      },
-      ctx,
-    );
-
-    expect(result).toMatchObject({
-      message: { role: "custom", content: [{ type: "text" }] },
-    });
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-  });
-
-  it("withholds a custom message when masking is blocked", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    await pi.handlers.session_shutdown?.(
-      { type: "session_shutdown", reason: "quit" } as SessionShutdownEvent,
-      ctx,
-    );
-    const message = {
-      role: "custom" as const,
-      customType: "notes",
-      content: `codename ${CODENAME}`,
-      display: true,
-      details: { nested: [CODENAME] },
-      timestamp: 1,
-    };
-
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message },
-      ctx,
-    );
-
-    expect(JSON.stringify(message)).not.toContain(CODENAME);
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-    expect(result).toMatchObject({
-      message: { role: "custom", content: "[MASKED]" },
-    });
-    expect(ctx.aborts).toBe(1);
-  });
-
-  it("withholds the provider error when masking is blocked", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    await pi.handlers.session_shutdown?.(
-      { type: "session_shutdown", reason: "quit" } as SessionShutdownEvent,
-      ctx,
-    );
-    const message = {
-      ...assistantMessage([]),
-      stopReason: "error" as const,
-      errorMessage: `503: ${CODENAME}`,
-    };
-
-    const result = await pi.handlers.message_end?.(
-      { type: "message_end", message },
-      ctx,
-    );
-
-    expect(JSON.stringify(message)).not.toContain(CODENAME);
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-    expect(result).toMatchObject({ message: { stopReason: "error" } });
-    const persisted = (result as { message: AssistantMessage }).message;
-    expect(isRetryableAssistantError(persisted)).toBe(false);
-  });
-
-  it("masks signature-shaped keys in tool result details", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.tool_result?.(
-      {
-        type: "tool_result",
-        toolCallId: "call-1",
-        toolName: "custom",
-        input: {},
-        content: [{ type: "text", text: "done" }],
-        details: {
-          signature: CODENAME,
-          encrypted_content: CODENAME,
-          sibling: { signature: "sig", text: CODENAME },
-        },
-        isError: false,
-      } as ToolResultEvent,
-      ctx,
-    );
-
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-  });
-
-  it("neutralizes the tool result before its masking await", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const event = {
-      type: "tool_result",
-      toolCallId: "call-1",
-      toolName: "custom",
-      input: {},
-      content: [{ type: "text", text: `codename ${CODENAME}` }],
-      details: { path: CODENAME },
-      structuredContent: { value: CODENAME },
-      isError: false,
-    } as ToolResultEvent;
-
-    const pending = pi.handlers.tool_result?.(event, ctx);
-
-    expect(JSON.stringify(event)).not.toContain(CODENAME);
-    await pending;
-  });
-
-  it("returns the neutral tool result when abort and the UI report both throw", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    ctx.abort = () => {
-      throw new Error("no abort");
-    };
-    ctx.ui.notify = () => {
-      throw new Error("no ui");
-    };
-    startSession(ctx, pi);
-    await pi.handlers.session_shutdown?.(
-      { type: "session_shutdown", reason: "quit" } as SessionShutdownEvent,
-      ctx,
-    );
-
-    const result = await pi.handlers.tool_result?.(
-      {
-        type: "tool_result",
-        toolCallId: "call-1",
-        toolName: "custom",
-        input: {},
-        content: [{ type: "text", text: `codename ${CODENAME}` }],
-        details: { path: CODENAME },
-        isError: false,
-      } as ToolResultEvent,
-      ctx,
-    );
-
-    expect(JSON.stringify(result)).not.toContain(CODENAME);
-    expect(result).toEqual({
-      content: [{ type: "text", text: "[MASKED]" }],
-      details: "[MASKED]",
-    });
-  });
-
-  it("leaves bashExecution messages outside the masking contract", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.message_end?.(
-      {
-        type: "message_end",
-        message: {
-          role: "bashExecution",
-          command: `echo ${CODENAME}`,
-          output: CODENAME,
-          timestamp: 1,
-        },
-      } as MessageEndEvent,
-      ctx,
-    );
-
-    expect(result).toBeUndefined();
-  });
-});
-
-describe("vault persistence", () => {
-  it("appends only a namespace reference, never a real pair", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    await pi.handlers.before_provider_request?.(
-      providerRequest(`codename ${CODENAME}`),
-      ctx,
-    );
-
-    expect(pi.appended).toEqual([
-      {
-        customType: VAULT_ENTRY,
-        data: { namespaceId: expect.stringMatching(/^[0-9a-f]{32}$/) },
-      },
-    ]);
-    expect(JSON.stringify(pi.appended)).not.toContain(CODENAME);
-  });
-
-  it("publishes the reference to an empty store before it saves the mapping", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    let published: unknown;
-    let storedWhenPublished: unknown;
-    pi.pi.appendEntry = (_customType, data) => {
-      published = data;
-      storedWhenPublished = storeEntries(namespaceOf(data));
-    };
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    await pi.handlers.before_provider_request?.(
-      providerRequest(`codename ${CODENAME}`),
-      ctx,
-    );
-
-    expect(storedWhenPublished).toEqual([]);
-    expect(storeEntries(namespaceOf(published))).toEqual([
-      [CODENAME, expect.any(String)],
-    ]);
-  });
-
-  it("rebuilds the vault on resume from the store alone, so a real keeps its fake", async () => {
-    writeProjectConfig();
-    const first = fakePi();
-    const firstCtx = testContext();
-    startSession(firstCtx, first);
-    const before = maskedContent(
-      await first.handlers.before_provider_request?.(
-        providerRequest(`codename ${CODENAME}`),
-        firstCtx,
-      ),
-    );
-    const branch = first.appended.map((entry) => ({
-      type: "custom",
-      customType: entry.customType,
-      data: entry.data,
-    }));
-    expect(JSON.stringify(branch)).not.toContain(CODENAME);
-
-    const second = fakePi();
-    const resumedCtx = testContext({ branch });
-    startSession(resumedCtx, second);
-    const after = maskedContent(
-      await second.handlers.before_provider_request?.(
-        providerRequest(`codename ${CODENAME}`),
-        resumedCtx,
-      ),
-    );
-
-    expect(after).toBe(before);
-    expect(second.appended).toEqual([]);
-  });
-});
-
-describe("concurrent masking", () => {
-  it("masks both results of parallel read and bash calls without an abort", async () => {
-    writeJson(join(projectDir, ".pi", "lmsk.json"), {
-      rules: [{ id: "codename", type: "literal", values: [CODENAME, OTHER] }],
-    });
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const read = pi.handlers.tool_result?.(
-      toolResult("read-1", {
-        toolName: "read",
-        content: textOf(`codename ${CODENAME}`),
-      }),
-      ctx,
-    );
-    const bash = pi.handlers.tool_result?.(
-      toolResult("bash-1", {
-        toolName: "bash",
-        content: textOf(`codename ${OTHER}`),
-      }),
-      ctx,
-    );
-    const results = await Promise.all([read, bash]);
-
-    expect(results).toMatchObject([
-      {
-        content: [
-          {
-            type: "text",
-            text: expect.stringMatching(/^codename [A-Za-z0-9]{19}$/),
-          },
-        ],
-      },
-      {
-        content: [
-          {
-            type: "text",
-            text: expect.stringMatching(/^codename [A-Za-z0-9]{20}$/),
-          },
-        ],
-      },
-    ]);
-    expect(ctx.aborts).toBe(0);
-    expect(ctx.notices).toEqual([]);
-  });
-
-  it("fails closed for both concurrent requests when the save of the first fails", async () => {
-    writeJson(join(projectDir, ".pi", "lmsk.json"), {
-      rules: [{ id: "codename", type: "literal", values: [CODENAME, OTHER] }],
-    });
-    const first = fakePi();
-    const firstCtx = testContext();
-    startSession(firstCtx, first);
-    await first.handlers.before_provider_request?.(
-      providerRequest(`codename ${CODENAME}`),
-      firstCtx,
-    );
-    const namespaceId = namespaceOf(first.appended[0]?.data);
-
-    const branch = first.appended.map((entry) => ({
-      type: "custom",
-      customType: entry.customType,
-      data: entry.data,
-    }));
-    const second = fakePi();
-    const ctx = testContext({ branch });
-    startSession(ctx, second);
-    const failing = second.handlers.before_provider_request?.(
-      providerRequest(`codename ${OTHER}`),
-      ctx,
-    );
-    const waiting = second.handlers.before_provider_request?.(
-      providerRequest("plain text"),
-      ctx,
-    );
-    writeFileSync(join(agentDir, VAULT_STORE_DIR, `${namespaceId}.lock`), "");
-
-    expect(await Promise.all([failing, waiting])).toEqual([{}, {}]);
-    expect(ctx.aborts).toBe(2);
-    expect(ctx.notices).toEqual([
-      { message: expect.stringContaining("STORE_BUSY"), level: "error" },
-    ]);
-    expect(second.appended).toEqual([]);
-  });
-
-  it("saves every mapping of concurrent requests, in request order", async () => {
-    writeJson(join(projectDir, ".pi", "lmsk.json"), {
-      rules: [{ id: "codename", type: "literal", values: [CODENAME, OTHER] }],
-    });
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const [, otherRequest] = await Promise.all([
-      pi.handlers.before_provider_request?.(
-        providerRequest(`codename ${CODENAME}`),
-        ctx,
-      ),
-      pi.handlers.before_provider_request?.(
-        providerRequest(`codename ${OTHER}`),
-        ctx,
-      ),
-    ]);
-
-    const namespaceId = namespaceOf(pi.appended[0]?.data);
-    expect(pi.appended).toHaveLength(1);
-    expect(storeEntries(namespaceId)).toEqual([
-      [CODENAME, expect.any(String)],
-      [OTHER, expect.any(String)],
-    ]);
-    expect(
-      await pi.handlers.before_provider_request?.(
-        providerRequest(`codename ${OTHER}`),
-        ctx,
-      ),
-    ).toEqual(otherRequest);
-  });
-});
-
-describe("vault store", () => {
-  /** The session branch a fork or resume would rebuild from the appended entries. */
-  function branchOf(pi: ReturnType<typeof fakePi>) {
-    return pi.appended.map((entry) => ({
-      type: "custom",
-      customType: entry.customType,
-      data: entry.data,
-    }));
+    const fake = /"content":"codename ([^"]+)"/.exec(masked)?.[1];
+    if (fake === undefined || fake === CODENAME)
+      throw new Error("the codename was not masked");
+    return fake;
   }
 
-  it("creates no store and no reference when nothing is learned", async () => {
+  function messageEnd(content: AssistantMessage["content"]): MessageEndEvent {
+    return { type: "message_end", message: assistantMessage(content) };
+  }
+
+  it("gives the session the real of a learned fake in assistant text, and keeps signed thinking as written", async () => {
     writeProjectConfig();
     const pi = fakePi();
     const ctx = testContext();
     startSession(ctx, pi);
+    const fake = await learnFake(pi, ctx);
 
-    await pi.handlers.before_provider_request?.(
-      providerRequest("plain text"),
+    const result = await pi.handlers.message_end?.(
+      messageEnd([
+        { type: "text", text: `codename ${fake}` },
+        { type: "thinking", thinking: fake, thinkingSignature: "sig" },
+      ]),
       ctx,
     );
 
-    expect(pi.appended).toEqual([]);
-    expect(existsSync(join(agentDir, VAULT_STORE_DIR))).toBe(false);
-  });
-
-  it("blocks requests when the referenced store is missing", async () => {
-    writeProjectConfig();
-    const branch = [
-      {
-        type: "custom",
-        customType: VAULT_ENTRY,
-        data: { namespaceId: "0".repeat(32) },
+    expect(result).toMatchObject({
+      message: {
+        content: [
+          { type: "text", text: `codename ${CODENAME}` },
+          { type: "thinking", thinking: fake, thinkingSignature: "sig" },
+        ],
       },
-    ];
-    const pi = fakePi();
-    const ctx = testContext({ branch });
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.before_provider_request?.(
-      providerRequest(`codename ${CODENAME}`),
-      ctx,
-    );
-
-    expect(result).toEqual({});
-    expect(ctx.notices).toEqual([
-      { message: expect.stringContaining("STORE_MISSING"), level: "error" },
-    ]);
-  });
-
-  it("blocks requests when the referenced store is corrupt", async () => {
-    writeProjectConfig();
-    const first = fakePi();
-    const firstCtx = testContext();
-    startSession(firstCtx, first);
-    await first.handlers.before_provider_request?.(
-      providerRequest(`codename ${CODENAME}`),
-      firstCtx,
-    );
-    const namespaceId = namespaceOf(first.appended[0]?.data);
-    writeFileSync(join(agentDir, VAULT_STORE_DIR, `${namespaceId}.json`), "{");
-
-    const second = fakePi();
-    const ctx = testContext({ branch: branchOf(first) });
-    startSession(ctx, second);
-    const result = await second.handlers.before_provider_request?.(
-      providerRequest(`codename ${CODENAME}`),
-      ctx,
-    );
-
-    expect(result).toEqual({});
-    expect(ctx.notices).toEqual([
-      { message: expect.stringContaining("STORE_CORRUPT"), level: "error" },
-    ]);
-  });
-
-  it("rejects a reference that is not a store ID", async () => {
-    writeProjectConfig();
-    const branch = [
-      {
-        type: "custom",
-        customType: VAULT_ENTRY,
-        data: { namespaceId: "../escape" },
-      },
-    ];
-    const pi = fakePi();
-    const ctx = testContext({ branch });
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.before_provider_request?.(
-      providerRequest(`codename ${CODENAME}`),
-      ctx,
-    );
-
-    expect(result).toEqual({});
-    expect(ctx.notices).toEqual([
-      {
-        message: expect.stringContaining("STORE_INVALID_ID"),
-        level: "error",
-      },
-    ]);
-  });
-
-  it("blocks a legacy session entry that holds real mappings", async () => {
-    writeProjectConfig();
-    const branch = [
-      {
-        type: "custom",
-        customType: VAULT_ENTRY,
-        data: { entries: [[CODENAME, "Fake-Fake-Fake-1"]] },
-      },
-    ];
-    const pi = fakePi();
-    const ctx = testContext({ branch });
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.before_provider_request?.(
-      providerRequest("plain text"),
-      ctx,
-    );
-
-    expect(result).toEqual({});
-    expect(ctx.notices).toEqual([
-      { message: expect.stringContaining("VAULT_LEGACY"), level: "error" },
-    ]);
-    expect(JSON.stringify(ctx.notices)).not.toContain(CODENAME);
-  });
-
-  it("blocks requests with the save error code when a stale lock holds the store", async () => {
-    writeJson(join(projectDir, ".pi", "lmsk.json"), {
-      rules: [{ id: "codename", type: "literal", values: [CODENAME, OTHER] }],
     });
-    const first = fakePi();
-    const firstCtx = testContext();
-    startSession(firstCtx, first);
-    await first.handlers.before_provider_request?.(
-      providerRequest(`codename ${CODENAME}`),
-      firstCtx,
-    );
-    const namespaceId = namespaceOf(first.appended[0]?.data);
-    writeFileSync(join(agentDir, VAULT_STORE_DIR, `${namespaceId}.lock`), "");
-
-    const second = fakePi();
-    const ctx = testContext({ branch: branchOf(first) });
-    startSession(ctx, second);
-    const result = await second.handlers.before_provider_request?.(
-      providerRequest(OTHER),
-      ctx,
-    );
-    const next = await second.handlers.before_provider_request?.(
-      providerRequest("plain text"),
-      ctx,
-    );
-
-    expect(result).toEqual({});
-    expect(next).toEqual({});
-    expect(second.appended).toEqual([]);
-    expect(ctx.aborts).toBe(2);
-    expect(ctx.notices).toEqual([
-      { message: expect.stringContaining("STORE_BUSY"), level: "error" },
-    ]);
-    expect(JSON.stringify(ctx.notices)).not.toContain(OTHER);
   });
 
-  it("does not save or publish a mask that finishes after its session was replaced", async () => {
+  it("keeps the fake of a short real in assistant text, which a later request could not mask again", async () => {
+    writeJson(join(projectDir, ".pi", "lmsk.json"), SHORT_CONFIG);
+    const pi = fakePi();
+    const ctx = testContext();
+    startSession(ctx, pi);
+    const fake = await learnShortFake(pi, ctx);
+
+    const result = await pi.handlers.message_end?.(
+      messageEnd([{ type: "text", text: `it is ${fake}` }]),
+      ctx,
+    );
+
+    expect(result).toMatchObject({
+      message: { content: [{ type: "text", text: `it is ${fake}` }] },
+    });
+  });
+
+  it("gives the session the arguments that each tool call runs with", async () => {
     writeProjectConfig();
     const pi = fakePi();
     const ctx = testContext();
     startSession(ctx, pi);
-    const gate = new EventEmitter();
-    const held = once(gate, "held");
-    const released = once(gate, "released");
-    const scanWorker = Scanner.prototype.scan;
-    const scan = vi
-      .spyOn(Scanner.prototype, "scan")
-      .mockImplementationOnce(async function (this: Scanner, patterns, texts) {
-        const found = await scanWorker.call(this, patterns, texts);
-        gate.emit("held");
-        await released;
-        return found;
-      });
+    const fake = await learnFake(pi, ctx);
 
-    const stale = pi.handlers.before_provider_request?.(
-      providerRequest(`codename ${CODENAME}`),
+    const result = await pi.handlers.message_end?.(
+      messageEnd([
+        {
+          type: "toolCall",
+          id: "call-1",
+          name: "read",
+          arguments: { path: `${fake}.txt` },
+        },
+        {
+          type: "toolCall",
+          id: "call-2",
+          name: "mcp__notes__search",
+          arguments: { query: fake },
+        },
+      ]),
       ctx,
     );
-    await held;
-    await pi.handlers.session_start?.(
-      { type: "session_start", reason: "reload" },
-      ctx,
-    );
-    gate.emit("released");
-    const result = await stale;
 
-    expect(pi.appended).toEqual([]);
-    expect(existsSync(join(agentDir, VAULT_STORE_DIR))).toBe(false);
-    expect(result).toEqual({});
-    expect(ctx.notices).toEqual([]);
-    scan.mockRestore();
+    expect(result).toMatchObject({
+      message: {
+        content: [
+          { arguments: { path: `${CODENAME}.txt` } },
+          { arguments: { query: fake } },
+        ],
+      },
+    });
   });
 
-  it("masks a concurrent request after another mask is saved", async () => {
-    writeJson(join(projectDir, ".pi", "lmsk.json"), {
-      rules: [{ id: "codename", type: "literal", values: [CODENAME, OTHER] }],
-    });
+  it("sends the restored arguments of a tool call as the fakes that the model wrote", async () => {
+    writeJson(join(projectDir, ".pi", "lmsk.json"), SHORT_CONFIG);
     const pi = fakePi();
     const ctx = testContext();
     startSession(ctx, pi);
-
-    const first = pi.handlers.before_provider_request?.(
-      providerRequest(`codename ${CODENAME}`),
+    const fake = await learnShortFake(pi, ctx);
+    const written = { command: `echo ${fake}` };
+    const result = await pi.handlers.message_end?.(
+      messageEnd([
+        { type: "toolCall", id: "call-1", name: "bash", arguments: written },
+      ]),
       ctx,
     );
-    const second = pi.handlers.before_provider_request?.(
-      providerRequest(OTHER),
+    const restored = JSON.stringify(result);
+
+    const payload = await pi.handlers.before_provider_request?.(
+      {
+        type: "before_provider_request",
+        payload: {
+          messages: [
+            {
+              role: "assistant",
+              tool_calls: [
+                {
+                  id: "call-1",
+                  function: {
+                    name: "bash",
+                    arguments: JSON.stringify({ command: `echo ${SHORT}` }),
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
       ctx,
     );
 
-    expect(maskedContent(await first)).not.toContain(CODENAME);
-    expect(maskedContent(await second)).not.toContain(OTHER);
+    expect(restored).toContain(`echo ${SHORT}`);
+    expect(payload).toEqual({
+      messages: [
+        {
+          role: "assistant",
+          tool_calls: [
+            {
+              id: "call-1",
+              function: { name: "bash", arguments: JSON.stringify(written) },
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("masks a call's short restored real in a request whose payload leaves out the call ids", async () => {
+    writeJson(join(projectDir, ".pi", "lmsk.json"), SHORT_CONFIG);
+    const pi = fakePi();
+    const branch: BranchRecord[] = [];
+    const ctx = testContext({ branch });
+    startSession(ctx, pi);
+    const fake = await learnShortFake(pi, ctx);
+    await pi.handlers.tool_call?.(
+      toolCall("call-1|fc_1", "bash", { command: `echo ${fake}` }),
+      ctx,
+    );
+    branch.push({
+      type: "message",
+      message: assistantMessage([
+        { type: "toolCall", id: "call-1|fc_1", name: "bash", arguments: {} },
+      ]),
+    });
+
+    const payload = await pi.handlers.before_provider_request?.(
+      {
+        type: "before_provider_request",
+        payload: {
+          contents: [{ role: "user", parts: [{ text: `got ${SHORT}` }] }],
+        },
+      },
+      ctx,
+    );
+
+    expect(JSON.stringify(payload)).toContain("got ");
+    expect(JSON.stringify(payload)).not.toContain(SHORT);
     expect(ctx.aborts).toBe(0);
-    expect(ctx.notices).toEqual([]);
   });
 
-  it("refuses requests after a save conflict until the session reloads", async () => {
-    writeJson(join(projectDir, ".pi", "lmsk.json"), {
-      rules: [{ id: "codename", type: "literal", values: [CODENAME, OTHER] }],
-    });
-    const first = fakePi();
-    const firstCtx = testContext();
-    startSession(firstCtx, first);
-    await first.handlers.before_provider_request?.(
-      providerRequest(CODENAME),
-      firstCtx,
-    );
-
-    const second = fakePi();
-    const secondCtx = testContext({ branch: branchOf(first) });
-    startSession(secondCtx, second);
-    await second.handlers.before_provider_request?.(
-      providerRequest(OTHER),
-      secondCtx,
-    );
-
-    const conflicted = await first.handlers.before_provider_request?.(
-      providerRequest(OTHER),
-      firstCtx,
-    );
-    const blocked = await first.handlers.before_provider_request?.(
-      providerRequest("plain text"),
-      firstCtx,
-    );
-
-    expect(conflicted).toEqual({});
-    expect(blocked).toEqual({});
-    expect(firstCtx.notices).toEqual([
-      { message: expect.stringContaining("STORE_CONFLICT"), level: "error" },
-    ]);
-
-    const third = fakePi();
-    const reloadedCtx = testContext({ branch: branchOf(first) });
-    startSession(reloadedCtx, third);
-    const restored = await third.handlers.before_provider_request?.(
-      providerRequest(OTHER),
-      reloadedCtx,
-    );
-
-    expect(maskedContent(restored)).not.toContain(OTHER);
-    expect(reloadedCtx.aborts).toBe(0);
-  });
-
-  it("publishes the reference on a branch navigated to before it held one", async () => {
-    writeJson(join(projectDir, ".pi", "lmsk.json"), {
-      rules: [{ id: "codename", type: "literal", values: [CODENAME, OTHER] }],
-    });
-    const first = fakePi();
-    const firstCtx = testContext();
-    startSession(firstCtx, first);
-    await first.handlers.before_provider_request?.(
-      providerRequest(`codename ${CODENAME}`),
-      firstCtx,
-    );
-    const reference = {
-      customType: VAULT_ENTRY,
-      data: { namespaceId: namespaceOf(first.appended[0]?.data) },
-    };
-
-    await navigateTo(first, firstCtx, []);
-    expect(first.appended).toEqual([reference, reference]);
-
-    const navigated = [{ type: "custom", ...reference }];
-    firstCtx.sessionManager.getBranch = () => navigated;
-    const learned = maskedContent(
-      await first.handlers.before_provider_request?.(
-        providerRequest(`codename ${OTHER}`),
-        firstCtx,
-      ),
-    );
-    expect(first.appended).toHaveLength(2);
-
-    const resumed = fakePi();
-    const resumedCtx = testContext({ branch: navigated });
-    startSession(resumedCtx, resumed);
-    const restored = maskedContent(
-      await resumed.handlers.before_provider_request?.(
-        providerRequest(`codename ${OTHER}`),
-        resumedCtx,
-      ),
-    );
-
-    expect(learned).not.toContain(OTHER);
-    expect(restored).toBe(learned);
-    expect(resumed.appended).toEqual([]);
-  });
-
-  it("publishes the reference on the summary target when the summary created the store", async () => {
-    writeProjectConfig();
-    const first = fakePi();
-    const firstCtx = testContext();
-    startSession(firstCtx, first);
-    await first.handlers.session_before_tree?.(
-      treeEvent(`codename ${CODENAME}`),
-      firstCtx,
-    );
-    const reference = {
-      customType: VAULT_ENTRY,
-      data: { namespaceId: namespaceOf(first.appended[0]?.data) },
-    };
-
-    await navigateTo(first, firstCtx, []);
-    expect(first.appended).toEqual([reference, reference]);
-
-    const target = [{ type: "custom", ...reference }];
-    const learned = maskedContent(
-      await first.handlers.before_provider_request?.(
-        providerRequest(`codename ${CODENAME}`),
-        firstCtx,
-      ),
-    );
-    const resumed = fakePi();
-    const resumedCtx = testContext({ branch: target });
-    startSession(resumedCtx, resumed);
-    const restored = maskedContent(
-      await resumed.handlers.before_provider_request?.(
-        providerRequest(`codename ${CODENAME}`),
-        resumedCtx,
-      ),
-    );
-
-    expect(learned).not.toContain(CODENAME);
-    expect(restored).toBe(learned);
-    expect(resumed.appended).toEqual([]);
-  });
-
-  it("blocks requests when the navigated branch references another store", async () => {
-    writeProjectConfig();
-    const first = fakePi();
-    const firstCtx = testContext();
-    startSession(firstCtx, first);
-    await first.handlers.before_provider_request?.(
-      providerRequest(`codename ${CODENAME}`),
-      firstCtx,
-    );
-
-    await navigateTo(first, firstCtx, [
-      {
-        type: "custom",
-        customType: VAULT_ENTRY,
-        data: { namespaceId: "1".repeat(32) },
-      },
-    ]);
-    const result = await first.handlers.before_provider_request?.(
-      providerRequest("plain text"),
-      firstCtx,
-    );
-
-    expect(result).toEqual({});
-    expect(firstCtx.notices).toEqual([
-      {
-        message: expect.stringContaining("STORE_REFERENCE_CONFLICT"),
-        level: "error",
-      },
-    ]);
-    expect(first.appended).toHaveLength(1);
-  });
-
-  it("blocks requests when navigation cannot read the branch", async () => {
-    writeProjectConfig();
+  it("masks a short real that a nested call restored, in a request that holds the id of the call that the model made", async () => {
+    writeJson(join(projectDir, ".pi", "lmsk.json"), SHORT_CONFIG);
     const pi = fakePi();
     const ctx = testContext();
     startSession(ctx, pi);
-    ctx.sessionManager.getBranch = () => {
-      throw new Error("branch unreadable");
-    };
-
-    await pi.handlers.session_tree?.(
-      { type: "session_tree", newLeafId: null, oldLeafId: null },
+    const fake = await learnShortFake(pi, ctx);
+    await pi.handlers.tool_call?.(
+      {
+        type: "tool_call",
+        toolCallId: "root/1/2",
+        parentToolCallId: "root/1",
+        toolName: "bash",
+        input: { command: `echo ${fake}` },
+      },
       ctx,
     );
-    const result = await pi.handlers.before_provider_request?.(
-      providerRequest("plain text"),
+
+    const payload = await pi.handlers.before_provider_request?.(
+      {
+        type: "before_provider_request",
+        payload: {
+          messages: [
+            { role: "tool", tool_call_id: "root", content: `got ${SHORT}` },
+          ],
+        },
+      },
       ctx,
     );
 
-    expect(result).toEqual({});
-    expect(ctx.notices).toEqual([
-      { message: expect.stringContaining("UNEXPECTED_ERROR"), level: "error" },
-    ]);
-  });
-
-  it("blocks requests of the earlier session when the next one cannot read its branch", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const next = testContext();
-    next.sessionManager.getBranch = () => {
-      throw new Error("branch unreadable");
-    };
-
-    expect(() =>
-      pi.handlers.session_start?.(
-        { type: "session_start", reason: "resume" },
-        next,
-      ),
-    ).not.toThrow();
-    const result = await pi.handlers.before_provider_request?.(
-      providerRequest(`codename ${CODENAME}`),
-      next,
-    );
-
-    expect(result).toEqual({});
-    expect(next.notices).toEqual([
-      { message: expect.stringContaining("UNEXPECTED_ERROR"), level: "error" },
-    ]);
-  });
-
-  it("confirms a reloaded store before it publishes an unchanged mapping", async () => {
-    writeJson(join(projectDir, ".pi", "lmsk.json"), {
-      rules: [{ id: "codename", type: "literal", values: [CODENAME, OTHER] }],
-    });
-    const first = fakePi();
-    const firstCtx = testContext();
-    startSession(firstCtx, first);
-    await first.handlers.before_provider_request?.(
-      providerRequest(`codename ${CODENAME}`),
-      firstCtx,
-    );
-    const branch = branchOf(first);
-    const namespaceId = namespaceOf(first.appended[0]?.data);
-
-    // The rename commits before the directory flush fails, so OTHER is visible on reload.
-    faults.directoryFlushFails = true;
-    const second = fakePi();
-    const secondCtx = testContext({ branch });
-    startSession(secondCtx, second);
-    const learned = await second.handlers.before_provider_request?.(
-      providerRequest(`codename ${OTHER}`),
-      secondCtx,
-    );
-    const next = await second.handlers.before_provider_request?.(
-      providerRequest("plain text"),
-      secondCtx,
-    );
-
-    expect(learned).toEqual({});
-    expect(next).toEqual({});
-    expect(secondCtx.notices).toEqual([
-      { message: expect.stringContaining("STORE_IO"), level: "error" },
-    ]);
-    expect(
-      loadVaultStore(join(agentDir, VAULT_STORE_DIR), namespaceId).revision,
-    ).toBe(2);
-
-    const reloaded = fakePi();
-    const reloadedCtx = testContext({ branch });
-    startSession(reloadedCtx, reloaded);
-    const unchanged = await reloaded.handlers.before_provider_request?.(
-      providerRequest(`codename ${OTHER}`),
-      reloadedCtx,
-    );
-
-    expect(unchanged).toEqual({});
-    expect(reloadedCtx.notices).toEqual([
-      { message: expect.stringContaining("STORE_IO"), level: "error" },
-    ]);
-
-    faults.directoryFlushFails = false;
-    const recovered = fakePi();
-    const recoveredCtx = testContext({ branch });
-    startSession(recoveredCtx, recovered);
-    const released = await recovered.handlers.before_provider_request?.(
-      providerRequest(`codename ${OTHER}`),
-      recoveredCtx,
-    );
-
-    expect(maskedContent(released)).not.toContain(OTHER);
-    expect(recoveredCtx.aborts).toBe(0);
-    expect(recovered.appended).toEqual([]);
+    expect(JSON.stringify(payload)).toContain("got ");
+    expect(JSON.stringify(payload)).not.toContain(SHORT);
+    expect(ctx.aborts).toBe(0);
   });
 });
 
@@ -3181,91 +1539,87 @@ describe("compaction and summaries", () => {
     },
   );
 
-  it("saves the compaction mapping and publishes only its reference", async () => {
+  it.each([
+    [
+      "compaction",
+      (pi: ReturnType<typeof fakePi>, ctx: TestContext) =>
+        pi.handlers.session_before_compact?.(
+          compactionEvent([userMessage(`got ${SHORT}`)]),
+          ctx,
+        ),
+    ],
+    [
+      "branch summary",
+      (pi: ReturnType<typeof fakePi>, ctx: TestContext) =>
+        pi.handlers.session_before_tree?.(treeEvent(`got ${SHORT}`), ctx),
+    ],
+    [
+      "registry",
+      (_pi: ReturnType<typeof fakePi>, ctx: TestContext) =>
+        ctx.modelRegistry
+          .streamSimple(chatModel(), {
+            messages: [userMessage(`got ${SHORT}`)],
+          })
+          .result(),
+    ],
+  ])(
+    "masks a call's short restored real in the %s request",
+    async (_, summarize) => {
+      writeJson(join(projectDir, ".pi", "lmsk.json"), SHORT_CONFIG);
+      const pi = fakePi();
+      const provider = providerStub();
+      const branch: BranchRecord[] = [];
+      const ctx = testContext({ provider, branch });
+      startSession(ctx, pi);
+      const fake = await learnShortFake(pi, ctx);
+      await pi.handlers.tool_call?.(
+        toolCall("call-1", "bash", { command: `echo ${fake}` }),
+        ctx,
+      );
+      branch.push({
+        type: "message",
+        message: assistantMessage([
+          { type: "toolCall", id: "call-1", name: "bash", arguments: {} },
+        ]),
+      });
+
+      await summarize(pi, ctx);
+
+      expect(provider.bodies).toHaveLength(1);
+      expect(JSON.stringify(provider.bodies)).not.toContain(SHORT);
+    },
+  );
+
+  it("saves both summaries with the real values of the fakes in the replies", async () => {
     writeProjectConfig();
     const pi = fakePi();
-    const ctx = testContext();
+    const reply = { text: "" };
+    const ctx = testContext({ provider: providerStub(reply) });
     startSession(ctx, pi);
-
-    const result = await pi.handlers.session_before_compact?.(
-      compactionEvent([userMessage(`codename ${CODENAME}`)]),
-      ctx,
+    const masked = maskedContent(
+      await pi.handlers.before_provider_request?.(
+        providerRequest(`codename ${CODENAME}`),
+        ctx,
+      ),
     );
+    const fake = /"content":"codename ([^"]+)"/.exec(masked)?.[1];
+    if (fake === undefined || fake === CODENAME)
+      throw new Error("the codename was not masked");
+    reply.text = `kept ${fake}`;
 
-    expect(result).toMatchObject({
-      compaction: { summary: expect.stringContaining("Keep going") },
-    });
-    expect(pi.appended).toEqual([
-      {
-        customType: VAULT_ENTRY,
-        data: { namespaceId: expect.stringMatching(/^[0-9a-f]{32}$/) },
-      },
+    const results = [
+      await pi.handlers.session_before_compact?.(
+        compactionEvent([userMessage("plain")]),
+        ctx,
+      ),
+      await pi.handlers.session_before_tree?.(treeEvent("plain"), ctx),
+    ];
+
+    expect(results).toMatchObject([
+      { compaction: { summary: expect.stringContaining(`kept ${CODENAME}`) } },
+      { summary: { summary: expect.stringContaining(`kept ${CODENAME}`) } },
     ]);
-    // The summary prompt adds its own mappings, so only the codename's mapping is pinned here.
-    expect(storeEntries(namespaceOf(pi.appended[0]?.data))).toEqual(
-      expect.arrayContaining([[CODENAME, expect.any(String)]]),
-    );
-  });
-
-  it("cancels compaction when the vault entries cannot be persisted", async () => {
-    writeProjectConfig();
-    const pi = fakePi({ appendFails: true });
-    const ctx = testContext();
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.session_before_compact?.(
-      compactionEvent([userMessage(`codename ${CODENAME}`)]),
-      ctx,
-    );
-    const next = await pi.handlers.before_provider_request?.(
-      providerRequest("plain text"),
-      ctx,
-    );
-
-    expect(result).toEqual({ cancel: true });
-    expect(ctx.notices).toContainEqual({
-      message: expect.stringContaining("SUMMARY_BLOCKED"),
-      level: "error",
-    });
-    expect(next).toEqual({});
-    expect(ctx.notices).toContainEqual({
-      message: expect.stringContaining("UNEXPECTED_ERROR"),
-      level: "error",
-    });
-  });
-
-  it("cancels compaction when persistence fails and the notification throws", async () => {
-    writeProjectConfig();
-    const pi = fakePi({ appendFails: true });
-    const ctx = testContext();
-    ctx.ui.notify = () => {
-      throw new Error("UI closed");
-    };
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.session_before_compact?.(
-      compactionEvent([userMessage(`codename ${CODENAME}`)]),
-      ctx,
-    );
-
-    expect(result).toEqual({ cancel: true });
-  });
-
-  it("cancels the branch summary when persistence fails and the notification throws", async () => {
-    writeProjectConfig();
-    const pi = fakePi({ appendFails: true });
-    const ctx = testContext();
-    ctx.ui.notify = () => {
-      throw new Error("UI closed");
-    };
-    startSession(ctx, pi);
-
-    const result = await pi.handlers.session_before_tree?.(
-      treeEvent(`codename ${CODENAME}`),
-      ctx,
-    );
-
-    expect(result).toEqual({ cancel: true });
+    expect(JSON.stringify(results)).not.toContain(fake);
   });
 
   it("summarizes the branch through the masked provider stream", async () => {
@@ -3304,14 +1658,13 @@ describe("compaction and summaries", () => {
   });
 
   it("cancels compaction without a provider request when the history holds a secret glued to a word", async () => {
-    vi.stubEnv("PROBE_API_TOKEN", "Zq7fakeEnvValue99");
     const pi = fakePi();
     const provider = providerStub();
     const ctx = testContext({ provider });
     startSession(ctx, pi);
 
     const result = await pi.handlers.session_before_compact?.(
-      compactionEvent([userMessage("see build_Zq7fakeEnvValue99")]),
+      compactionEvent([userMessage(`see x${GITHUB_TOKEN}`)]),
       ctx,
     );
 
@@ -3320,14 +1673,13 @@ describe("compaction and summaries", () => {
   });
 
   it("cancels the branch summary without a provider request when the branch holds a secret glued to a word", async () => {
-    vi.stubEnv("PROBE_API_TOKEN", "Zq7fakeEnvValue99");
     const pi = fakePi();
     const provider = providerStub();
     const ctx = testContext({ provider });
     startSession(ctx, pi);
 
     const result = await pi.handlers.session_before_tree?.(
-      treeEvent("see build_Zq7fakeEnvValue99"),
+      treeEvent(`see x${GITHUB_TOKEN}`),
       ctx,
     );
 
@@ -3379,21 +1731,21 @@ describe("protected paths", () => {
     },
   );
 
-  it.each([
-    "/home/u/.local/state/lmsk/vaults/a.json",
-    "/xdg-state/lmsk/vaults/a.json",
-  ])("blocks a read of the lmsk proxy vault %s", async (path) => {
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
+  it.each(["key", "vault.jsonl"])(
+    "blocks a read of the machine %s",
+    async (file) => {
+      const pi = fakePi();
+      const ctx = testContext();
+      startSession(ctx, pi);
 
-    const result = await pi.handlers.tool_call?.(
-      toolCallEvent("read", path),
-      ctx,
-    );
+      const result = await pi.handlers.tool_call?.(
+        toolCallEvent("read", join(root, "state", "lmsk", file)),
+        ctx,
+      );
 
-    expect(result).toMatchObject({ block: true });
-  });
+      expect(result).toMatchObject({ block: true });
+    },
+  );
 
   it("blocks a read whose fake path restores to a protected path", async () => {
     writeJson(join(projectDir, ".pi", "lmsk.json"), {
@@ -3564,11 +1916,12 @@ describe("model guard", () => {
         images.push(context);
         throw new Error("unused");
       },
+      ...providerStub(),
     };
     const mask = vi.fn(async (text: string) =>
       text.replace(CODENAME, "Masked-Value-0001"),
     );
-    installModelGuard(registry, mask);
+    installModelGuard(registry, mask, vi.fn());
 
     await registry
       .classify(classifierModel(), {
@@ -3624,9 +1977,15 @@ describe("model guard", () => {
     "rejects a classifier call with %s that masking would change",
     async (_label, context) => {
       const classify = vi.fn();
-      const registry = { classify, generateImages: vi.fn() };
-      installModelGuard(registry, async (text) =>
-        text.replace(CODENAME, "Masked-Value-0001"),
+      const registry = {
+        classify,
+        generateImages: vi.fn(),
+        ...providerStub(),
+      };
+      installModelGuard(
+        registry,
+        async (text) => text.replace(CODENAME, "Masked-Value-0001"),
+        vi.fn(),
       );
 
       await expect(
@@ -3670,14 +2029,95 @@ describe("model guard", () => {
     expect(JSON.stringify(classify.mock.calls)).not.toContain("Kx-91ab");
   });
 
+  it.each<
+    [
+      string,
+      (
+        registry: GuardedRegistry,
+        context: Context,
+      ) => Promise<AssistantMessage>,
+    ]
+  >([
+    [
+      "stream",
+      (registry, context) => registry.stream(chatModel(), context).result(),
+    ],
+    [
+      "streamSimple",
+      (registry, context) =>
+        registry.streamSimple(chatModel(), context).result(),
+    ],
+    [
+      "complete",
+      (registry, context) => registry.complete(chatModel(), context),
+    ],
+  ])(
+    "masks the payload of a %s call that another extension makes through the registry",
+    async (_method, call) => {
+      writeProjectConfig();
+      const pi = fakePi();
+      const provider = providerStub();
+      const ctx = testContext({ provider });
+      startSession(ctx, pi);
+
+      await call(ctx.modelRegistry, {
+        messages: [userMessage(`codename ${CODENAME}`)],
+      });
+
+      expect(provider.bodies).toHaveLength(1);
+      expect(JSON.stringify(provider.bodies)).not.toContain(CODENAME);
+    },
+  );
+
+  it("masks what the caller's onPayload adds to a registry call", async () => {
+    writeProjectConfig();
+    const pi = fakePi();
+    const provider = providerStub();
+    const ctx = testContext({ provider });
+    startSession(ctx, pi);
+
+    await ctx.modelRegistry
+      .streamSimple(
+        chatModel(),
+        { messages: [userMessage("plain")] },
+        {
+          onPayload: () => ({
+            messages: [userMessage(`codename ${CODENAME}`)],
+          }),
+        },
+      )
+      .result();
+
+    expect(JSON.stringify(provider.bodies)).toContain("codename ");
+    expect(JSON.stringify(provider.bodies)).not.toContain(CODENAME);
+  });
+
+  it("sends no registry request when masking its payload fails", async () => {
+    const pi = fakePi();
+    const provider = providerStub();
+    const ctx = testContext({ provider });
+    startSession(ctx, pi);
+
+    const result = await ctx.modelRegistry
+      .streamSimple(chatModel(), {
+        messages: [userMessage(`see x${GITHUB_TOKEN}`)],
+      })
+      .result();
+
+    expect(provider.bodies).toEqual([]);
+    expect(result.errorMessage).toContain("HIDDEN_REAL");
+  });
+
   it("guards a registry once when it is installed twice", async () => {
     const registry = {
       classify: vi.fn(),
       generateImages: vi.fn(),
+      ...providerStub(),
     };
     const mask = vi.fn(async (text: string) => text);
-    installModelGuard(registry, mask);
-    installModelGuard(registry, mask);
+    const maskPayload = vi.fn(async (payload: unknown) => payload);
+    installModelGuard(registry, mask, maskPayload);
+    installModelGuard(registry, mask, maskPayload);
 
     await registry
       .classify(classifierModel(), {
@@ -3685,9 +2125,11 @@ describe("model guard", () => {
         questions: {},
       })
       .catch(() => undefined);
+    await registry.streamSimple(chatModel(), { messages: [] }).result();
 
     // Keys are masked too, so count only the value's calls.
     expect(mask.mock.calls.filter(([text]) => text === "one")).toHaveLength(1);
+    expect(maskPayload).toHaveBeenCalledOnce();
   });
 });
 
@@ -3709,70 +2151,6 @@ function assistantMessage(content: AssistantMessage["content"]) {
     stopReason: "stop" as const,
     timestamp: 1,
   };
-}
-
-function nestedToolResult(text: string) {
-  return {
-    role: "toolResult" as const,
-    toolCallId: "call-1",
-    toolName: "codemode",
-    content: [{ type: "text" as const, text: "done" }],
-    isError: false,
-    timestamp: 1,
-    nestedCalls: {
-      complete: true,
-      calls: [
-        {
-          id: "call-1/1",
-          name: "bash",
-          arguments: { command: `echo ${text}` },
-          status: "error" as const,
-          error: `denied ${text}`,
-        },
-      ],
-    },
-  };
-}
-
-/** Valid base64, so the Google converter keeps it on a same-model replay. */
-const GOOGLE_SIGNATURE = Buffer.from("provider-signed-call").toString("base64");
-
-const GOOGLE_MODEL: Model<"google-generative-ai"> = {
-  id: "gemini-test",
-  name: "Gemini test",
-  api: "google-generative-ai",
-  provider: "google",
-  baseUrl: "https://example.com",
-  reasoning: false,
-  input: ["text"],
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-  contextWindow: 1000,
-  maxTokens: 100,
-};
-
-/** A Google assistant turn with one signed tool call. */
-function googleToolCall(command: string): AssistantMessage {
-  return {
-    ...assistantMessage([
-      {
-        type: "toolCall",
-        id: "call-1",
-        name: "bash",
-        arguments: { command },
-        thoughtSignature: GOOGLE_SIGNATURE,
-      },
-    ]),
-    api: "google-generative-ai",
-    provider: "google",
-    model: GOOGLE_MODEL.id,
-  };
-}
-
-/** The request contents that a same-model Google replay of `message` sends. */
-function googleReplay(message: AssistantMessage): string {
-  return JSON.stringify(
-    convertMessages(GOOGLE_MODEL, normalizeContext({ messages: [message] })),
-  );
 }
 
 function userMessage(text: string) {
@@ -3846,6 +2224,21 @@ function imageModel() {
   };
 }
 
+function chatModel() {
+  return {
+    id: "chat-model",
+    name: "Chat",
+    api: "anthropic-messages" as const,
+    provider: "anthropic",
+    baseUrl: "https://example.com",
+    input: ["text" as const],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    reasoning: false,
+    contextWindow: 1,
+    maxTokens: 1,
+  };
+}
+
 function classifierModel() {
   return {
     id: "classifier-model",
@@ -3898,383 +2291,6 @@ function toolCall(
   return { type: "tool_call", toolCallId, toolName, input } as ToolCallEvent;
 }
 
-function toolResult(
-  toolCallId: string,
-  fields: Partial<ToolResultEvent>,
-): ToolResultEvent {
-  return {
-    type: "tool_result",
-    toolCallId,
-    toolName: "edit",
-    input: {},
-    content: [],
-    details: undefined,
-    isError: false,
-    ...fields,
-  } as ToolResultEvent;
-}
-
-function textOf(text: string): ToolResultEvent["content"] {
-  return [{ type: "text", text }];
-}
-
-describe("call-local short value remasking", () => {
-  beforeEach(() => {
-    writeJson(join(projectDir, ".pi", "lmsk.json"), SHORT_CONFIG);
-  });
-
-  it("masks a short value in the result of the call that restored it", async () => {
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const fake = await learnShortFake(pi, ctx);
-    const input = { path: "notes.txt", text: fake };
-    await pi.handlers.tool_call?.(toolCall("edit-1", "edit", input), ctx);
-
-    const result = await pi.handlers.tool_result?.(
-      toolResult("edit-1", { content: textOf(`wrote ${SHORT}`) }),
-      ctx,
-    );
-
-    expect(input.text).toBe(SHORT);
-    expect(result).toMatchObject({
-      content: [{ type: "text", text: `wrote ${fake}` }],
-    });
-  });
-
-  it("leaves a short value as written in a call that restored nothing", async () => {
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    await learnShortFake(pi, ctx);
-    await pi.handlers.tool_call?.(
-      toolCall("read-1", "read", { path: "other.txt" }),
-      ctx,
-    );
-
-    const result = await pi.handlers.tool_result?.(
-      toolResult("read-1", {
-        toolName: "read",
-        content: textOf(`read ${SHORT}`),
-      }),
-      ctx,
-    );
-
-    expect(result).toMatchObject({
-      content: [{ type: "text", text: `read ${SHORT}` }],
-    });
-  });
-
-  it("keeps the restored values of interleaved calls apart", async () => {
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const fake = await learnShortFake(pi, ctx);
-    await pi.handlers.tool_call?.(
-      toolCall("edit-1", "edit", { path: "notes.txt", text: fake }),
-      ctx,
-    );
-    await pi.handlers.tool_call?.(
-      toolCall("read-1", "read", { path: "other.txt" }),
-      ctx,
-    );
-
-    const other = await pi.handlers.tool_result?.(
-      toolResult("read-1", {
-        toolName: "read",
-        content: textOf(`read ${SHORT}`),
-      }),
-      ctx,
-    );
-    const edited = await pi.handlers.tool_result?.(
-      toolResult("edit-1", { content: textOf(`wrote ${SHORT}`) }),
-      ctx,
-    );
-
-    expect(other).toMatchObject({
-      content: [{ type: "text", text: `read ${SHORT}` }],
-    });
-    expect(edited).toMatchObject({
-      content: [{ type: "text", text: `wrote ${fake}` }],
-    });
-  });
-
-  it("masks a short value inside nested result details and structured content", async () => {
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const fake = await learnShortFake(pi, ctx);
-    await pi.handlers.tool_call?.(
-      toolCall("edit-1", "edit", { path: "notes.txt", text: fake }),
-      ctx,
-    );
-
-    const result = await pi.handlers.tool_result?.(
-      toolResult("edit-1", {
-        content: textOf("done"),
-        details: { rows: [{ value: SHORT }] },
-        structuredContent: { items: [SHORT] },
-      }),
-      ctx,
-    );
-
-    expect(result).toMatchObject({
-      details: { rows: [{ value: fake }] },
-      structuredContent: { items: [fake] },
-    });
-  });
-
-  it("forgets a call's restored values when the call ends without a result", async () => {
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const fake = await learnShortFake(pi, ctx);
-    await pi.handlers.tool_call?.(
-      toolCall("edit-1", "edit", { path: "notes.txt", text: fake }),
-      ctx,
-    );
-
-    pi.handlers.tool_execution_end?.({
-      type: "tool_execution_end",
-      toolCallId: "edit-1",
-      toolName: "edit",
-      result: { content: textOf("blocked"), details: {} },
-      isError: true,
-    } as ToolExecutionEndEvent);
-    const result = await pi.handlers.tool_result?.(
-      toolResult("edit-1", { content: textOf(`wrote ${SHORT}`) }),
-      ctx,
-    );
-
-    expect(result).toMatchObject({
-      content: [{ type: "text", text: `wrote ${SHORT}` }],
-    });
-  });
-
-  it("forgets a call's restored values when its result masking fails", async () => {
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const fake = await learnShortFake(pi, ctx);
-    await pi.handlers.tool_call?.(
-      toolCall("edit-1", "edit", { path: "notes.txt", text: fake }),
-      ctx,
-    );
-    const oversized = await pi.handlers.tool_result?.(
-      toolResult("edit-1", {
-        content: textOf("done"),
-        details: { blob: "x".repeat(PAYLOAD_LIMIT_TEXT_LENGTH) },
-      }),
-      ctx,
-    );
-
-    const retry = await pi.handlers.tool_result?.(
-      toolResult("edit-1", { content: textOf(`wrote ${SHORT}`) }),
-      ctx,
-    );
-
-    expect(oversized).toMatchObject({ content: [{ type: "text" }] });
-    expect(retry).toMatchObject({
-      content: [{ type: "text", text: `wrote ${SHORT}` }],
-    });
-  });
-
-  it("forgets a call's restored values on session shutdown", async () => {
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const fake = await learnShortFake(pi, ctx);
-    await pi.handlers.tool_call?.(
-      toolCall("edit-1", "edit", { path: "notes.txt", text: fake }),
-      ctx,
-    );
-    await pi.handlers.session_shutdown?.(
-      { type: "session_shutdown", reason: "quit" },
-      ctx,
-    );
-    await pi.handlers.session_start?.(
-      { type: "session_start", reason: "startup" },
-      ctx,
-    );
-
-    const result = await pi.handlers.tool_result?.(
-      toolResult("edit-1", { content: textOf(`wrote ${SHORT}`) }),
-      ctx,
-    );
-
-    expect(result).toMatchObject({
-      content: [{ type: "text", text: `wrote ${SHORT}` }],
-    });
-  });
-});
-
-/** Every character of `text` as an upper-case percent escape, so the whole text is one encoded run. */
-const percentEachChar = (text: string): string =>
-  Array.from(
-    text,
-    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
-  ).join("");
-
-/** Masks the percent-encoded `password=SHORT` in a provider request and returns the encoded fake. */
-async function learnEncodedShortFake(
-  pi: ReturnType<typeof fakePi>,
-  ctx: TestContext,
-): Promise<string> {
-  const encoded = percentEachChar(`password=${SHORT}`);
-  const masked = maskedContent(
-    await pi.handlers.before_provider_request?.(providerRequest(encoded), ctx),
-  );
-  const fake = /"content":"((?:%[0-9A-F]{2})+)"/.exec(masked)?.[1];
-  if (fake === undefined || fake === encoded)
-    throw new Error("the encoded short value was not masked");
-  return fake;
-}
-
-describe("call-local encoded short value remasking", () => {
-  beforeEach(() => {
-    writeJson(join(projectDir, ".pi", "lmsk.json"), SHORT_CONFIG);
-  });
-
-  it("masks the decoded short value of a bound encoded fake restored in the same call", async () => {
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const encodedFake = await learnEncodedShortFake(pi, ctx);
-    const fake = await learnShortFake(pi, ctx);
-    const input = { path: "notes.txt", text: encodedFake };
-    await pi.handlers.tool_call?.(toolCall("edit-1", "edit", input), ctx);
-
-    const result = await pi.handlers.tool_result?.(
-      toolResult("edit-1", { content: textOf(`wrote ${SHORT}`) }),
-      ctx,
-    );
-
-    expect(input.text).toBe(percentEachChar(`password=${SHORT}`));
-    expect(result).toMatchObject({
-      content: [{ type: "text", text: `wrote ${fake}` }],
-    });
-  });
-
-  it("masks only the values that the call restored, not other short vault values", async () => {
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const encodedFake = await learnEncodedShortFake(pi, ctx);
-    const fake = await learnShortFake(pi, ctx);
-    const other = "lantern";
-    await pi.handlers.before_provider_request?.(
-      providerRequest(`password=${other}`),
-      ctx,
-    );
-    await pi.handlers.tool_call?.(
-      toolCall("edit-1", "edit", { path: "notes.txt", text: encodedFake }),
-      ctx,
-    );
-
-    const result = await pi.handlers.tool_result?.(
-      toolResult("edit-1", { content: textOf(`wrote ${SHORT} and ${other}`) }),
-      ctx,
-    );
-
-    expect(result).toMatchObject({
-      content: [{ type: "text", text: `wrote ${fake} and ${other}` }],
-    });
-  });
-});
-
-/** A made-up live key. Its last four characters, `rUcb`, are what `tail -c 4` prints. */
-const LIVE_KEY = "sk_live_Qm3vT8pXw2Lk9ZrUcb";
-
-/** Masks the live key in a provider request and returns the fake that the model sees. */
-async function liveKeyFake(
-  pi: ReturnType<typeof fakePi>,
-  ctx: TestContext,
-): Promise<string> {
-  const masked = maskedContent(
-    await pi.handlers.before_provider_request?.(
-      providerRequest(`key ${LIVE_KEY}`),
-      ctx,
-    ),
-  );
-  const fake = /"content":"key ([^"]+)"/.exec(masked)?.[1];
-  if (fake === undefined || fake === LIVE_KEY)
-    throw new Error("the live key was not masked");
-  return fake;
-}
-
-describe("bash output of restored values", () => {
-  beforeEach(() => {
-    writeJson(join(projectDir, ".pi", "lmsk.json"), {
-      rules: [{ id: "live-key", type: "literal", values: [LIVE_KEY] }],
-    });
-  });
-
-  it("masks the last four characters of a restored value in the bash output", async () => {
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const fake = await liveKeyFake(pi, ctx);
-    const input = { command: `printf '%s' '${fake}' | tail -c 4` };
-    await pi.handlers.tool_call?.(toolCall("bash-1", "bash", input), ctx);
-
-    const result = await pi.handlers.tool_result?.(
-      toolResult("bash-1", { toolName: "bash", content: textOf("rUcb") }),
-      ctx,
-    );
-    const shown = /"text":"([^"]*)"/.exec(maskedContent(result))?.[1];
-    const restored = { path: "notes.txt", text: shown };
-    await pi.handlers.tool_call?.(toolCall("edit-1", "edit", restored), ctx);
-
-    expect(shown).not.toBe("rUcb");
-    expect(restored.text).toBe("rUcb");
-  });
-
-  it("keeps an unrelated four-character token in the same bash output", async () => {
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const fake = await liveKeyFake(pi, ctx);
-    await pi.handlers.tool_call?.(
-      toolCall("bash-1", "bash", {
-        command: `printf '%s' '${fake}'; echo wxyz`,
-      }),
-      ctx,
-    );
-
-    const result = await pi.handlers.tool_result?.(
-      toolResult("bash-1", {
-        toolName: "bash",
-        content: textOf("rUcb wxyz"),
-      }),
-      ctx,
-    );
-    const shown = /"text":"([^"]*)"/.exec(maskedContent(result))?.[1];
-
-    expect(shown).toMatch(/^[A-Za-z0-9]{4} wxyz$/);
-    expect(shown).not.toContain("rUcb");
-  });
-
-  it("masks the last four characters that a command read from a file", async () => {
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    await liveKeyFake(pi, ctx);
-    const command = `key=$(cat config.yaml); printf '%s' "\${key: -4}"`;
-    await pi.handlers.tool_call?.(toolCall("bash-1", "bash", { command }), ctx);
-
-    const result = await pi.handlers.tool_result?.(
-      toolResult("bash-1", { toolName: "bash", content: textOf("rUcb") }),
-      ctx,
-    );
-    const shown = /"text":"([^"]*)"/.exec(maskedContent(result))?.[1];
-    const restored = { path: "notes.txt", text: shown };
-    await pi.handlers.tool_call?.(toolCall("edit-1", "edit", restored), ctx);
-
-    expect(shown).not.toBe("rUcb");
-    expect(restored.text).toBe("rUcb");
-  });
-});
-
 const OD_C_CODENAME = [
   "0000000    Q   u   i   l   l   -   H   a   r   b   o   r   -   N   i   n",
   "0000020    e   t   y",
@@ -4286,11 +2302,8 @@ describe("split vault value in tool output", () => {
     pi: ReturnType<typeof fakePi>,
     ctx: TestContext,
   ): Promise<void> {
-    await pi.handlers.tool_result?.(
-      toolResult("learn", {
-        toolName: "bash",
-        content: textOf(`codename ${CODENAME}`),
-      }),
+    await pi.handlers.before_provider_request?.(
+      providerRequest(`codename ${CODENAME}`),
       ctx,
     );
   }
@@ -4302,19 +2315,13 @@ describe("split vault value in tool output", () => {
     startSession(ctx, pi);
     await learnCodename(pi, ctx);
 
-    const result = await pi.handlers.tool_result?.(
-      toolResult("od-1", { toolName: "bash", content: textOf(OD_C_CODENAME) }),
+    const result = await pi.handlers.before_provider_request?.(
+      providerRequest(OD_C_CODENAME),
       ctx,
     );
 
-    expect(result).toEqual({
-      content: [{ type: "text", text: "[MASKED]" }],
-      details: "[MASKED]",
-    });
-    expect(ctx.aborts).toBe(1);
-    expect(ctx.notices.map(({ message }) => message)).toContainEqual(
-      expect.stringContaining("HIDDEN_REAL"),
-    );
+    expect(result).toEqual(providerRequest(HIDDEN).payload);
+    expect(ctx.aborts).toBe(0);
   });
 
   const rot13 = (text: string): string =>
@@ -4387,16 +2394,13 @@ describe("split vault value in tool output", () => {
     startSession(ctx, pi);
     await learnCodename(pi, ctx);
 
-    const result = await pi.handlers.tool_result?.(
-      toolResult("t-1", { toolName: "bash", content: textOf(`out ${output}`) }),
+    const result = await pi.handlers.before_provider_request?.(
+      providerRequest(`out ${output}`),
       ctx,
     );
 
-    expect(result).toEqual({
-      content: [{ type: "text", text: "[MASKED]" }],
-      details: "[MASKED]",
-    });
-    expect(ctx.aborts).toBe(1);
+    expect(result).toEqual(providerRequest(HIDDEN).payload);
+    expect(ctx.aborts).toBe(0);
   });
 
   it("withholds hexdump -C output that spells a vault value from its first line", async () => {
@@ -4407,22 +2411,20 @@ describe("split vault value in tool output", () => {
     await learnCodename(pi, ctx);
     const output = hexdump(`my codename is ${CODENAME} ok`);
 
-    await pi.handlers.tool_result?.(
-      toolResult("t-1", { toolName: "bash", content: textOf(output) }),
+    const result = await pi.handlers.before_provider_request?.(
+      providerRequest(output),
       ctx,
     );
 
-    expect(ctx.aborts).toBe(1);
+    expect(result).toEqual(providerRequest(HIDDEN).payload);
   });
 
-  const GITHUB_TOKEN = "ghp_VATh4IXRGeKOgzW5pO0KGKWzXxyMAkXSCsuB";
   /** As `fold -w 10` prints it. */
   const fold = (text: string): string =>
     (text.match(/.{1,10}/g) ?? []).join("\n");
   it.each([
     ["reversed", [...GITHUB_TOKEN].reverse().join("")],
     ["rot13", rot13(GITHUB_TOKEN)],
-    ["glued to a word, which masking keeps", `x${GITHUB_TOKEN}`],
     ["one character per line", [...GITHUB_TOKEN].join("\n")],
     ["wrapped at 10 columns", fold(GITHUB_TOKEN)],
     [
@@ -4447,16 +2449,13 @@ describe("split vault value in tool output", () => {
     const ctx = testContext();
     startSession(ctx, pi);
 
-    const result = await pi.handlers.tool_result?.(
-      toolResult("t-1", { toolName: "bash", content: textOf(output) }),
+    const result = await pi.handlers.before_provider_request?.(
+      providerRequest(output),
       ctx,
     );
 
-    expect(result).toEqual({
-      content: [{ type: "text", text: "[MASKED]" }],
-      details: "[MASKED]",
-    });
-    expect(ctx.aborts).toBe(1);
+    expect(result).toEqual(providerRequest(HIDDEN).payload);
+    expect(ctx.aborts).toBe(0);
   });
 
   it.each([
@@ -4479,16 +2478,13 @@ describe("split vault value in tool output", () => {
       startSession(ctx, pi);
       const output = fold("QuillHarborNinetyBasalt").replace(/\n/g, wrap);
 
-      const result = await pi.handlers.tool_result?.(
-        toolResult("t-1", { toolName: "bash", content: textOf(output) }),
+      const result = await pi.handlers.before_provider_request?.(
+        providerRequest(output),
         ctx,
       );
 
-      expect(result).toEqual({
-        content: [{ type: "text", text: "[MASKED]" }],
-        details: "[MASKED]",
-      });
-      expect(ctx.aborts).toBe(1);
+      expect(result).toEqual(providerRequest(HIDDEN).payload);
+      expect(ctx.aborts).toBe(0);
     },
   );
 
@@ -4505,11 +2501,12 @@ describe("split vault value in tool output", () => {
     const ctx = testContext();
     startSession(ctx, pi);
 
-    await pi.handlers.tool_result?.(
-      toolResult("t-1", { toolName: "bash", content: textOf(text) }),
+    const result = await pi.handlers.before_provider_request?.(
+      providerRequest(text),
       ctx,
     );
 
+    expect(maskedContent(result)).not.toContain(HIDDEN);
     expect(ctx.aborts).toBe(0);
   });
 
@@ -4522,12 +2519,12 @@ describe("split vault value in tool output", () => {
       "base64",
     );
 
-    await pi.handlers.tool_result?.(
-      toolResult("t-1", { toolName: "bash", content: textOf(encoded) }),
+    const result = await pi.handlers.before_provider_request?.(
+      providerRequest(encoded),
       ctx,
     );
 
-    expect(ctx.aborts).toBe(1);
+    expect(result).toEqual(providerRequest(HIDDEN).payload);
   });
 
   it("passes a fake that completes a token rule in its context", async () => {
@@ -4538,14 +2535,12 @@ describe("split vault value in tool output", () => {
     const ctx = testContext();
     startSession(ctx, pi);
 
-    await pi.handlers.tool_result?.(
-      toolResult("t-1", {
-        toolName: "bash",
-        content: textOf("curl -u admin:${VALUE} https://api.example.net"),
-      }),
+    const result = await pi.handlers.before_provider_request?.(
+      providerRequest("curl -u admin:${VALUE} https://api.example.net"),
       ctx,
     );
 
+    expect(maskedContent(result)).not.toContain(HIDDEN);
     expect(ctx.aborts).toBe(0);
   });
 
@@ -4556,21 +2551,18 @@ describe("split vault value in tool output", () => {
     const pi = fakePi();
     const ctx = testContext();
     startSession(ctx, pi);
-    await pi.handlers.tool_result?.(
-      toolResult("learn-ip", {
-        toolName: "bash",
-        content: textOf("day 20241015"),
-      }),
+    await pi.handlers.before_provider_request?.(
+      providerRequest("day 20241015"),
       ctx,
     );
     const text = "date 2024.10.15";
 
-    const result = await pi.handlers.tool_result?.(
-      toolResult("date-1", { toolName: "bash", content: textOf(text) }),
+    const result = await pi.handlers.before_provider_request?.(
+      providerRequest(text),
       ctx,
     );
 
-    expect(result).toMatchObject({ content: [{ type: "text", text }] });
+    expect(result).toEqual(providerRequest(text).payload);
     expect(ctx.aborts).toBe(0);
   });
 
@@ -4582,12 +2574,12 @@ describe("split vault value in tool output", () => {
     await learnCodename(pi, ctx);
     const output = JSON.stringify([...CODENAME]);
 
-    const result = await pi.handlers.tool_result?.(
-      toolResult("t-1", { toolName: "bash", content: textOf(output) }),
+    const result = await pi.handlers.before_provider_request?.(
+      providerRequest(output),
       ctx,
     );
 
-    expect(result).toMatchObject({ content: [{ type: "text", text: output }] });
+    expect(result).toEqual(providerRequest(output).payload);
     expect(ctx.aborts).toBe(0);
   });
 
@@ -4601,15 +2593,12 @@ describe("split vault value in tool output", () => {
       startSession(ctx, pi);
       await learnCodename(pi, ctx);
 
-      const result = await pi.handlers.tool_result?.(
-        toolResult("token-1", {
-          toolName: "bash",
-          content: textOf(`${CODENAME}_v2`),
-        }),
+      const result = await pi.handlers.before_provider_request?.(
+        providerRequest(`${CODENAME}_v2`),
         ctx,
       );
 
-      expect(maskedContent(result)).toMatch(/"text":"\w+"/);
+      expect(maskedContent(result)).toMatch(/"content":"\w+"/);
       expect(maskedContent(result)).not.toContain(CODENAME);
       expect(ctx.aborts).toBe(0);
     },
@@ -4623,21 +2612,18 @@ describe("split vault value in tool output", () => {
     const ctx = testContext();
     startSession(ctx, pi);
 
-    const result = await pi.handlers.tool_result?.(
-      toolResult("t-1", {
-        toolName: "bash",
-        content: textOf("artifact build_Kx-91ab"),
-      }),
+    const result = await pi.handlers.before_provider_request?.(
+      providerRequest("artifact build_Kx-91ab"),
       ctx,
     );
 
-    expect(maskedContent(result)).toMatch(/"text":"artifact \w+"/);
+    expect(maskedContent(result)).toMatch(/"content":"artifact \w+"/);
     expect(maskedContent(result)).not.toContain("Kx-91ab");
     expect(ctx.aborts).toBe(0);
   });
 
   it.each([["block"], ["mask"]])(
-    "withholds a %s rule value glued to a word",
+    "blocks a request that holds a %s rule value glued to a word",
     async (strategy) => {
       writeJson(join(projectDir, ".pi", "lmsk.json"), {
         rules: [
@@ -4648,17 +2634,12 @@ describe("split vault value in tool output", () => {
       const ctx = testContext();
       startSession(ctx, pi);
 
-      const result = await pi.handlers.tool_result?.(
-        toolResult("t-1", {
-          toolName: "bash",
-          content: textOf("artifact build_Kx-91abQQ"),
-        }),
+      const result = await pi.handlers.before_provider_request?.(
+        providerRequest("artifact build_Kx-91abQQ"),
         ctx,
       );
 
-      expect(result).toMatchObject({
-        content: [{ type: "text", text: "[MASKED]" }],
-      });
+      expect(result).toEqual({});
       expect(ctx.aborts).toBe(1);
     },
   );
@@ -4676,8 +2657,8 @@ describe("split vault value in tool output", () => {
       const ctx = testContext();
       startSession(ctx, pi);
 
-      const result = await pi.handlers.tool_result?.(
-        toolResult("t-1", { toolName: "bash", content: textOf(text) }),
+      const result = await pi.handlers.before_provider_request?.(
+        providerRequest(text),
         ctx,
       );
 
@@ -4692,14 +2673,12 @@ describe("split vault value in tool output", () => {
     const ctx = testContext();
     startSession(ctx, pi);
 
-    await pi.handlers.tool_result?.(
-      toolResult("t-1", {
-        toolName: "bash",
-        content: textOf(fold(GITHUB_TOKEN)),
-      }),
+    const result = await pi.handlers.before_provider_request?.(
+      providerRequest(fold(GITHUB_TOKEN)),
       ctx,
     );
 
+    expect(maskedContent(result)).not.toContain(HIDDEN);
     expect(ctx.aborts).toBe(0);
   });
 
@@ -4712,18 +2691,16 @@ describe("split vault value in tool output", () => {
     await learnCodename(pi, ctx);
     const text = [...CODENAME].reverse().join("");
 
-    const result = await pi.handlers.tool_result?.(
-      toolResult("token-1", { toolName: "bash", content: textOf(text) }),
+    const result = await pi.handlers.before_provider_request?.(
+      providerRequest(text),
       ctx,
     );
 
-    expect(result).not.toMatchObject({
-      content: [{ type: "text", text: "[MASKED]" }],
-    });
+    expect(maskedContent(result)).not.toContain(HIDDEN);
     expect(ctx.aborts).toBe(0);
   });
 
-  it("withholds a prefixed token glued to a word when the global config turns the check off", async () => {
+  it("blocks a request that holds a prefixed token glued to a word when the global config turns the check off", async () => {
     writeProjectConfig();
     writeGlobalConfig({ withholdHiddenCopies: false });
     const pi = fakePi();
@@ -4731,17 +2708,12 @@ describe("split vault value in tool output", () => {
     startSession(ctx, pi);
     await learnCodename(pi, ctx);
 
-    const result = await pi.handlers.tool_result?.(
-      toolResult("token-1", {
-        toolName: "bash",
-        content: textOf(`x${GITHUB_TOKEN}`),
-      }),
+    const result = await pi.handlers.before_provider_request?.(
+      providerRequest(`x${GITHUB_TOKEN}`),
       ctx,
     );
 
-    expect(result).toMatchObject({
-      content: [{ type: "text", text: "[MASKED]" }],
-    });
+    expect(result).toEqual({});
     expect(ctx.aborts).toBe(1);
   });
 
@@ -4756,12 +2728,12 @@ describe("split vault value in tool output", () => {
       "0000014",
     ].join("\n");
 
-    const result = await pi.handlers.tool_result?.(
-      toolResult("od-2", { toolName: "bash", content: textOf(od) }),
+    const result = await pi.handlers.before_provider_request?.(
+      providerRequest(od),
       ctx,
     );
 
-    expect(result).toMatchObject({ content: [{ type: "text", text: od }] });
+    expect(result).toEqual(providerRequest(od).payload);
     expect(ctx.aborts).toBe(0);
   });
 });
@@ -4837,7 +2809,7 @@ describe("lmsk command", () => {
     ]);
   });
 
-  it("reports enabled by default, with the history limit and no secret", async () => {
+  it("reports enabled by default, with no secret", async () => {
     writeProjectConfig();
     const pi = fakePi();
     const ctx = testContext();
@@ -4848,7 +2820,6 @@ describe("lmsk command", () => {
     expect(ctx.notices).toEqual([
       { message: expect.stringContaining("enabled"), level: "info" },
     ]);
-    expect(ctx.notices[0]?.message).toContain("written while off");
     expect(JSON.stringify(ctx.notices)).not.toContain(CODENAME);
   });
 
@@ -4866,9 +2837,7 @@ describe("lmsk command", () => {
     await pi.commands.lmsk?.("status", ctx);
 
     expect(ctx.notices[0]).toEqual({
-      message: expect.stringContaining(
-        "Raw data may reach the provider and disk",
-      ),
+      message: expect.stringContaining("The provider gets real values"),
       level: "warning",
     });
     expect(result).toBeUndefined();
@@ -4877,33 +2846,6 @@ describe("lmsk command", () => {
       message: expect.stringMatching(/^lmsk: off\./),
       level: "info",
     });
-  });
-
-  it("passes persisted messages and tool results through unmasked when off", async () => {
-    writeProjectConfig();
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    await pi.commands.lmsk?.("off", ctx);
-
-    const message = await pi.handlers.message_end?.(
-      {
-        type: "message_end",
-        message: {
-          role: "user",
-          content: `codename ${CODENAME}`,
-          timestamp: 1,
-        },
-      },
-      ctx,
-    );
-    const result = await pi.handlers.tool_result?.(
-      toolResult("call-1", { content: textOf(`codename ${CODENAME}`) }),
-      ctx,
-    );
-
-    expect(message).toBeUndefined();
-    expect(result).toBeUndefined();
   });
 
   it("keeps the protected-path block and the local restore when off", async () => {
@@ -4934,7 +2876,7 @@ describe("lmsk command", () => {
     expect(input.text).toBe(`codename ${CODENAME}`);
   });
 
-  it("re-enables masking on, and says earlier raw entries stay raw", async () => {
+  it("re-enables masking on, and masks the next request", async () => {
     writeProjectConfig();
     const pi = fakePi();
     const ctx = testContext();
@@ -4948,25 +2890,16 @@ describe("lmsk command", () => {
     );
 
     expect(ctx.notices.at(-1)).toEqual({
-      message: expect.stringContaining(
-        "does not clean entries written while off",
-      ),
+      message: expect.stringContaining("enabled"),
       level: "info",
     });
     expect(maskedContent(result)).not.toContain(CODENAME);
   });
 
-  it("refuses off and on while the vault is blocked, and keeps requests blocked", async () => {
-    writeProjectConfig();
-    const branch = [
-      {
-        type: "custom",
-        customType: VAULT_ENTRY,
-        data: { namespaceId: "0".repeat(32) },
-      },
-    ];
+  it("refuses off and on while the guard is blocked, and keeps requests blocked", async () => {
+    writeJson(join(projectDir, ".pi", "lmsk.json"), { rules: "bad" });
     const pi = fakePi();
-    const ctx = testContext({ branch });
+    const ctx = testContext();
     startSession(ctx, pi);
     const startupNotices = ctx.notices.length;
 
@@ -4980,17 +2913,17 @@ describe("lmsk command", () => {
     await pi.commands.lmsk?.("reveal x", ctx);
 
     const blocked =
-      "lmsk: blocked (STORE_MISSING). /lmsk cannot change masking until the session reloads.";
+      "lmsk: blocked (CONFIG_INVALID). /lmsk cannot change masking until the session reloads.";
     expect(ctx.notices.slice(startupNotices)).toEqual([
       { message: blocked, level: "error" },
       { message: blocked, level: "error" },
       {
-        message: expect.stringContaining("blocked (STORE_MISSING)"),
+        message: expect.stringContaining("blocked (CONFIG_INVALID)"),
         level: "info",
       },
       {
         message:
-          "lmsk: blocked (STORE_MISSING). /lmsk reveal needs a working vault.",
+          "lmsk: blocked (CONFIG_INVALID). /lmsk reveal needs a working vault.",
         level: "error",
       },
     ]);
@@ -5076,27 +3009,21 @@ describe("lmsk command", () => {
   });
 });
 
-describe("case variant of a learned value in tool output", () => {
+describe("case variant of a learned value", () => {
   it("masks a lowercase copy of a learned account id and restores its spelling", async () => {
     const pi = fakePi();
     const ctx = testContext();
     startSession(ctx, pi);
-    await pi.handlers.tool_result?.(
-      toolResult("read-1", {
-        toolName: "read",
-        content: textOf("account TE1234567"),
-      }),
+    await pi.handlers.before_provider_request?.(
+      providerRequest("account TE1234567"),
       ctx,
     );
 
-    const result = await pi.handlers.tool_result?.(
-      toolResult("bash-1", {
-        toolName: "bash",
-        content: textOf("branch feature/te1234567-fix"),
-      }),
+    const result = await pi.handlers.before_provider_request?.(
+      providerRequest("branch feature/te1234567-fix"),
       ctx,
     );
-    const shown = /"text":"([^"]*)"/.exec(maskedContent(result))?.[1];
+    const shown = /"content":"([^"]*)"/.exec(maskedContent(result))?.[1];
     const restored = { path: "notes.txt", text: shown };
     await pi.handlers.tool_call?.(toolCall("edit-1", "edit", restored), ctx);
 
