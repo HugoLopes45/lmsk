@@ -2,8 +2,8 @@ import { isRecord, type PayloadFormat } from "../core/index.ts";
 
 /* The rules follow the provider wire formats (Anthropic Messages, OpenAI Chat and Responses, Mistral, Google, Bedrock). One set serves all of them: a host can convert ids between providers, so an Anthropic `tool_use_id` can hold an OpenAI `call_` id. */
 
-/** Always byte-exact: the provider signs or encrypts these values, so a change breaks replay. */
-const ALWAYS_OPAQUE_KEYS = new Set(["signature", "encrypted_content"]);
+/** Byte-exact when the value is a string: the provider signs or encrypts these values, so a change breaks replay. Another shape, such as a tool schema property, is ordinary text. */
+const SIGNED_KEYS = new Set(["signature", "encrypted_content"]);
 
 /** Byte-exact only when the value is a data URL. */
 const DATA_URL_KEYS = new Set(["image_url", "imageUrl", "url"]);
@@ -65,7 +65,11 @@ function isProviderString(key: string, value: string): boolean {
 /** The fields that any supported provider needs byte-exact. */
 export const allFormats: PayloadFormat = {
   opaque(key, value, parent) {
-    if (ALWAYS_OPAQUE_KEYS.has(key) || isSignedText(key, parent)) return true;
+    if (
+      (SIGNED_KEYS.has(key) && typeof value === "string") ||
+      isSignedText(key, parent)
+    )
+      return true;
     if (isBinaryData(key, value, parent)) return true;
     return typeof value === "string" && isProviderString(key, value);
   },

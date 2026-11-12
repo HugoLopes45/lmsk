@@ -6,8 +6,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "lmsk",
-            "args": ["hook", "claude"],
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/../dist/cli/bin.js",
+              "hook",
+              "claude"
+            ],
             "onFailure": "block"
           }
         ]

@@ -23,6 +23,9 @@ export async function runAgent(
   // The terminal sends SIGINT to the agent too, and the agent decides whether it ends; the proxy must outlive it.
   const ignore = () => undefined;
   const forward = (signal: NodeJS.Signals) => child.kill(signal);
+  // When lmsk ends on an error, another local user could listen on the freed port and get the agent's next request.
+  const end = () => child.kill("SIGKILL");
+  process.on("exit", end);
   process.on("SIGINT", ignore);
   process.on("SIGTERM", forward);
   process.on("SIGHUP", forward);
@@ -35,6 +38,7 @@ export async function runAgent(
     notify(`lmsk: ${command} is not on your PATH.`, "error");
     return 127;
   } finally {
+    process.off("exit", end);
     process.off("SIGINT", ignore);
     process.off("SIGTERM", forward);
     process.off("SIGHUP", forward);
@@ -42,7 +46,7 @@ export async function runAgent(
 }
 
 /** Claude Code sends even a 127.0.0.1 base URL through `HTTP_PROXY`, so that proxy would see the unmasked request. */
-function loopbackExempt(
+export function loopbackExempt(
   env: AgentOptions["env"],
 ): Record<"NO_PROXY" | "no_proxy", string> {
   // A tool that reads the spelling the user did not set must still get the user's exemptions.
