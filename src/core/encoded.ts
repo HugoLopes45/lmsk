@@ -11,13 +11,17 @@ export interface View {
 
 const B64 = "[A-Za-z0-9+/_-]";
 const WRAPPED_LINE = `(?:${B64}{64}|${B64}{76})\\r?\\n`;
-// A run starts only where no base64 character precedes it, so the tail of a
-// run longer than the bound is not decoded. A data: URI is not decoded.
+// A run starts only where no base64 character or `%` precedes it, except after `%2E`, which reads
+// as a dot. So the tail of a run longer than the bound is not decoded. A data: URI is not decoded.
 const BASE64_RUN = new RegExp(
-  `(?<![A-Za-z0-9+/_-])(?<!;base64,)(?:(?:${WRAPPED_LINE}){1,1024}(?:${B64}{1,76}={0,2}(?=\\r?\\n|$))?|${B64}{16,4096}={0,2})`,
+  `(?:(?<=%2[Ee])|(?<![A-Za-z0-9+/_%-]))(?<!;base64,)(?:(?:${WRAPPED_LINE}){1,1024}(?:${B64}{1,76}={0,2}(?=\\r?\\n|$))?|${B64}{16,4096}={0,2})`,
   "g",
 );
-const PERCENT_RUN = /(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2}){1,4096}/g;
+// An escape of a byte outside printable ASCII ends a run, since a view holds only printable ASCII.
+// Its hex digits, left in the text, start no run. The bound keeps the regex stack small; see
+// `percentRuns`.
+const PERCENT_RUN =
+  /(?:(?<!%[0-9A-Fa-f]?)[A-Za-z0-9._~-]|%(?:0[9AaDd]|[2-6][0-9A-Fa-f]|7[0-9A-Ea-e])){1,4096}/g;
 const PERCENT_TOKEN = /%([0-9A-Fa-f]{2})|./g;
 const UNRESERVED = /[A-Za-z0-9._~-]/;
 // Every decoded byte must be printable ASCII or a line break. Random bytes
@@ -79,8 +83,7 @@ function percentView(run: string, start: number): View | undefined {
   const escapesReserved = tokens.some(
     ({ hex }, i) => hex !== undefined && !UNRESERVED.test(chars[i]),
   );
-  if (!(escapesAll || escapesReserved) || !PRINTABLE.test(text))
-    return undefined;
+  if (!(escapesAll || escapesReserved)) return undefined;
   const encode = (replacement: string): string =>
     tokens
       .map(({ hex }, i) => {
@@ -96,6 +99,18 @@ function isView(view: View | undefined): view is View {
   return view !== undefined;
 }
 
+/** The percent runs of `text`, with back-to-back matches of `PERCENT_RUN` joined into one. */
+function percentRuns(text: string): { start: number; run: string }[] {
+  const runs: { start: number; run: string }[] = [];
+  for (const match of text.matchAll(PERCENT_RUN)) {
+    const last = runs.at(-1);
+    if (last && last.start + last.run.length === match.index)
+      last.run += match[0];
+    else runs.push({ start: match.index, run: match[0] });
+  }
+  return runs;
+}
+
 /**
  * Views of the base64 and percent-encoded runs of `text`, one level deep,
  * sorted by start. A percent run that overlaps a base64 view is dropped: it
@@ -105,9 +120,8 @@ export function decodedViews(text: string): View[] {
   const base64 = Array.from(text.matchAll(BASE64_RUN), (match) =>
     base64View(match[0], match.index),
   ).filter(isView);
-  const percent = Array.from(text.matchAll(PERCENT_RUN), (match) =>
-    percentView(match[0], match.index),
-  )
+  const percent = percentRuns(text)
+    .map(({ start, run }) => percentView(run, start))
     .filter(isView)
     .filter(
       (view) =>
