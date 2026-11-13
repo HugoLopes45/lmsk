@@ -60,7 +60,7 @@ If the reply spells `Z q 7 K p 2 L m 9 X w 4 R t 8 V b 3 N c`, masking did not w
 - **Start Claude Code as usual.** Type `claude`. Each session sends its requests through the proxy.
 - **Write your messages as usual.** You can paste logs, errors and `.env` lines. `lmsk` masks them before they leave your computer.
 - **Read replies as usual.** Replies show real values. Thinking text keeps its fakes. A value under 8 characters also keeps its fake, unless it is a value of a `literal` or `env` rule. A value that the model glues to a letter, a digit or `_` keeps its fake too.
-- **Let Claude Code write files.** When `Read`, `Write`, `Edit`, `Grep`, `Glob` or `Bash` gets a fake, `lmsk` gives it the real value. Other tools, such as MCP tools and `WebFetch`, get fakes. A `Bash` command that uses the network, such as `curl`, gets fakes too.
+- **Let Claude Code write files.** When `Read`, `Write`, `Edit`, `Grep`, `Glob`, `NotebookEdit`, `MultiEdit` or `Bash` gets a fake, `lmsk` gives it the real value. Other tools, such as MCP tools and `WebFetch`, get fakes. A `Bash` command that uses the network, such as `curl`, gets fakes too.
 - **Claude Code does not read secret files.** A hook refuses a tool call that opens `.env`, keys and other secret files, and tells Claude Code why. You do nothing. The list is in [Default protected paths](CONFIGURATION.md#default-protected-paths).
 - **Add your client name once.** Follow [Hide who you work for](GUIDE.md#hide-who-you-work-for). Then the name becomes `Client 1` in each request.
 
@@ -83,7 +83,7 @@ Every message and code is in [Troubleshooting](TROUBLESHOOTING.md#claude-code).
 The configuration file is `~/.config/lmsk/config.json`. If `XDG_CONFIG_HOME` was set when you ran `lmsk install claude`, the file is `lmsk/config.json` in that folder. It has the same format as the pi file, with these differences:
 
 - There is no project file.
-- The default `restoredTools` are `Read`, `Write`, `Edit`, `Grep`, `Glob` and `Bash`.
+- The default `restoredTools` are `Read`, `Write`, `Edit`, `Grep`, `Glob`, `NotebookEdit`, `MultiEdit` and `Bash`.
 - An `env` rule reads only the environment of the service. The service does not get the variables of your terminal, so an `env` rule does not find them.
 
 The proxy reads the file when it starts. After you change it, run `lmsk install claude`.
@@ -122,7 +122,7 @@ A Claude Code process that does not read your user settings also sends the reque
 
 ### How the hook works
 
-The hook checks the `file_path` or `path` of each Claude Code file tool and each word of a shell command. If Claude Code cannot start the hook, it refuses the call.
+The hook checks the `file_path`, `notebook_path` or `path` of each Claude Code file tool and each word of a shell command. If Claude Code cannot start the hook, it refuses the call.
 
 The `Read` deny rules also refuse a file command that Claude Code recognizes in a shell command, such as `cat .env`. Claude Code also tries to apply them to a file that you add to a prompt with `@`, which no hook sees.
 

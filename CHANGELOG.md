@@ -6,6 +6,8 @@
 - The files `key`, `vault.jsonl`, `vault.lock`, `serve-token` and `upstream` in any folder named `lmsk` are protected paths, also by a relative path.
 - Claude Code: `lmsk install claude` adds an `Edit` deny rule next to each `Read` rule. Run it again to add them.
 - Claude Code: the deny hook reads a path that starts with `$HOME/` or `${HOME}/` from your home folder, as it reads `~/`.
+- Claude Code: the deny hook also checks `NotebookEdit` and `MultiEdit`, and these tools get real values back. Run `lmsk install claude` again to update the hook.
+- Protected paths also match an accented letter written as a base letter and a separate accent.
 - The deny hook checks the words of a long shell command about 4 times faster.
 - Breaking, for code that imports lmsk: `isProtectedPath(path, cwd, patterns)` is now `protectedPath(paths, cwd, patterns)`, which returns the first protected path.
 - Protected paths also match when a letter is written in another form that the disk reads as the same letter, such as the long s `ſ` for `s`.

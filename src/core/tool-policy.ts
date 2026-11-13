@@ -93,14 +93,18 @@ export function protectedPath(
   cwd: string,
   patterns: readonly string[],
 ): string | undefined {
-  const globs = patterns.map(undotted);
+  // macOS disks open a letter and its accent written as two code points as the one-code-point letter. Other disks keep the name as written, so both forms are matched.
+  const both = (text: string) => [...new Set([text, text.normalize("NFC")])];
+  const globs = patterns.flatMap(both).map(undotted);
   return paths.find((path) => {
     // 40 links per path is the Linux limit; past it, the write itself fails with ELOOP. One count for the whole path, as the system keeps, bounds links that lead back to each other.
     const budget = { links: 40 };
     const from = isAbsolute(path) ? "/" : linkTarget(cwd, budget);
-    return [resolve(cwd, path), walk(from, path, budget)].some((candidate) => {
-      const folded = undotted(candidate);
-      return globs.some((glob) => matchesGlob(folded, glob));
-    });
+    return [resolve(cwd, path), walk(from, path, budget)]
+      .flatMap(both)
+      .some((candidate) => {
+        const folded = undotted(candidate);
+        return globs.some((glob) => matchesGlob(folded, glob));
+      });
   });
 }
