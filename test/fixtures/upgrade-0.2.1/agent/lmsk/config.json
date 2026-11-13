@@ -1,0 +1,21 @@
+{
+  "rules": [
+    {
+      "id": "fixture-value",
+      "type": "literal",
+      "values": ["FIXTURE-REAL-VALUE-0001"]
+    },
+    {
+      "id": "fixture-field",
+      "type": "keyed",
+      "strategy": "shape",
+      "keys": ["fixtureField"],
+      "value": "[A-Za-z0-9]{12}"
+    }
+  ],
+  "protectedPaths": ["**/fixture-secrets/**"],
+  "networkCommands": ["fixture-upload"],
+  "restoredTools": ["read", "bash"],
+  "withholdHiddenCopies": true,
+  "scanTimeoutMs": 2000
+}
