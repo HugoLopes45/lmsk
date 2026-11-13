@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { machinePaths } from "../../src/core/index.ts";
+import { isProtectedPath, machinePaths } from "../../src/core/index.ts";
 
 describe("machinePaths", () => {
   it("uses the XDG defaults under home and protects lmsk's state and pi's stores and configurations", () => {
@@ -15,6 +15,7 @@ describe("machinePaths", () => {
         "**/lmsk/key",
         "**/lmsk/vault.jsonl",
         "**/lmsk/vault.lock",
+        "**/lmsk/vault.lock/**",
         "**/lmsk/serve-token",
         "**/lmsk/upstream",
         "**/.claude/settings*.json",
@@ -27,6 +28,16 @@ describe("machinePaths", () => {
       systemdPath: "/h/.config/systemd/user/lmsk.service",
     });
   });
+
+  it.each(["vault.jsonl", "vault.lock/1-a"])(
+    "protects the state file %s also outside the state folder",
+    (file) => {
+      const { protectedPaths } = machinePaths({}, "/h");
+      expect(isProtectedPath(`/x/lmsk/${file}`, "/", protectedPaths)).toBe(
+        true,
+      );
+    },
+  );
 
   it("ignores a relative CLAUDE_CONFIG_DIR, which no absolute path matches", () => {
     const { protectedPaths } = machinePaths({ CLAUDE_CONFIG_DIR: "rel" }, "/h");

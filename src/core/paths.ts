@@ -11,6 +11,9 @@ export interface MachinePaths {
   systemdPath: string;
 }
 
+/** The launchd label of the proxy service, which also names its plist file. */
+export const SERVICE_LABEL = "io.github.hugolopes45.lmsk";
+
 /** The code that the hook and the service run, from `src/core` and from `dist/core`. */
 const CODE = fileURLToPath(new URL("../../dist/**", import.meta.url));
 
@@ -29,7 +32,7 @@ export function machinePaths(
     home,
     "Library",
     "LaunchAgents",
-    "io.github.hugolopes45.lmsk.plist",
+    `${SERVICE_LABEL}.plist`,
   );
   const systemdPath = join(configBase, "systemd", "user", "lmsk.service");
   const stateDir = join(
@@ -46,9 +49,14 @@ export function machinePaths(
       "**/lmsk-vaults/**",
       "**/lmsk/config.json",
       // The state files, also by a path relative to a folder such as ~/.local/state.
-      ...["key", "vault.jsonl", "vault.lock", "serve-token", "upstream"].map(
-        (name) => `**/lmsk/${name}`,
-      ),
+      ...[
+        "key",
+        "vault.jsonl",
+        "vault.lock",
+        "vault.lock/**",
+        "serve-token",
+        "upstream",
+      ].map((name) => `**/lmsk/${name}`),
       // A change to these turns off the hook or the proxy of Claude Code.
       "**/.claude/settings*.json",
       join(

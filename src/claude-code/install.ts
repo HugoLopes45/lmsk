@@ -13,6 +13,7 @@ import {
   isRecord,
   machinePaths,
   protectedPatterns,
+  SERVICE_LABEL,
 } from "../core/index.ts";
 import type { ProxyOptions } from "../proxy/index.ts";
 import { TOOLS } from "./profile.ts";
@@ -30,7 +31,6 @@ export interface InstallOptions {
   notify: ProxyOptions["notify"];
 }
 
-const LABEL = "io.github.hugolopes45.lmsk";
 /** Claude Code retries 10 times by default, so it waits about 3 minutes for a proxy that is down. */
 const MAX_RETRIES = "3";
 
@@ -173,7 +173,7 @@ function launchdService(
     `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>Label</key><string>${LABEL}</string>
+<key>Label</key><string>${SERVICE_LABEL}</string>
 <key>ProgramArguments</key><array>${strings}</array>
 <key>EnvironmentVariables</key><dict>${env}</dict>
 <key>StandardErrorPath</key><string>${xml(log)}</string>
@@ -184,7 +184,7 @@ function launchdService(
   );
   const domain = `gui/${process.getuid?.()}`;
   // Fails when no earlier install runs; bootstrap then fails if one still does.
-  run("launchctl", ["bootout", `${domain}/${LABEL}`]);
+  run("launchctl", ["bootout", `${domain}/${SERVICE_LABEL}`]);
   check(run("launchctl", ["bootstrap", domain, plist]), "launchctl bootstrap");
 }
 
