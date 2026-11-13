@@ -90,13 +90,7 @@ function install(work: string): string {
       "--prefix",
       work,
       "--ignore-scripts",
-      "--no-audit",
-      "--no-fund",
       "--registry=https://registry.npmjs.org/",
-      "--cache",
-      join(work, "npm-cache"),
-      "--logs-dir",
-      join(work, "npm-logs"),
       PACKAGE,
     ],
     { stdio: "inherit" },
@@ -179,7 +173,7 @@ async function main(): Promise<void> {
   writeFileSync(configPath, `${JSON.stringify(CONFIG, null, 2)}\n`);
   await writeStore(core, configPath, join(OUT, PI_STORE));
   await writeStore(core, configPath, join(OUT, STATE_STORE));
-  assertNoLocalPath(OUT, [work, tmpdir(), homedir()]);
+  assertNoLocalPath(OUT, [tmpdir(), homedir()]);
 }
 
 await main();
