@@ -26,9 +26,10 @@ export function commandWords(command: string): string[] {
   return [...new Set(words)].filter((word) => word !== "");
 }
 
-/** The shell reads a word `~/...` from home. Another user's `~name` stays a relative word. */
+/** The shell reads a word `~/...`, `$HOME/...` or `${HOME}/...` from home. Another user's `~name` stays a relative word. */
 function fromHome(target: string, home: string): string {
-  return target.startsWith("~/") ? join(home, target.slice(2)) : target;
+  const prefix = /^(?:~|\$HOME|\$\{HOME\})\//.exec(target)?.[0];
+  return prefix === undefined ? target : join(home, target.slice(prefix.length));
 }
 
 /** The PreToolUse hook output that denies the call in `input`, or undefined when it opens no protected path. */

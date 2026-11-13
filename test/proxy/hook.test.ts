@@ -47,6 +47,13 @@ describe("hookDenial", () => {
     expect(hookDenial(call("~state/v.json", "/h"), options())).toBeUndefined();
   });
 
+  it.each(["$HOME/state/v.json", "${HOME}/state/v.json"])(
+    "reads %s from home, as the shell does",
+    (path) => {
+      expect(hookDenial(call(path), options())).toBeDefined();
+    },
+  );
+
   it("allows a call without a protected target", () => {
     expect(hookDenial(call("README.md"), options())).toBeUndefined();
   });
