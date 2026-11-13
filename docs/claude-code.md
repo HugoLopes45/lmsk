@@ -99,7 +99,7 @@ To write your first rules, read [Add your own secrets](GUIDE.md#add-your-own-sec
   - `env.CLAUDE_CODE_MAX_RETRIES` gets `3` if your user settings do not set it, so that a proxy error shows sooner.
   - `env.NO_PROXY` and `env.no_proxy` get `127.0.0.1` added to their value, so that your HTTP proxy does not get the requests to `lmsk`.
   - `env.CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY`, `CLAUDE_CODE_USE_MANTLE` and `CLAUDE_CODE_USE_ANTHROPIC_AWS` get an empty value. This turns off the other providers, because the proxy cannot mask their requests.
-  - `permissions.deny` gets one `Read` rule for each protected path.
+  - `permissions.deny` gets one `Read` rule and one `Edit` rule for each protected path.
   - `hooks.PreToolUse` gets the hook of `lmsk`. It replaces a hook of an earlier `lmsk install claude`.
 - **The service file.** On macOS, it is `~/Library/LaunchAgents/io.github.hugolopes45.lmsk.plist`. On Linux, it is `~/.config/systemd/user/lmsk.service`.
 - **The vault folder**, `~/.local/state/lmsk/`, or `lmsk/` in `XDG_STATE_HOME` if it was set. It gets `serve-token`, the private token of the proxy, and `upstream`, the address of your gateway.
@@ -129,6 +129,8 @@ The `Read` deny rules also refuse a file command that Claude Code recognizes in 
 A tool call with a fake path that becomes a protected path after restore keeps its fakes. So it does not open the protected file.
 
 The hook does not check the `glob` of a `Grep` or `Glob` call. So a search of a folder can find a protected file in it. Claude Code applies the `Read` deny rules to `Grep` and `Glob` as a best effort.
+
+The hook finds a relative path from the session folder, and it does not follow `cd`. So it does not refuse `cd ~/.claude && cp /tmp/s.json settings.json`. It also does not refuse a command that names only a parent folder, such as `mv ~/.claude /tmp/x`.
 
 The hook reads a shell command as a word list, not with a parser. It reads the words again without quotes, backslashes and line continuations, so `cat .e''nv` and `cat .e$'n'v` are refused like `cat .env`. Other shell expansions can still hide a path, such as a variable, an escape code `$'\x2e'`, a command substitution, a glob or a brace list. A quoted path with a space, a `name=value` word such as `if=.env`, another user's `~name` or another program can hide a path too.
 

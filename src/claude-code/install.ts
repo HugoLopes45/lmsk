@@ -7,12 +7,13 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   CodedError,
   isRecord,
   machinePaths,
   protectedPatterns,
+  SERVICE_LABEL,
 } from "../core/index.ts";
 import type { ProxyOptions } from "../proxy/index.ts";
 import { TOOLS } from "./profile.ts";
@@ -30,7 +31,6 @@ export interface InstallOptions {
   notify: ProxyOptions["notify"];
 }
 
-const LABEL = "io.github.hugolopes45.lmsk";
 /** Claude Code retries 10 times by default, so it waits about 3 minutes for a proxy that is down. */
 const MAX_RETRIES = "3";
 
@@ -157,12 +157,12 @@ function xml(text: string): string {
 }
 
 function launchdService(
-  { home, run }: InstallOptions,
+  { run }: InstallOptions,
+  plist: string,
   argv: readonly string[],
   vars: [string, string][],
   log: string,
 ): void {
-  const plist = join(home, "Library", "LaunchAgents", `${LABEL}.plist`);
   const strings = argv.map((arg) => `<string>${xml(arg)}</string>`).join("");
   const env = vars
     .map(([name, value]) => `<key>${name}</key><string>${xml(value)}</string>`)
@@ -173,7 +173,7 @@ function launchdService(
     `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>Label</key><string>${LABEL}</string>
+<key>Label</key><string>${SERVICE_LABEL}</string>
 <key>ProgramArguments</key><array>${strings}</array>
 <key>EnvironmentVariables</key><dict>${env}</dict>
 <key>StandardErrorPath</key><string>${xml(log)}</string>
@@ -184,7 +184,7 @@ function launchdService(
   );
   const domain = `gui/${process.getuid?.()}`;
   // Fails when no earlier install runs; bootstrap then fails if one still does.
-  run("launchctl", ["bootout", `${domain}/${LABEL}`]);
+  run("launchctl", ["bootout", `${domain}/${SERVICE_LABEL}`]);
   check(run("launchctl", ["bootstrap", domain, plist]), "launchctl bootstrap");
 }
 
@@ -194,15 +194,11 @@ function unitWord(text: string): string {
 }
 
 function systemdService(
-  { home, env, run }: InstallOptions,
+  { run }: InstallOptions,
+  unit: string,
   argv: readonly string[],
   vars: [string, string][],
 ): void {
-  const configDir =
-    env.XDG_CONFIG_HOME !== undefined && isAbsolute(env.XDG_CONFIG_HOME)
-      ? env.XDG_CONFIG_HOME
-      : join(home, ".config");
-  const unit = join(configDir, "systemd", "user", "lmsk.service");
   const environment = vars.map(
     ([name, value]) => `Environment=${unitWord(`${name}=${value}`)}\n`,
   );
@@ -246,7 +242,10 @@ function install(options: InstallOptions): void {
     rules: [],
     protectedPaths: paths.protectedPaths,
     tools: TOOLS,
-  }).map((pattern) => `Read(/${pattern.startsWith("/") ? "" : "/"}${pattern})`);
+  }).flatMap((pattern) => {
+    const path = `/${pattern.startsWith("/") ? "" : "/"}${pattern}`;
+    return [`Read(${path})`, `Edit(${path})`];
+  });
   const next = installedSettings(settings, url, deny, options);
   const gateway = [
     record(settings.env, "env").ANTHROPIC_BASE_URL,
@@ -266,8 +265,14 @@ function install(options: InstallOptions): void {
     },
   );
   if (platform === "darwin")
-    launchdService(options, argv, vars, join(paths.stateDir, "serve.log"));
-  else systemdService(options, argv, vars);
+    launchdService(
+      options,
+      paths.launchdPath,
+      argv,
+      vars,
+      join(paths.stateDir, "serve.log"),
+    );
+  else systemdService(options, paths.systemdPath, argv, vars);
   writePrivate(file, `${JSON.stringify(next, null, 2)}\n`);
 }
 

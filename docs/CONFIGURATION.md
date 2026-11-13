@@ -119,9 +119,9 @@ The check is not a sandbox. Any shell expansion can still hide a command, such a
 
 ### Default protected paths
 
-`**/.env*`, `**/*.pem`, `**/*.key`, `**/*.p12`, `**/*.pfx`, `**/*.jks`, `**/id_rsa*`, `**/id_ed25519*`, `**/.ssh/**`, `**/.aws/**`, `**/.kube/**`, `**/.gnupg/**`, `**/.config/gcloud/**`, `**/.docker/config.json`, `**/.npmrc`, `**/.pypirc`, `**/.netrc`, `**/.git-credentials`, `**/*.tfvars`, `**/*.tfstate`, `**/secrets.yaml`, `**/secrets.yml`, and the files of lmsk: `**/lmsk-vaults/**` and `**/lmsk/config.json`, and with pi `**/.pi/lmsk.json`.
+`**/.env*`, `**/*.pem`, `**/*.key`, `**/*.p12`, `**/*.pfx`, `**/*.jks`, `**/id_rsa*`, `**/id_ed25519*`, `**/.ssh/**`, `**/.aws/**`, `**/.kube/**`, `**/.gnupg/**`, `**/.config/gcloud/**`, `**/.docker/config.json`, `**/.npmrc`, `**/.pypirc`, `**/.netrc`, `**/.git-credentials`, `**/*.tfvars`, `**/*.tfstate`, `**/secrets.yaml`, `**/secrets.yml`, and the files of lmsk: `**/lmsk-vaults/**`, `**/lmsk/config.json`, `**/lmsk/key`, `**/lmsk/vault.jsonl`, `**/lmsk/vault.lock`, `**/lmsk/serve-token`, `**/lmsk/upstream`, the Claude Code settings `**/.claude/settings*.json`, and with pi `**/.pi/lmsk.json`.
 
-Each agent also protects the folders of lmsk, `~/.config/lmsk/` and `~/.local/state/lmsk/`. With Claude Code, a tool call whose path becomes a protected path after restore keeps its fakes. The hook of Claude Code also checks each word of a shell command. See [How the hook works](claude-code.md#how-the-hook-works).
+Each agent also protects the folders of lmsk, `~/.config/lmsk/` and `~/.local/state/lmsk/`, the code of lmsk, the Claude Code settings files and the service file of the proxy. A change to these files turns off lmsk. With Claude Code, a tool call whose path becomes a protected path after restore keeps its fakes. The hook of Claude Code also checks each word of a shell command. See [How the hook works](claude-code.md#how-the-hook-works).
 
 A protected path checks only the path argument of `read`, `grep`, `find` and `ls`. A `grep` or `find` on a whole folder, or a `bash` command, can still read a protected file. The masking rules still apply to that output.
 

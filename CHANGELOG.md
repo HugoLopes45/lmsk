@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Breaking: the Claude Code settings files `.claude/settings*.json`, the service file of the proxy and the code of lmsk are protected paths. With Claude Code, an agent can no longer read or change them. With pi, it can no longer read them. Edit your settings yourself.
+- The files `key`, `vault.jsonl`, `vault.lock`, `serve-token` and `upstream` in any folder named `lmsk` are protected paths, also by a relative path.
+- Claude Code: `lmsk install claude` adds an `Edit` deny rule next to each `Read` rule. Run it again to add them.
 - Claude Code: the deny hook reads a path that starts with `$HOME/` or `${HOME}/` from your home folder, as it reads `~/`.
 - Protected paths also match when a letter is written in another form that the disk reads as the same letter, such as the long s `ſ` for `s`.
 

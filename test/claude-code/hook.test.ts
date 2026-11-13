@@ -20,6 +20,17 @@ describe("claudeHook", () => {
     ["Bash", { command: "od -c ~/.local/state/lmsk/key" }, true],
     ["Bash", { command: "od -c $HOME/.local/state/lmsk/key" }, true],
     ["Bash", { command: 'od -c "${HOME}"/.local/state/lmsk/key' }, true],
+    ["Bash", { command: "cd ~/.local/state && od -c lmsk/key" }, true],
+    ["Write", { file_path: "/w/.claude/settings.local.json" }, true],
+    ["Edit", { file_path: "~/.claude/settings.json" }, true],
+    ["Edit", { file_path: "~/.config/systemd/user/lmsk.service" }, true],
+    ["Write", { file_path: "/w/.claude/agents/a.md" }, false],
+    [
+      "Write",
+      { file_path: "~/Library/LaunchAgents/io.github.hugolopes45.lmsk.plist" },
+      true,
+    ],
+    ["Edit", { file_path: join(process.cwd(), "dist", "cli", "bin.js") }, true],
     ["Bash", { command: 'cat "READ"ME.md' }, false],
     ["Read", { file_path: "/w/README.md" }, false],
     ["Grep", { pattern: "x", path: "/w/.env.local" }, true],
@@ -42,4 +53,19 @@ describe("claudeHook", () => {
       ).toBe(denied ? "deny" : undefined);
     },
   );
+
+  it("denies an edit of the settings in CLAUDE_CONFIG_DIR", () => {
+    const output = claudeHook(
+      {
+        cwd: "/w",
+        hook_event_name: "PreToolUse",
+        tool_name: "Edit",
+        tool_input: { file_path: "/cc/settings.json" },
+      },
+      { env: { CLAUDE_CONFIG_DIR: "/cc" }, home },
+    );
+    expect(
+      output && JSON.parse(output).hookSpecificOutput.permissionDecision,
+    ).toBe("deny");
+  });
 });

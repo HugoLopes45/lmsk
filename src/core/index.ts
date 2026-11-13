@@ -32,5 +32,5 @@ export {
 } from "./scanner.ts";
 export { Vault } from "./vault.ts";
 export { MachineVault } from "./machine-vault.ts";
-export { machinePaths } from "./paths.ts";
+export { machinePaths, SERVICE_LABEL } from "./paths.ts";
 export { TextRestorer } from "./restorer.ts";
