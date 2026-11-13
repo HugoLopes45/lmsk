@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { convertGoRegex, importGitleaks } from "../scripts/import-gitleaks.ts";
+import {
+  convertGoRegex,
+  importGitleaks,
+  renderGitleaks,
+} from "../scripts/import-gitleaks.ts";
 import { GITLEAKS_RULES } from "../src/core/gitleaks-rules.ts";
 
 function compile(go: string): RegExp {
@@ -155,5 +159,37 @@ describe("importGitleaks", () => {
       { id: "path-scoped", reason: "path-scoped rule" },
       { id: "go-only", reason: "unsupported flag group (?m)" },
     ]);
+  });
+
+  it("refuses a rule id that is not a plain name", () => {
+    expect(() =>
+      importGitleaks({ rules: [{ id: "a\nglobalThis.x=1//", regex: "a" }] }),
+    ).toThrow(/rule id/);
+  });
+});
+
+describe("renderGitleaks", () => {
+  const codeLines = (text: string) =>
+    text
+      .split(/\r\n?|[\n\u2028\u2029]/)
+      .filter((line) => !line.startsWith("//"));
+
+  it.each(["\n", "\r", "\u2028", "\u2029"])(
+    "keeps a skipped rule's reason with %j inside its comment",
+    (newline) => {
+      const imported = importGitleaks({
+        rules: [{ id: "bad", regex: `(?x${newline}globalThis.x=1//)a` }],
+      });
+      expect(imported.skipped[0]?.reason).toContain(newline);
+      expect(
+        codeLines(renderGitleaks(imported, "8.30.1")).join("\n"),
+      ).not.toContain("globalThis");
+    },
+  );
+
+  it("refuses a version that is not a plain version number", () => {
+    expect(() =>
+      renderGitleaks(importGitleaks({ rules: [] }), "1\nglobalThis.x=1//"),
+    ).toThrow(/version/);
   });
 });
