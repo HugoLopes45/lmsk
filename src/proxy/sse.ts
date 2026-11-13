@@ -31,19 +31,24 @@ class EventLines {
   }
 }
 
-/** The events of an SSE body. An event that the body does not end with a blank line is dropped. */
+/** The events of an SSE body. CR, LF and CRLF end a line. An event that the body does not end with a blank line is dropped. */
 export async function* readEvents(
   chunks: AsyncIterable<Uint8Array>,
 ): AsyncGenerator<SseEvent> {
   const decoder = new TextDecoder();
   const lines = new EventLines();
   let buffer = "";
+  let afterCr = false;
   for await (const chunk of chunks) {
-    buffer += decoder.decode(chunk, { stream: true });
-    const complete = buffer.split("\n");
+    let text = decoder.decode(chunk, { stream: true });
+    if (text === "") continue;
+    // A CR ends its line at once; an LF right after it, in the next chunk, is the rest of a CRLF.
+    if (afterCr && text.startsWith("\n")) text = text.slice(1);
+    afterCr = text.endsWith("\r");
+    const complete = (buffer + text).split(/\r\n|\r|\n/);
     buffer = complete.pop() ?? "";
     for (const line of complete) {
-      const event = lines.line(line.replace(/\r$/, ""));
+      const event = lines.line(line);
       if (event !== undefined) yield event;
     }
   }

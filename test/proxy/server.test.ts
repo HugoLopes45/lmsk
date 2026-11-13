@@ -628,6 +628,28 @@ describe("startProxy", () => {
     },
   );
 
+  it("cuts a streamed reply whose event name is not its data type, logs why and sends it once", async () => {
+    const start = {
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "text", text: "" },
+    };
+    const up = await upstream(
+      `event: ping\ndata: ${JSON.stringify(start)}\n\n`,
+      "text/event-stream",
+    );
+    const notices: string[] = [];
+    const { url } = await proxy(up.url, dirs(), (message) =>
+      notices.push(message),
+    );
+
+    const reply = post(`${url}/v1/messages`, payload).then((res) => res.text());
+
+    await expect(reply).rejects.toThrow();
+    expect(notices.join("\n")).toContain("STREAM_INVALID");
+    expect(up.received).toHaveLength(1);
+  });
+
   it("cuts a streamed reply whose tool call it cannot save, and logs why", async () => {
     const paths = dirs();
     const up = await upstream((body) => {

@@ -204,6 +204,111 @@ describe("anthropicStream", () => {
     ]);
   });
 
+  it("stops the stream when an event name differs from its data type", () => {
+    const hidden = {
+      event: "ping",
+      data: JSON.stringify({
+        type: "content_block_start",
+        index: 2,
+        content_block: {
+          type: "tool_use",
+          id: "toolu_02",
+          name: "Read",
+          input: {},
+        },
+      }),
+    };
+
+    expect(() =>
+      run(
+        [start(1), hidden, jsonDelta(1, '{"command":"echo FAKE"}'), stop(1)],
+        upper,
+      ),
+    ).toThrow("an event name is not its data type");
+  });
+
+  it("stops the stream when an event with JSON data has no name", () => {
+    const unnamed = { event: undefined, data: start(1).data };
+
+    expect(() => run([unnamed], upper)).toThrow(
+      "an event name is not its data type",
+    );
+  });
+
+  it("stops the stream when a block index is not a whole number", () => {
+    const named = sse({
+      type: "content_block_delta",
+      index: "1",
+      delta: { type: "input_json_delta", partial_json: '{"command":"FAKE"}' },
+    });
+
+    expect(() => run([start(1), named, stop(1)], upper)).toThrow(
+      "STREAM_INVALID",
+    );
+  });
+
+  it("passes an event of an unknown type unchanged, also with an index that is not a number", () => {
+    const unknown = sse({ type: "content_block_future", index: "1" });
+
+    expect(run([unknown], upper)).toEqual([unknown]);
+  });
+
+  it("stops the stream when a block starts over an open thinking block", () => {
+    const thinking = sse({
+      type: "content_block_start",
+      index: 1,
+      content_block: { type: "thinking", thinking: "" },
+    });
+
+    expect(() => run([thinking, start(1)], upper)).toThrow(
+      "a block starts at an open index",
+    );
+  });
+
+  it("accepts a block at the index of a block that stopped", () => {
+    const out = run(
+      [start(1), stop(1), start(1, "text"), textDelta(1, "a FAKE"), stop(1)],
+      upper,
+    );
+
+    expect(JSON.stringify(out)).toContain("REAL");
+  });
+
+  it("stops the stream when a block starts at an index that is still open", () => {
+    expect(() => run([start(1), start(1, "text")], upper)).toThrow(
+      "a block starts at an open index",
+    );
+  });
+
+  it("keeps the fakes of a text block that starts with a signature", () => {
+    const signed = sse({
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "text", text: "", signature: "sig" },
+    });
+
+    const out = run([signed, textDelta(0, "a FAKE"), stop(0)], upper);
+
+    expect(JSON.stringify(out)).toContain("FAKE");
+    expect(JSON.stringify(out)).not.toContain("REAL");
+  });
+
+  it("drops a signature delta on a text block that it restores", () => {
+    const signature = sse({
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "signature_delta", signature: "sig" },
+    });
+
+    const out = run(
+      [start(0, "text"), textDelta(0, "a FAKE"), signature, stop(0)],
+      upper,
+    );
+
+    expect(JSON.stringify(out)).toContain("REAL");
+    expect(JSON.stringify(out)).not.toContain("signature_delta");
+  });
+
   it("passes an event whose data is not JSON unchanged", async () => {
     const event = { event: "error", data: "upstream overloaded" };
 

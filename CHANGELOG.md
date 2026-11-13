@@ -12,6 +12,9 @@
 - The deny hook checks the words of a long shell command about 4 times faster.
 - Breaking, for code that imports lmsk: `isProtectedPath(path, cwd, patterns)` is now `protectedPath(paths, cwd, patterns)`, which returns the first protected path.
 - Breaking, for code that imports lmsk: `ToolCall.pathOf(input)` is now `ToolCall.targets(input)`, which returns a list of paths. `commandWords` and `fromHome` are new exports.
+- Claude Code: the proxy stops a streamed reply when an event name is not the type of its data. It also stops it when a block index is not a whole number, or when a block starts at an index that is still open. The stop is logged with `STREAM_INVALID`.
+- Claude Code: the proxy reads a lone CR as a line end in a streamed reply, as LF and CRLF.
+- Claude Code: a text block that a provider signs keeps its fakes. A signature that arrives after the text was restored is dropped.
 - Protected paths also match when a letter is written in another form that the disk reads as the same letter, such as the long s `ſ` for `s`.
 
 ## 0.3.0
