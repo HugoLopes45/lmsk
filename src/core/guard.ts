@@ -315,12 +315,19 @@ export class Guard {
    * Masks `texts` and returns them in input order, and unchanged while masking is off.
    * Rejects when the guard is blocked, and with HIDDEN_REAL when a text still holds a real plainly.
    * A text that hides a real in another reading becomes HIDDEN, as `withholdHiddenCopies` asks.
+   * The reals that `restoreCall` put back into a call whose id `callIds` holds are masked everywhere.
    */
-  async maskTexts(texts: string[]): Promise<string[]> {
+  async maskTexts(
+    texts: string[],
+    callIds: readonly string[] = [],
+  ): Promise<string[]> {
     const opened = this.opened();
     if (this.off) return texts;
     return this.exclusive(opened, async () => {
-      const masked = await opened.masker.mask(texts);
+      const masked = await opened.masker.mask(
+        texts,
+        opened.store.realsOf(callIds),
+      );
       await opened.masker.assertNoHiddenReal(masked, false);
       if (!opened.config.withholdHiddenCopies) return masked;
       const hiding = await opened.masker.hidingTexts(masked);
