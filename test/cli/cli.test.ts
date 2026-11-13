@@ -1,9 +1,9 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Readable } from "node:stream";
+import { PassThrough, Readable, Writable } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { main } from "../../src/cli/main.ts";
+import { confirm, main } from "../../src/cli/main.ts";
 
 async function run(args: string[], stdin = "") {
   const out = { stdout: "", stderr: "" };
@@ -14,7 +14,12 @@ async function run(args: string[], stdin = "") {
     env: {},
     stdin: Readable.from([stdin]),
     stdout: { write: (text: string) => (out.stdout += text) },
-    stderr: { write: (text: string) => (out.stderr += text) },
+    stderr: new Writable({
+      write(chunk: Buffer, _encoding, done) {
+        out.stderr += chunk.toString();
+        done();
+      },
+    }),
   });
   return { code, ...out };
 }
@@ -62,4 +67,53 @@ describe("lmsk", () => {
       "lmsk: hook failed: HOOK_INPUT.\n",
     );
   });
+
+  it("refuses lmsk install claude without a terminal, with INSTALL_NOT_CONFIRMED", async () => {
+    expect(await run(["install", "claude"])).toEqual({
+      code: 1,
+      stdout: "",
+      stderr: expect.stringMatching(/^lmsk: INSTALL_NOT_CONFIRMED: /),
+    });
+  });
+});
+
+function terminal(isTTY: boolean) {
+  return Object.assign(new PassThrough(), { isTTY });
+}
+
+describe("confirm", () => {
+  it("answers yes when the input says y", async () => {
+    const stdin = terminal(true);
+    const stderr = terminal(true);
+    const answer = confirm("Continue?", { stdin, stderr });
+
+    stdin.write("y\n");
+
+    expect(await answer).toBe(true);
+  });
+
+  it("answers no when the input ends during the question", async () => {
+    const stdin = terminal(true);
+    const stderr = terminal(true);
+    const answer = confirm("Continue?", { stdin, stderr });
+
+    stdin.end();
+
+    expect(await answer).toBe(false);
+  });
+
+  it.each([
+    ["the input", false, true],
+    ["the output", true, false],
+  ])(
+    "answers no without a prompt when %s is not a terminal",
+    async (_name, stdinIsTTY, stderrIsTTY) => {
+      const stdin = terminal(stdinIsTTY);
+      const stderr = terminal(stderrIsTTY);
+      stdin.write("y\n");
+
+      expect(await confirm("Continue?", { stdin, stderr })).toBe(false);
+      expect(stderr.read()).toBeNull();
+    },
+  );
 });

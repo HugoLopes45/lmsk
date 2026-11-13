@@ -32,6 +32,8 @@ You start Claude Code with `claude`, as usual.
 
 `lmsk install claude` saves the gateway address of step 3. The proxy then sends the requests to your gateway, not to Anthropic. To stop using the gateway, remove `ANTHROPIC_BASE_URL` from your shell, delete the file `upstream` in the [vault folder](#what-lmsk-install-claude-changes), then run `lmsk install claude`.
 
+`lmsk install claude` asks you to answer yes before it saves a new or different gateway address, or writes the service file with new text. The first install asks too. The question needs a terminal. Without a terminal, the command stops with `INSTALL_NOT_CONFIRMED` and changes nothing.
+
 Run `lmsk install claude` again after each of these changes. The command starts the service again with the new files.
 
 - You update `lmsk` or Node.js. The service runs the exact Node.js and `lmsk` files that were installed when you ran the command.

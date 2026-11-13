@@ -17,7 +17,12 @@ import {
 } from "../core/index.ts";
 import type { ProxyOptions } from "../proxy/index.ts";
 import { TOOLS } from "./profile.ts";
-import { SERVE_PORT, saveUpstream, serveToken } from "./serve.ts";
+import {
+  SERVE_PORT,
+  savedUpstream,
+  saveUpstream,
+  serveToken,
+} from "./serve.ts";
 
 export interface InstallOptions {
   home: string;
@@ -29,6 +34,15 @@ export interface InstallOptions {
   /** Runs a service manager command and returns its exit status. */
   run: (command: string, args: readonly string[]) => number;
   notify: ProxyOptions["notify"];
+  /** Asks the user to accept a change to the saved gateway or to the service file. Resolves false when no one can answer. */
+  confirm: (question: string) => Promise<boolean>;
+}
+
+/** The file that starts the proxy at login, and the commands that load it. */
+interface Service {
+  path: string;
+  text: string;
+  start: () => void;
 }
 
 /** Claude Code retries 10 times by default, so it waits about 3 minutes for a proxy that is down. */
@@ -162,15 +176,12 @@ function launchdService(
   argv: readonly string[],
   vars: [string, string][],
   log: string,
-): void {
+): Service {
   const strings = argv.map((arg) => `<string>${xml(arg)}</string>`).join("");
   const env = vars
     .map(([name, value]) => `<key>${name}</key><string>${xml(value)}</string>`)
     .join("");
-  mkdirSync(dirname(plist), { recursive: true });
-  writeFileSync(
-    plist,
-    `<?xml version="1.0" encoding="UTF-8"?>
+  const text = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>${SERVICE_LABEL}</string>
@@ -180,16 +191,26 @@ function launchdService(
 <key>RunAtLoad</key><true/>
 <key>KeepAlive</key><true/>
 </dict></plist>
-`,
-  );
-  const domain = `gui/${process.getuid?.()}`;
-  // Fails when no earlier install runs; bootstrap then fails if one still does.
-  run("launchctl", ["bootout", `${domain}/${SERVICE_LABEL}`]);
-  check(run("launchctl", ["bootstrap", domain, plist]), "launchctl bootstrap");
+`;
+  const start = () => {
+    const domain = `gui/${process.getuid?.()}`;
+    // Fails when no earlier install runs; bootstrap then fails if one still does.
+    run("launchctl", ["bootout", `${domain}/${SERVICE_LABEL}`]);
+    check(
+      run("launchctl", ["bootstrap", domain, plist]),
+      "launchctl bootstrap",
+    );
+  };
+  return { path: plist, text, start };
 }
 
-/** A systemd unit word: quoted, with its specifier signs doubled. */
+/** A systemd unit word: quoted, with its specifier signs doubled. A line break would start a new unit line. */
 function unitWord(text: string): string {
+  if (/\p{Cc}/u.test(text))
+    throw new CodedError(
+      "SERVICE_VALUE_INVALID",
+      "a folder or a path holds a control character",
+    );
   return `"${text.replace(/[\\"]/g, "\\$&").replace(/%/g, "%%")}"`;
 }
 
@@ -198,14 +219,11 @@ function systemdService(
   unit: string,
   argv: readonly string[],
   vars: [string, string][],
-): void {
+): Service {
   const environment = vars.map(
     ([name, value]) => `Environment=${unitWord(`${name}=${value}`)}\n`,
   );
-  mkdirSync(dirname(unit), { recursive: true });
-  writeFileSync(
-    unit,
-    `[Unit]
+  const text = `[Unit]
 Description=lmsk masking proxy for Claude Code
 
 [Service]
@@ -214,17 +232,43 @@ ${environment.join("")}Restart=always
 
 [Install]
 WantedBy=default.target
-`,
-  );
-  for (const args of [
-    ["daemon-reload"],
-    ["enable", "lmsk.service"],
-    ["restart", "lmsk.service"],
-  ])
-    check(run("systemctl", ["--user", ...args]), `systemctl ${args[0]}`);
+`;
+  const start = () => {
+    for (const args of [
+      ["daemon-reload"],
+      ["enable", "lmsk.service"],
+      ["restart", "lmsk.service"],
+    ])
+      check(run("systemctl", ["--user", ...args]), `systemctl ${args[0]}`);
+  };
+  return { path: unit, text, start };
 }
 
-function install(options: InstallOptions): void {
+/** A tool call can run the install too, so a change to where requests go, or a service file that is missing or has other text, needs a yes. The saved gateway stays out of the question: the settings that hold it are protected. */
+async function confirmChanges(
+  { confirm }: InstallOptions,
+  stateDir: string,
+  gateway: string | undefined,
+  service: Service,
+): Promise<void> {
+  const current = existsSync(service.path)
+    ? readFileSync(service.path, "utf8")
+    : undefined;
+  const changes = [
+    ...(gateway !== undefined && savedUpstream(stateDir) !== gateway
+      ? [`sends Claude Code requests to ${gateway}`]
+      : []),
+    ...(current === service.text ? [] : [`changes ${service.path}`]),
+  ];
+  if (changes.length === 0) return;
+  if (!(await confirm(`lmsk install ${changes.join(" and ")}. Continue?`)))
+    throw new CodedError(
+      "INSTALL_NOT_CONFIRMED",
+      "run lmsk install claude in a terminal and answer yes",
+    );
+}
+
+async function install(options: InstallOptions): Promise<void> {
   const { home, env, platform, node, bin } = options;
   if (platform !== "darwin" && platform !== "linux")
     throw new CodedError(
@@ -237,6 +281,33 @@ function install(options: InstallOptions): void {
   );
   const settings = readSettings(file);
   const paths = machinePaths(env, home);
+  const gateway = [
+    record(settings.env, "env").ANTHROPIC_BASE_URL,
+    env.ANTHROPIC_BASE_URL,
+  ].find(
+    (value): value is string =>
+      typeof value === "string" &&
+      value !== "" &&
+      !value.startsWith(`http://127.0.0.1:${SERVE_PORT}/`),
+  );
+  const argv = [node, bin, "serve"];
+  const vars = (["XDG_CONFIG_HOME", "XDG_STATE_HOME"] as const).flatMap(
+    (name): [string, string][] => {
+      const value = env[name];
+      return value ? [[name, value]] : [];
+    },
+  );
+  const service =
+    platform === "darwin"
+      ? launchdService(
+          options,
+          paths.launchdPath,
+          argv,
+          vars,
+          join(paths.stateDir, "serve.log"),
+        )
+      : systemdService(options, paths.systemdPath, argv, vars);
+  await confirmChanges(options, paths.stateDir, gateway, service);
   const url = `http://127.0.0.1:${SERVE_PORT}/${serveToken(paths.stateDir)}`;
   const deny = protectedPatterns([paths.configPath], {
     rules: [],
@@ -247,32 +318,10 @@ function install(options: InstallOptions): void {
     return [`Read(${path})`, `Edit(${path})`];
   });
   const next = installedSettings(settings, url, deny, options);
-  const gateway = [
-    record(settings.env, "env").ANTHROPIC_BASE_URL,
-    env.ANTHROPIC_BASE_URL,
-  ].find(
-    (value) =>
-      typeof value === "string" &&
-      value !== "" &&
-      !value.startsWith(`http://127.0.0.1:${SERVE_PORT}/`),
-  );
-  if (typeof gateway === "string") saveUpstream(paths.stateDir, gateway);
-  const argv = [node, bin, "serve"];
-  const vars = (["XDG_CONFIG_HOME", "XDG_STATE_HOME"] as const).flatMap(
-    (name): [string, string][] => {
-      const value = env[name];
-      return value ? [[name, value]] : [];
-    },
-  );
-  if (platform === "darwin")
-    launchdService(
-      options,
-      paths.launchdPath,
-      argv,
-      vars,
-      join(paths.stateDir, "serve.log"),
-    );
-  else systemdService(options, paths.systemdPath, argv, vars);
+  if (gateway !== undefined) saveUpstream(paths.stateDir, gateway);
+  mkdirSync(dirname(service.path), { recursive: true });
+  writeFileSync(service.path, service.text);
+  service.start();
   writePrivate(file, `${JSON.stringify(next, null, 2)}\n`);
 }
 
@@ -280,9 +329,9 @@ function install(options: InstallOptions): void {
  * Starts the proxy at login and points the user settings of Claude Code at it. Returns the exit
  * code. Project settings outrank user settings, so a project can still send Claude Code elsewhere.
  */
-export function installClaude(options: InstallOptions): number {
+export async function installClaude(options: InstallOptions): Promise<number> {
   try {
-    install(options);
+    await install(options);
   } catch (error) {
     if (!(error instanceof CodedError)) throw error;
     options.notify(`lmsk: ${error.message}.`, "error");
