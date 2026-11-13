@@ -8,11 +8,14 @@ describe("machinePaths", () => {
       configPath: "/h/.config/lmsk/config.json",
       stateDir: "/h/.local/state/lmsk",
       protectedPaths: [
+        "/h/.config/lmsk",
         "/h/.config/lmsk/**",
+        "/h/.local/state/lmsk",
         "/h/.local/state/lmsk/**",
         "**/lmsk-vaults/**",
         "**/lmsk/config.json",
         "**/lmsk/key",
+        "**/lmsk/key.*.tmp",
         "**/lmsk/vault.jsonl",
         "**/lmsk/vault.lock",
         "**/lmsk/vault.lock/**",
@@ -38,6 +41,13 @@ describe("machinePaths", () => {
       );
     },
   );
+
+  it("protects the temporary key file that a crash leaves in the state folder", () => {
+    const { protectedPaths } = machinePaths({}, "/h");
+    const temporary =
+      "/h/.local/state/lmsk/key.0123456789abcdef0123456789abcdef.tmp";
+    expect(protectedPath([temporary], "/", protectedPaths)).toBe(temporary);
+  });
 
   it("ignores a relative CLAUDE_CONFIG_DIR, which no absolute path matches", () => {
     const { protectedPaths } = machinePaths({ CLAUDE_CONFIG_DIR: "rel" }, "/h");

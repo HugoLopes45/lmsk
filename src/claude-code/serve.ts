@@ -74,7 +74,7 @@ export function savedUpstream(stateDir: string): string | undefined {
 }
 
 /** Starts the proxy that serves every Claude Code session of the user. */
-export function serveClaude({
+export async function serveClaude({
   cwd,
   home,
   env,
@@ -83,6 +83,8 @@ export function serveClaude({
 }: ServeOptions): Promise<RunningProxy> {
   const paths = machinePaths(env, home);
   const upstream = env.ANTHROPIC_BASE_URL || savedUpstream(paths.stateDir);
+  if (upstream === "")
+    throw new CodedError("UPSTREAM_INVALID", "the saved upstream is empty");
   return startProxy(
     claudeProfile({
       cwd,

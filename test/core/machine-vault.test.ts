@@ -12,7 +12,7 @@ import fs, {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import fc from "fast-check";
 import { describe, expect, it, vi } from "vitest";
 import { MachineVault } from "../../src/core/machine-vault.ts";
@@ -115,6 +115,17 @@ describe("MachineVault", () => {
       "hunter2",
       "tiger7",
     ]);
+  });
+
+  it("refuses a call id that is empty, and keeps the journal readable", () => {
+    const dir = stateDir();
+    const vault = MachineVault.open(dir);
+    const before = readFileSync(join(dir, "vault.jsonl"), "utf8");
+    expect(() => vault.recordCall("", ["dummy-real-value"])).toThrow(
+      expect.objectContaining({ code: "CALL_ID_INVALID" }),
+    );
+    expect(readFileSync(join(dir, "vault.jsonl"), "utf8")).toBe(before);
+    expect(MachineVault.open(dir).realsOf([""])).toEqual([]);
   });
 
   it("refuses a journal with an invalid line", () => {
@@ -314,6 +325,73 @@ describe("MachineVault", () => {
       expect.objectContaining({ code: "VAULT_FULL" }),
     );
     expect(statSync(join(dir, "vault.jsonl")).size).toBe(32 * 1024 * 1024 - 10);
+  });
+
+  it("creates the key whole or not at all, so a failed write does not block the next open", () => {
+    const dir = stateDir();
+    vi.spyOn(fs, "writeSync").mockImplementationOnce(() => {
+      throw Object.assign(new Error("Key write failed"), { code: "EIO" });
+    });
+    syncBuiltinESMExports();
+    try {
+      expect(() => MachineVault.open(dir)).toThrow(
+        expect.objectContaining({ code: "STORE_IO" }),
+      );
+    } finally {
+      vi.restoreAllMocks();
+      syncBuiltinESMExports();
+    }
+    expect(MachineVault.open(dir).vault.entries()).toEqual([]);
+    expect(readFileSync(join(dir, "key")).length).toBe(32);
+  });
+
+  it("writes and syncs the new key before it links it into place, then syncs the vault folder", () => {
+    const dir = stateDir();
+    const open = fs.openSync;
+    const write = fs.writeSync;
+    const fsync = fs.fsyncSync;
+    const link = fs.linkSync;
+    const paths = new Map<number, string>();
+    const synced: string[] = [];
+    const events: string[] = [];
+    // The temporary name is random, so the events name each file by its role.
+    const role = (path: string) =>
+      path === dir ? "dir" : path.endsWith(".tmp") ? "key.tmp" : basename(path);
+    vi.spyOn(fs, "openSync").mockImplementation((path, flags, mode) => {
+      const fd = open(path, flags, mode);
+      paths.set(fd, String(path));
+      return fd;
+    });
+    vi.spyOn(fs, "writeSync").mockImplementation(
+      (fd, bytes, offset, length) => {
+        events.push(`write ${role(paths.get(Number(fd)) ?? "")}`);
+        return write(fd, bytes, offset, length);
+      },
+    );
+    vi.spyOn(fs, "fsyncSync").mockImplementation((fd) => {
+      const path = paths.get(Number(fd)) ?? "";
+      synced.push(path);
+      events.push(`fsync ${role(path)}`);
+      fsync(fd);
+    });
+    vi.spyOn(fs, "linkSync").mockImplementation((from, to) => {
+      events.push(`link ${role(String(from))} ${role(String(to))}`);
+      link(from, to);
+    });
+    syncBuiltinESMExports();
+    try {
+      MachineVault.open(dir);
+    } finally {
+      vi.restoreAllMocks();
+      syncBuiltinESMExports();
+    }
+    expect(synced).toContain(dir);
+    expect(events).toEqual([
+      "write key.tmp",
+      "fsync key.tmp",
+      "link key.tmp key",
+      "fsync dir",
+    ]);
   });
 
   it("refuses a key that other users can read", () => {
