@@ -92,6 +92,25 @@ describe("decodedViews base64", () => {
 
     expect(views.map((view) => view.text)).toEqual([inner]);
   });
+
+  it.each(["%2E", "%2e"])(
+    "decodes each segment of a JWT whose dots are written as %s",
+    (dot) => {
+      const segments = [
+        Buffer.from('{"alg":"HS256"}').toString("base64url"),
+        Buffer.from('{"sub":"1234","password":"hunter2x9Q"}').toString(
+          "base64url",
+        ),
+        "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+      ];
+      const views = decodedViews(`token=${segments.join(dot)}`);
+
+      expect(views.map((view) => view.text)).toEqual([
+        '{"alg":"HS256"}',
+        '{"sub":"1234","password":"hunter2x9Q"}',
+      ]);
+    },
+  );
 });
 
 describe("decodedViews percent-encoding", () => {
@@ -117,6 +136,53 @@ describe("decodedViews percent-encoding", () => {
 
   it("rejects escapes that decode to non-ASCII text", () => {
     expect(decodedViews("name=%C3%A9t%C3%A9")).toEqual([]);
+  });
+
+  it("decodes the ASCII parts of a run around an escape of a non-ASCII byte", () => {
+    const encoded =
+      "%7B%22name%22%3A%22Jos%C3%A9%22%2C%22password%22%3A%22hunter2x9Q%22%7D";
+    const views = decodedViews(encoded);
+
+    expect(views.map(({ start, end }) => encoded.slice(start, end))).toEqual([
+      "%7B%22name%22%3A%22Jos",
+      "%22%2C%22password%22%3A%22hunter2x9Q%22%7D",
+    ]);
+    expect(views.map((view) => view.text)).toEqual([
+      '{"name":"Jos',
+      '","password":"hunter2x9Q"}',
+    ]);
+  });
+
+  it("ends a run at a control byte, but keeps a line break in it", () => {
+    const views = decodedViews("%61%0A%62%00%63%64");
+
+    expect(views.map((view) => [view.start, view.end, view.text])).toEqual([
+      [0, 9, "a\nb"],
+      [12, 18, "cd"],
+    ]);
+  });
+
+  it("keeps a value that straddles the 4096th character of a run", () => {
+    const json = "%7B%22password%22%3A%22hunter2x9Q%22%7D";
+    const views = decodedViews(`x=${"a".repeat(4080)}${json}`);
+
+    expect(views.map((view) => view.text)).toContainEqual(
+      expect.stringContaining('"password":"hunter2x9Q"'),
+    );
+  });
+
+  it("scans 8 MiB of plain characters without overflowing the stack", () => {
+    expect(() => decodedViews("a".repeat(8 * 1024 * 1024))).not.toThrow();
+  });
+
+  it("keeps a percent run whose base64 value follows an escaped quote", () => {
+    const value = base64("user:pass-word-123");
+    const json = `%7B%22token%22%3A%22${value}%22%2C%22password%22%3A%22hunter2x9Q%22%7D`;
+    const views = decodedViews(json);
+
+    expect(views.map((view) => view.text)).toEqual([
+      `{"token":"${value}","password":"hunter2x9Q"}`,
+    ]);
   });
 
   it.each(["n%32", "year2%100", "bytesHashed%64"])(
