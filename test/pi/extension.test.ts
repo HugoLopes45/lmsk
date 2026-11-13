@@ -1746,6 +1746,51 @@ describe("protected paths", () => {
     },
   );
 
+  it.each([
+    ["grep", () => ({ pattern: "x", path: root })],
+    ["grep", () => ({ pattern: "x", path: join(root, "state") })],
+    ["find", () => ({ pattern: "*", path: join(root, "state", "lmsk") })],
+    ["grep", () => ({ pattern: "x" })],
+    ["find", () => ({ pattern: "*" })],
+    ["ls", () => ({ path: root })],
+    ["ls", () => ({})],
+  ] as const)(
+    "blocks %s on a folder that holds the machine state",
+    async (toolName, input) => {
+      const pi = fakePi();
+      const ctx = testContext({ cwd: root });
+      startSession(ctx, pi);
+
+      const result = await pi.handlers.tool_call?.(
+        { type: "tool_call", toolCallId: "1", toolName, input: input() },
+        ctx,
+      );
+
+      expect(result).toMatchObject({ block: true });
+    },
+  );
+
+  it.each([
+    ["grep", () => ({ pattern: "x", path: projectDir })],
+    ["grep", () => ({ pattern: "x", path: join(root, "sta") })],
+    ["find", () => ({ pattern: "*" })],
+    ["ls", () => ({})],
+  ] as const)(
+    "lets %s search a folder without protected files",
+    async (toolName, input) => {
+      const pi = fakePi();
+      const ctx = testContext();
+      startSession(ctx, pi);
+
+      const result = await pi.handlers.tool_call?.(
+        { type: "tool_call", toolCallId: "1", toolName, input: input() },
+        ctx,
+      );
+
+      expect(result).toBeUndefined();
+    },
+  );
+
   it.each(["key", "vault.jsonl"])(
     "blocks a read of the machine %s",
     async (file) => {

@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { brotliCompressSync, gzipSync, zstdCompressSync } from "node:zlib";
 import { anthropicStream } from "../../src/formats/index.ts";
+import { claudeProfile } from "../../src/claude-code/profile.ts";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   type ProxyProfile,
@@ -78,6 +79,7 @@ function profile(upstreamUrl: string): ProxyProfile {
     commandKey: (tool) => (tool === "Bash" ? "command" : undefined),
     pathOf: (_tool, input) =>
       typeof input.file_path === "string" ? input.file_path : undefined,
+    rootsOf: () => [],
   };
 }
 
@@ -431,6 +433,48 @@ describe("startProxy", () => {
     expect(await res.text()).toBe(`lmsk: ${code}`);
     expect(up.received).toEqual([]);
   });
+
+  it.each([
+    [{}, true],
+    [{ path: "src" }, true],
+    [{ path: "/" }, false],
+  ])(
+    "restores a Grep with %j from a proxy that runs in /: %s",
+    async (where, restored) => {
+      const paths = dirs();
+      let fake = "";
+      const up = await upstream((body) => {
+        fake ||= JSON.parse(body).messages[0].content;
+        return toolUseStream("t1", "Grep", { pattern: fake, ...where });
+      }, "text/event-stream");
+      const running = await startProxy(
+        claudeProfile({
+          cwd: "/",
+          env: { ANTHROPIC_BASE_URL: up.url },
+          protectedPaths: [join(paths.stateDir, "**")],
+        }),
+        {
+          configPaths: [paths.configPath],
+          stateDir: paths.stateDir,
+          env: {},
+          notify: () => undefined,
+          port: 0,
+          token: "test-token",
+        },
+      );
+      closers.push(() => running.close());
+
+      const reply = await post(
+        `${running.url}/v1/messages`,
+        JSON.stringify({ messages: [{ role: "user", content: SECRET }] }),
+      );
+
+      expect(streamedInput(await reply.text())).toEqual({
+        pattern: restored ? SECRET : fake,
+        ...where,
+      });
+    },
+  );
 
   it("never sends the provider a short real that a tool call restored, on later requests or in a resumed run", async () => {
     const paths = dirs({
