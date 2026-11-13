@@ -92,7 +92,8 @@ If you move the `key` file too, each value gets a new fake.
 With Claude Code, the codes above have the same meaning, with these differences:
 
 - Claude Code shows a stopped request as an API error with the text `lmsk: CODE`, for example `API Error: 400 lmsk: SCAN_TIMEOUT`.
-- There is no `/lmsk` command and no `/reload`. To clear a block, correct the cause, then run `lmsk install claude`. It starts the proxy again.
+- There is no `/lmsk` command and no `/reload`. To clear a block, correct the cause. The next request opens the config again, so the proxy does not need a restart.
+- If the proxy stopped, for example with `PORT_TAKEN` or `TOKEN_CORRUPT`, correct the cause, then run `lmsk install claude`. It starts the proxy again.
 - Where this page says `/tree`, type `/rewind`, then choose `Restore conversation`.
 - The proxy writes its messages to `serve.log` in the vault folder on macOS. On Linux, run `journalctl --user -u lmsk.service`.
 
@@ -103,7 +104,7 @@ These messages occur only with Claude Code:
 | `lmsk: <path> is a protected path` as the reason that a tool call was refused | The hook refused a call that opens a protected path. | This is the normal protection. See [Default protected paths](CONFIGURATION.md#default-protected-paths). |
 | `lmsk: hook failed: CODE.` | The hook failed, for example on an input that it cannot read. Claude Code then refuses the call. | Report the problem as an issue, with the code. |
 | `lmsk: UPSTREAM` | The proxy could not reach Anthropic or your gateway. | Check your network connection, then send the request again. |
-| `lmsk: FORBIDDEN` | A program sent a request to the proxy without its private token. | Run `lmsk install claude`, then restart Claude Code. Do not copy the proxy address into another program. |
+| `lmsk: FORBIDDEN` | A program sent a request to the proxy without its private token. The proxy logs only the first such request after it starts. | Run `lmsk install claude`, then restart Claude Code. Do not copy the proxy address into another program. |
 | `Connection refused` (`ECONNREFUSED`) | The proxy does not run. | Run `lmsk install claude`. If the error comes back, read the messages of the proxy. |
 | `lmsk: SETTINGS_INVALID: <detail>.` from `lmsk install claude` | Your user settings file is not JSON, or one of its keys that lmsk changes has a wrong type. | Correct the file, then run the command again. |
 | `lmsk: SERVICE_FAILED: <command> exited <number>.` from `lmsk install claude` | `launchctl` or `systemctl` could not start the service. | Read the output of the command above the message. Correct the cause, then run the command again. |
@@ -111,6 +112,17 @@ These messages occur only with Claude Code:
 | `lmsk: SERVICE_VALUE_INVALID: a folder or a path holds a control character.` from `lmsk install claude` on Linux | The path to Node.js or to lmsk, or the folder in `XDG_CONFIG_HOME` or `XDG_STATE_HOME`, holds a line break or another control character. | Rename the folder or change the variable, then run the command again. |
 | `lmsk: PLATFORM_UNSUPPORTED: lmsk runs on macOS and Linux.` | Your operating system is not macOS or Linux. | Use pi, or use Claude Code on macOS or Linux. |
 | `TOKEN_CORRUPT` in the messages of the proxy | The file `serve-token` in the vault folder is not valid. | Delete the file, run `lmsk install claude`, then restart Claude Code. |
+| `lmsk: serve stopped: PORT_TAKEN.` | Another program uses the port of the proxy, 25675. The proxy does not start. | See [PORT_TAKEN](#port_taken). |
+
+## PORT_TAKEN
+
+`lmsk serve` stops with `lmsk: serve stopped: PORT_TAKEN.` when another program listens on the port of the proxy, 25675. Find the program with this command:
+
+```text
+lsof -i :25675
+```
+
+The output shows the process ID and the name of the program. Stop that program, or wait until it stops. If the program is another `lmsk serve`, stop it first. Then run `lmsk install claude` to start the proxy again.
 
 ## CONFIG_INVALID
 

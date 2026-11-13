@@ -147,6 +147,11 @@ export class Guard {
     this.state = { ok: false, code: "SESSION_SHUTDOWN" };
   }
 
+  /** Whether an open is needed: none ran yet, or the last one failed. A closed guard is not blocked: it must not open again. */
+  get blocked(): boolean {
+    return !this.state.ok && this.state.code !== "SESSION_SHUTDOWN";
+  }
+
   /** Whether the user turned masking off in a working guard. */
   get off(): boolean {
     return this.state.ok && this.redaction === "off";

@@ -8,7 +8,7 @@ import {
   SERVE_PORT,
   serveClaude,
 } from "../claude-code/index.ts";
-import { errorCode } from "../core/index.ts";
+import { CodedError, errorCode } from "../core/index.ts";
 
 export interface Io {
   cwd: string;
@@ -43,8 +43,14 @@ export async function main(args: readonly string[], io: Io): Promise<number> {
       confirm: (question) => confirm(question, io),
     });
   if (command === "serve") {
-    await serveClaude({ ...launch, port: SERVE_PORT });
-    return 0;
+    try {
+      await serveClaude({ ...launch, port: SERVE_PORT });
+      return 0;
+    } catch (error) {
+      if (!(error instanceof CodedError)) throw error;
+      io.stderr.write(`lmsk: serve stopped: ${error.code}.\n`);
+      return 1;
+    }
   }
   if (command === "hook" && rest[0] === "claude") return runHook(io);
   if (command === "--help" || command === "-h") {

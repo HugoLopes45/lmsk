@@ -7,10 +7,12 @@ import {
 import { isAbsolute } from "node:path";
 import { pipeline } from "node:stream/promises";
 import {
+  CodedError,
   errorCode,
   Guard,
   type GuardHost,
   type HostContext,
+  isRecord,
   localIdentityRules,
   type TextRestorer,
 } from "../core/index.ts";
@@ -221,26 +223,40 @@ export async function startProxy(
 ): Promise<RunningProxy> {
   const prefix = `/${options.token}/`;
   const guard = new Guard(profile);
-  guard.open(
-    () => ({
-      configPaths: options.configPaths,
-      projectConfigPath: undefined,
-      stateDir: options.stateDir,
-      env: options.env,
-      defaultRules: localIdentityRules(),
-    }),
-    { ui: { notify: options.notify }, abort: () => undefined },
-  );
+  const openGuard = (notify: ProxyOptions["notify"]) =>
+    guard.open(
+      () => ({
+        configPaths: options.configPaths,
+        projectConfigPath: undefined,
+        stateDir: options.stateDir,
+        env: options.env,
+        defaultRules: localIdentityRules(),
+      }),
+      { ui: { notify }, abort: () => undefined },
+    );
+  openGuard(options.notify);
   const restore = restorer(guard, profile);
   const text = () => guard.textRestorer();
+  // Requests without the token can come from any local process, so only the first one gets a notice.
+  let forbiddenNoticed = false;
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
     const path = req.url ?? "";
-    if (!path.startsWith(prefix)) return refuse(res, 403, "FORBIDDEN");
+    if (!path.startsWith(prefix)) {
+      if (!forbiddenNoticed) {
+        forbiddenNoticed = true;
+        options.notify("lmsk: FORBIDDEN", "error");
+      }
+      return refuse(res, 403, "FORBIDDEN");
+    }
+    // A failed open is retried, so a fixed config masks the next request. The retry sends no notice: the refusal carries the code.
+    if (guard.blocked) openGuard(() => undefined);
     let masked: MaskedRequest;
     try {
       masked = await maskedRequest(req, guard, profile);
     } catch (error) {
-      return refuse(res, 400, errorCode(error));
+      const code = errorCode(error);
+      options.notify(`lmsk: ${code}`, "error");
+      return refuse(res, 400, code);
     }
     const url = `${profile.upstream.replace(/\/$/, "")}/${path.slice(prefix.length)}`;
     await forward(req, res, url, masked, profile.codec(restore, text)).catch(
@@ -254,9 +270,15 @@ export async function startProxy(
   const server = createServer((req, res) => void handle(req, res));
   try {
     await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
+      const onError = (error: unknown) =>
+        reject(
+          isRecord(error) && error.code === "EADDRINUSE"
+            ? new CodedError("PORT_TAKEN")
+            : error,
+        );
+      server.once("error", onError);
       server.listen(options.port, "127.0.0.1", () => {
-        server.removeListener("error", reject);
+        server.removeListener("error", onError);
         resolve();
       });
     });

@@ -1,9 +1,12 @@
 import { mkdtempSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough, Readable, Writable } from "node:stream";
 import { describe, expect, it } from "vitest";
+import { SERVE_PORT } from "../../src/claude-code/index.ts";
 import { confirm, main } from "../../src/cli/main.ts";
+import { isRecord } from "../../src/core/index.ts";
 
 async function run(args: string[], stdin = "") {
   const out = { stdout: "", stderr: "" };
@@ -55,6 +58,28 @@ describe("lmsk", () => {
     expect(
       JSON.parse(claude.stdout).hookSpecificOutput.permissionDecision,
     ).toBe("deny");
+  });
+
+  it("stops serve with exit code 1 when the port of the proxy is in use", async () => {
+    const blocker = createServer();
+    await new Promise<void>((resolve, reject) => {
+      blocker.once("error", (error) =>
+        isRecord(error) && error.code === "EADDRINUSE"
+          ? resolve()
+          : reject(error),
+      );
+      blocker.listen(SERVE_PORT, "127.0.0.1", resolve);
+    });
+    try {
+      expect(await run(["serve"])).toEqual({
+        code: 1,
+        stdout: "",
+        stderr: "lmsk: serve stopped: PORT_TAKEN.\n",
+      });
+    } finally {
+      if (blocker.listening)
+        await new Promise<void>((resolve) => blocker.close(() => resolve()));
+    }
   });
 
   it("blocks the tool call with exit code 2 when the hook fails, because other codes let it run", async () => {

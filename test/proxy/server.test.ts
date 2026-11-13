@@ -109,7 +109,7 @@ it("rejects startup when another server owns the port", async () => {
     }), {
       configPaths: [], stateDir: ${JSON.stringify(paths.stateDir)}, env: {},
       notify: () => {}, token: "test-token", port: ${new URL(occupied.url).port},
-    }), { code: "EADDRINUSE" });
+    }), { code: "PORT_TAKEN" });
   `;
   await expect(
     promisify(execFile)(
@@ -344,6 +344,51 @@ describe("startProxy", () => {
 
     expect(res.status).toBe(403);
     expect(up.received).toEqual([]);
+  });
+
+  it("masks a request once a failed config is fixed, without a restart", async () => {
+    const up = await upstream();
+    const paths = dirs({ unknown: 1 });
+    const { url } = await proxy(up.url, paths);
+
+    expect((await post(`${url}/v1/messages`, payload)).status).toBe(400);
+    writeFileSync(
+      paths.configPath,
+      JSON.stringify({
+        rules: [{ id: "ticket", type: "literal", values: [SECRET] }],
+      }),
+    );
+    const res = await post(`${url}/v1/messages`, payload);
+
+    expect(res.status).toBe(200);
+    expect(up.received).toHaveLength(1);
+    expect(up.received[0].body).not.toContain(SECRET);
+  });
+
+  it("notifies each request that a blocked guard refuses, with its code only", async () => {
+    const up = await upstream();
+    const notices: string[] = [];
+    const { url } = await proxy(up.url, dirs({ unknown: 1 }), (message) =>
+      notices.push(message),
+    );
+    notices.splice(0);
+
+    expect((await post(`${url}/v1/messages`, payload)).status).toBe(400);
+    expect((await post(`${url}/v1/messages`, payload)).status).toBe(400);
+    expect(notices).toEqual(["lmsk: CONFIG_INVALID", "lmsk: CONFIG_INVALID"]);
+  });
+
+  it("notifies only the first request that lacks the launch token", async () => {
+    const up = await upstream();
+    const notices: string[] = [];
+    const { url } = await proxy(up.url, dirs(), (message) =>
+      notices.push(message),
+    );
+    const origin = new URL(url).origin;
+
+    expect((await post(`${origin}/v1/messages`, payload)).status).toBe(403);
+    expect((await post(`${origin}/v1/messages`, payload)).status).toBe(403);
+    expect(notices).toEqual(["lmsk: FORBIDDEN"]);
   });
 
   it.each([
