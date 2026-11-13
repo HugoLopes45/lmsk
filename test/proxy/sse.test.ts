@@ -46,7 +46,7 @@ describe("SSE", () => {
     const event = fc.record({
       event: fc.option(line, { nil: undefined }),
       lines: fc.array(line, { minLength: 1, maxLength: 3 }),
-      end: fc.constantFrom("\n", "\r\n"),
+      end: fc.constantFrom("\n", "\r\n", "\r"),
     });
     await fc.assert(
       fc.asyncProperty(
@@ -86,6 +86,14 @@ describe("SSE", () => {
         },
       ),
     );
+  });
+
+  it("ends a line at a lone CR, so an event name cannot hide another event", async () => {
+    expect(
+      await events([
+        'event: ping\r\revent: content_block_start\rdata: {"a":1}\r\r',
+      ]),
+    ).toEqual([{ event: "content_block_start", data: '{"a":1}' }]);
   });
 
   it("writes an event that reads back the same", async () => {

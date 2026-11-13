@@ -51,6 +51,14 @@ The first form means that the extension stopped one request and the session cont
 | `VAULT_FULL` | The vault has 50000 values, or its values have 2000000 characters together, or the file `vault.jsonl` has a size of 32 MiB. This is the maximum. | [Start a new vault](#start-a-new-vault). |
 | `VAULT_COLLISION` | The extension found no unused fake for a value, or a line of the vault gives one fake to two values. | Send the request again. If the error comes back, [start a new vault](#start-a-new-vault). |
 
+## Code that stops a reply
+
+With Claude Code, the reply ends early. The proxy writes `lmsk: a reply stopped: <code>` to its messages: `serve.log` in the vault folder on macOS, or `journalctl --user -u lmsk.service` on Linux.
+
+| Code | Meaning | What to do |
+|---|---|---|
+| `STREAM_INVALID` | The model provider sent a reply that the agent and lmsk could read in two ways. An event name is not the type of its data, a block index is not a whole number, or a block starts at an index that is still open. | Send the request again. If the error comes back, check your gateway. Then report the problem as an issue. Do not include secrets. |
+
 ## Codes that block the session
 
 The vault is the file `vault.jsonl` that keeps each real value next to its fake. Its folder is `~/.local/state/lmsk/`, or `lmsk/` in `XDG_STATE_HOME` if you set it. Each agent on your computer uses this vault. The `key` file in the same folder makes the fakes.

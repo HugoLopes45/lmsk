@@ -1,4 +1,4 @@
-import { isRecord, type TextRestorer } from "../core/index.ts";
+import { CodedError, isRecord, type TextRestorer } from "../core/index.ts";
 import {
   parseObject,
   type Restore,
@@ -38,11 +38,37 @@ function delta(index: unknown, delta: Record<string, string>): SseEvent {
   return { event: "content_block_delta", data: JSON.stringify(data) };
 }
 
+/** The JSON data of `event`, checked so that the agent and this codec read it alike. */
+function checkedData(event: SseEvent): Record<string, unknown> | undefined {
+  const data = parseObject(event.data);
+  if (data === undefined) return undefined;
+  if (data.type !== event.event)
+    throw new CodedError(
+      "STREAM_INVALID",
+      "an event name is not its data type",
+    );
+  const block =
+    typeof data.type === "string" && data.type.startsWith("content_block_");
+  const index = data.index;
+  const whole =
+    typeof index === "number" && Number.isSafeInteger(index) && index >= 0;
+  if (block && !whole)
+    throw new CodedError(
+      "STREAM_INVALID",
+      "a block index is not a whole number",
+    );
+  return data;
+}
+
 /**
  * The Anthropic Messages stream. The arguments of a tool_use block reach the agent as one
  * `input_json_delta` with the restored input, sent at `content_block_stop`. Arguments that are
  * not a JSON object pass unchanged, so their fakes stay. A text block reaches the agent restored;
- * thinking stays as sent, because its signature covers it.
+ * thinking and a signed text block stay as sent, because the signature covers them. A signature that
+ * arrives later for a restored text block is dropped: the agent would send the block back unmasked.
+ * The agent reads an event by its name and this codec by its data, so an event whose name is not its
+ * data type, a block index that is not a whole number, or a block that starts at an open index,
+ * stops the stream.
  */
 export function anthropicStream(
   restore: Restore,
@@ -50,14 +76,21 @@ export function anthropicStream(
 ): StreamCodec {
   const calls = new Map<unknown, HeldCall>();
   const texts = new Map<unknown, TextRestorer>();
+  const open = new Set<unknown>();
 
   const shown = (index: unknown, text: string): SseEvent[] =>
     text === "" ? [] : [delta(index, { type: "text_delta", text })];
 
   const start = (data: Record<string, unknown>): void => {
+    if (open.has(data.index))
+      throw new CodedError("STREAM_INVALID", "a block starts at an open index");
+    open.add(data.index);
     const block = data.content_block;
     if (!isRecord(block)) return;
-    if (block.type === "text") texts.set(data.index, textRestorer());
+    const signed =
+      typeof block.signature === "string" && block.signature !== "";
+    if (block.type === "text" && !signed)
+      texts.set(data.index, textRestorer());
     const call = toolUseStart(block);
     if (call !== undefined) calls.set(data.index, call);
   };
@@ -71,6 +104,8 @@ export function anthropicStream(
       return [];
     }
     const text = texts.get(data.index);
+    const signature = deltaField(data, "signature_delta", "signature");
+    if (text !== undefined && signature !== undefined) return [];
     const added = deltaField(data, "text_delta", "text");
     if (text !== undefined && added !== undefined)
       return shown(data.index, text.push(added));
@@ -94,13 +129,14 @@ export function anthropicStream(
     const text = texts.get(index);
     calls.delete(index);
     texts.delete(index);
+    open.delete(index);
     if (call !== undefined) return release(call, index);
     return text === undefined ? [] : shown(index, text.end());
   };
 
   return {
     push(event) {
-      const data = parseObject(event.data);
+      const data = checkedData(event);
       if (data?.type === "content_block_start") start(data);
       if (data?.type === "content_block_delta") return piece(event, data);
       if (data?.type === "content_block_stop")

@@ -31,6 +31,15 @@ class EventLines {
   }
 }
 
+/** The lines that `buffer` ends, and the rest. CR, LF and CRLF end a line; a CR at the end waits, as it may start a CRLF. */
+function splitLines(buffer: string): { complete: string[]; rest: string } {
+  const held = buffer.endsWith("\r") ? "\r" : "";
+  const complete = buffer
+    .slice(0, buffer.length - held.length)
+    .split(/\r\n|\r|\n/);
+  return { complete, rest: (complete.pop() ?? "") + held };
+}
+
 /** The events of an SSE body. An event that the body does not end with a blank line is dropped. */
 export async function* readEvents(
   chunks: AsyncIterable<Uint8Array>,
@@ -39,14 +48,19 @@ export async function* readEvents(
   const lines = new EventLines();
   let buffer = "";
   for await (const chunk of chunks) {
-    buffer += decoder.decode(chunk, { stream: true });
-    const complete = buffer.split("\n");
-    buffer = complete.pop() ?? "";
+    const { complete, rest } = splitLines(
+      buffer + decoder.decode(chunk, { stream: true }),
+    );
+    buffer = rest;
     for (const line of complete) {
-      const event = lines.line(line.replace(/\r$/, ""));
+      const event = lines.line(line);
       if (event !== undefined) yield event;
     }
   }
+  const last = buffer.endsWith("\r")
+    ? lines.line(buffer.slice(0, -1))
+    : undefined;
+  if (last !== undefined) yield last;
 }
 
 export function writeEvent({ event, data }: SseEvent): string {
