@@ -12,7 +12,7 @@ import { Masker } from "./masker.ts";
 import { mapPayload, type PayloadFormat, textsOf } from "./payload.ts";
 import { type ShownFakes, TextRestorer } from "./restorer.ts";
 import { Scanner } from "./scanner.ts";
-import { isNetworkCommand, isProtectedPath } from "./tool-policy.ts";
+import { isNetworkCommand, protectedPath } from "./tool-policy.ts";
 
 export type NoticeLevel = "info" | "warning" | "error";
 
@@ -171,7 +171,7 @@ export class Guard {
     const patterns = this.state.ok
       ? this.state.opened.config.protectedPaths
       : [...DEFAULT_SETTINGS.protectedPaths, ...this.host.protectedPaths];
-    return isProtectedPath(path, cwd, patterns);
+    return protectedPath([path], cwd, patterns) !== undefined;
   }
 
   /**

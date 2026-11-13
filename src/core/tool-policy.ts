@@ -87,19 +87,20 @@ function walk(from: string, target: string, budget: { links: number }): string {
     );
 }
 
-/** `path` is resolved against `cwd` before it is matched. The path on disk is matched too: tools follow links, also before a `..`. */
-export function isProtectedPath(
-  path: string,
+/** The first of `paths` that a pattern matches. Each path is resolved against `cwd` before it is matched. The path on disk is matched too: tools follow links, also before a `..`. */
+export function protectedPath(
+  paths: readonly string[],
   cwd: string,
   patterns: readonly string[],
-): boolean {
-  // 40 links per path is the Linux limit; past it, the write itself fails with ELOOP. One count for the whole path, as the system keeps, bounds links that lead back to each other.
-  const budget = { links: 40 };
-  const from = isAbsolute(path) ? "/" : linkTarget(cwd, budget);
-  const paths = [resolve(cwd, path), walk(from, path, budget)];
-  return paths.some((candidate) =>
-    patterns.some((pattern) =>
-      matchesGlob(undotted(candidate), undotted(pattern)),
-    ),
-  );
+): string | undefined {
+  const globs = patterns.map(undotted);
+  return paths.find((path) => {
+    // 40 links per path is the Linux limit; past it, the write itself fails with ELOOP. One count for the whole path, as the system keeps, bounds links that lead back to each other.
+    const budget = { links: 40 };
+    const from = isAbsolute(path) ? "/" : linkTarget(cwd, budget);
+    return [resolve(cwd, path), walk(from, path, budget)].some((candidate) => {
+      const folded = undotted(candidate);
+      return globs.some((glob) => matchesGlob(folded, glob));
+    });
+  });
 }

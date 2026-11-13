@@ -9,10 +9,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "../../src/core/config.ts";
-import { isProtectedPath } from "../../src/core/index.ts";
+import { protectedPath } from "../../src/core/index.ts";
 import { isNetworkCommand } from "../../src/core/tool-policy.ts";
 
-describe("isProtectedPath", () => {
+describe("protectedPath", () => {
+  it("returns the first protected path, as written", () => {
+    expect(protectedPath(["src/a", ".env", "b/.env"], "/w", ["**/.env"])).toBe(
+      ".env",
+    );
+    expect(protectedPath(["src/a"], "/w", ["**/.env"])).toBeUndefined();
+  });
+
   it.each([
     ["/home/u/.pi/agent/lmsk-vaults/a.json", "**/lmsk-vaults/**"],
     ["/w/.git/x/.env", "**/.env*"],
@@ -37,7 +44,7 @@ describe("isProtectedPath", () => {
   ])(
     "matches %s with %s, also through folders that start with a dot",
     (path, pattern) => {
-      expect(isProtectedPath(path, "/", [pattern])).toBe(true);
+      expect(protectedPath([path], "/", [pattern])).toBe(path);
     },
   );
 
@@ -46,7 +53,7 @@ describe("isProtectedPath", () => {
     ["/w/a.pem.txt", "**/*.pem"],
     ["/w/x.env", "**/.env*"],
   ])("does not match %s with %s", (path, pattern) => {
-    expect(isProtectedPath(path, "/", [pattern])).toBe(false);
+    expect(protectedPath([path], "/", [pattern])).toBeUndefined();
   });
 
   it.each([
@@ -67,7 +74,7 @@ describe("isProtectedPath", () => {
     // By text, up/.. is the repo; on disk it is the guarded folder.
     symlinkSync("up/../config.json", join(repo, "climb"));
 
-    expect(isProtectedPath(path, repo, [`${guarded}/**`])).toBe(true);
+    expect(protectedPath([path], repo, [`${guarded}/**`])).toBe(path);
   });
 
   it("ends on links that lead back to each other", () => {
@@ -75,14 +82,14 @@ describe("isProtectedPath", () => {
     symlinkSync("c", join(repo, "b"));
     symlinkSync("b/../b", join(repo, "c"));
 
-    expect(isProtectedPath("b/x", repo, ["**/.env"])).toBe(false);
+    expect(protectedPath(["b/x"], repo, ["**/.env"])).toBeUndefined();
   });
 
   it("does not match a path under a file, which no tool can open", () => {
     const repo = realpathSync(mkdtempSync(join(tmpdir(), "lmsk-links-")));
     writeFileSync(join(repo, "package.json"), "{}");
 
-    expect(isProtectedPath("package.json/x", repo, ["**/.env"])).toBe(false);
+    expect(protectedPath(["package.json/x"], repo, ["**/.env"])).toBeUndefined();
   });
 });
 

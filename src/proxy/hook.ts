@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import {
   CodedError,
-  isProtectedPath,
   isRecord,
+  protectedPath,
   protectedPatterns,
   shellReadings,
 } from "../core/index.ts";
@@ -47,10 +47,11 @@ export function hookDenial(
     protectedPaths,
     tools,
   });
-  const path = targets(tool, toolInput).find((target) =>
-    isProtectedPath(fromHome(target, home), cwd, patterns),
-  );
-  if (path === undefined) return undefined;
+  const written = targets(tool, toolInput);
+  const mapped = written.map((target) => fromHome(target, home));
+  const hit = protectedPath(mapped, cwd, patterns);
+  if (hit === undefined) return undefined;
+  const path = written[mapped.indexOf(hit)];
   return JSON.stringify({
     hookSpecificOutput: {
       hookEventName: "PreToolUse",

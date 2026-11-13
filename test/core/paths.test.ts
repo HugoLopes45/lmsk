@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { isProtectedPath, machinePaths } from "../../src/core/index.ts";
+import { machinePaths, protectedPath } from "../../src/core/index.ts";
 
 describe("machinePaths", () => {
   it("uses the XDG defaults under home and protects lmsk's state and pi's stores and configurations", () => {
@@ -33,8 +33,8 @@ describe("machinePaths", () => {
     "protects the state file %s also outside the state folder",
     (file) => {
       const { protectedPaths } = machinePaths({}, "/h");
-      expect(isProtectedPath(`/x/lmsk/${file}`, "/", protectedPaths)).toBe(
-        true,
+      expect(protectedPath([`/x/lmsk/${file}`], "/", protectedPaths)).toBe(
+        `/x/lmsk/${file}`,
       );
     },
   );
