@@ -367,6 +367,17 @@ describe("Guard", () => {
     expect(await guard.maskText(REAL)).not.toBe(REAL);
   });
 
+  it("tells a blocked session from an open one and a closed one", () => {
+    const { guard, open } = harness();
+    expect(guard.blocked).toBe(true);
+    open();
+    expect(guard.blocked).toBe(false);
+    open({ unknown: 1 });
+    expect(guard.blocked).toBe(true);
+    guard.close();
+    expect(guard.blocked).toBe(false);
+  });
+
   it("refuses to change masking or restore text while the session is blocked", () => {
     const { guard } = harness();
     expect(() => guard.setRedaction("off")).toThrow("NOT_STARTED");
