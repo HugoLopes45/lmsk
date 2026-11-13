@@ -12,7 +12,11 @@ import { Masker } from "./masker.ts";
 import { mapPayload, type PayloadFormat, textsOf } from "./payload.ts";
 import { type ShownFakes, TextRestorer } from "./restorer.ts";
 import { Scanner } from "./scanner.ts";
-import { isNetworkCommand, protectedPath } from "./tool-policy.ts";
+import {
+  isNetworkCommand,
+  protectedPath,
+  searchedPath,
+} from "./tool-policy.ts";
 
 export type NoticeLevel = "info" | "warning" | "error";
 
@@ -64,6 +68,8 @@ export interface ToolCall {
   cwd: string;
   /** The paths, or command words that may be paths, that the tool opens with `input`. */
   targets(input: Record<string, unknown>): string[];
+  /** The folders that the tool searches with `input`. */
+  roots(input: Record<string, unknown>): string[];
 }
 
 /** `off` lasts until the guard opens again. */
@@ -158,7 +164,7 @@ export class Guard {
     const input = call.verified
       ? this.restoreInput(call.tool, call.input, call.commandKey, reals)
       : call.input;
-    if (this.isProtected(call.targets(input), call.cwd))
+    if (this.isProtected(call.targets(input), call.roots(input), call.cwd))
       return { blocked: true };
     if (this.state.ok) this.state.opened.store.recordCall(call.id, [...reals]);
     Object.assign(call.input, input);
@@ -166,11 +172,18 @@ export class Guard {
   }
 
   /** A blocked guard keeps the default paths and the host's own files protected. */
-  private isProtected(paths: readonly string[], cwd: string): boolean {
+  private isProtected(
+    paths: readonly string[],
+    roots: readonly string[],
+    cwd: string,
+  ): boolean {
     const patterns = this.state.ok
       ? this.state.opened.config.protectedPaths
       : [...DEFAULT_SETTINGS.protectedPaths, ...this.host.protectedPaths];
-    return protectedPath(paths, cwd, patterns) !== undefined;
+    return (
+      protectedPath(paths, cwd, patterns) !== undefined ||
+      searchedPath(roots, cwd, patterns) !== undefined
+    );
   }
 
   /**

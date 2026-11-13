@@ -5,6 +5,7 @@ import {
   isAbsolute,
   join,
   matchesGlob,
+  relative,
   resolve,
 } from "node:path";
 import type { MaskConfig } from "./config.ts";
@@ -31,10 +32,12 @@ export function commandWords(command: string): string[] {
   return [...new Set(words)].filter((word) => word !== "");
 }
 
-/** The shell reads a word `~/...`, `$HOME/...` or `${HOME}/...` from home. Another user's `~name` stays a relative word. */
+/** The shell reads a word `~`, `$HOME` or `${HOME}`, alone or before `/...`, from home. Another user's `~name` stays a relative word. */
 export function fromHome(target: string, home: string): string {
-  const prefix = /^(?:~|\$HOME|\$\{HOME\})\//.exec(target)?.[0];
-  return prefix === undefined ? target : join(home, target.slice(prefix.length));
+  const prefix = /^(?:~|\$HOME|\$\{HOME\})(?:\/|$)/.exec(target)?.[0];
+  return prefix === undefined
+    ? target
+    : join(home, target.slice(prefix.length));
 }
 
 /** A restored value in such a command would leave the machine. A word list, not a sandbox: a shell expansion such as a split variable, an escape code or a glob, code on standard input, combined options such as `-uc`, or a program that is not in the list evades it. The words of an item may have up to 10 other words between them, such as `git -C dir push`. The gap can cross a line break. */
@@ -60,6 +63,11 @@ function undotted(path: string): string {
     const lower = letter.toLowerCase();
     return single(lower) ? lower : letter;
   }).join("");
+}
+
+/** macOS disks open a letter and its accent written as two code points as the one-code-point letter. Other disks keep the name as written, so both forms are matched. */
+function both(text: string): string[] {
+  return [...new Set([text, text.normalize("NFC")])];
 }
 
 /** The path that `path` leads to through links, also when it does not exist yet: a write follows a linked folder and a dangling link. */
@@ -107,8 +115,6 @@ export function protectedPath(
   cwd: string,
   patterns: readonly string[],
 ): string | undefined {
-  // macOS disks open a letter and its accent written as two code points as the one-code-point letter. Other disks keep the name as written, so both forms are matched.
-  const both = (text: string) => [...new Set([text, text.normalize("NFC")])];
   const globs = patterns.flatMap(both).map(undotted);
   return paths.find((path) => {
     // 40 links per path is the Linux limit; past it, the write itself fails with ELOOP. One count for the whole path, as the system keeps, bounds links that lead back to each other.
@@ -121,4 +127,54 @@ export function protectedPath(
         return globs.some((glob) => matchesGlob(folded, glob));
       });
   });
+}
+
+/** The folder that an absolute pattern names before its first glob character, the folder of a file pattern without one, or a folder pattern that ends in `/`. */
+function fixedFolder(pattern: string): string | undefined {
+  if (!isAbsolute(pattern)) return undefined;
+  const segments = pattern.split("/");
+  const glob = segments.findIndex((segment) => /[*?[{]/.test(segment));
+  if (glob !== -1) return segments.slice(0, glob).join("/") || "/";
+  if (pattern.endsWith("/")) return pattern.replace(/\/+$/, "") || "/";
+  return dirname(pattern);
+}
+
+/** The path as written from `cwd` and on disk, in both forms, with the marks of `undotted`. */
+function forms(path: string, cwd: string): string[] {
+  const budget = { links: 40 };
+  const onDisk = walk(
+    isAbsolute(path) ? "/" : linkTarget(cwd, budget),
+    path,
+    budget,
+  );
+  return [resolve(cwd, path), onDisk].flatMap(both).map(undotted);
+}
+
+/** `folder` is `root` or below it, segment by segment: `/state` does not hold `/state-other`. */
+function holds(root: string, folder: string): boolean {
+  const path = relative(root, folder);
+  return path !== ".." && !path.startsWith("../") && !isAbsolute(path);
+}
+
+/**
+ * The first of `roots`, the folders that a search tool reads, that is a protected path or holds
+ * the fixed folder of an absolute pattern, such as the machine state folder. A pattern that
+ * starts with `**` has no fixed folder, so this check does not refuse a search above such a file.
+ */
+export function searchedPath(
+  roots: readonly string[],
+  cwd: string,
+  patterns: readonly string[],
+): string | undefined {
+  const hit = protectedPath(roots, cwd, patterns);
+  if (hit !== undefined) return hit;
+  const folders = patterns.flatMap((pattern) => {
+    const folder = fixedFolder(pattern);
+    return folder === undefined ? [] : forms(folder, "/");
+  });
+  return roots.find((root) =>
+    forms(root, cwd).some((path) =>
+      folders.some((folder) => holds(path, folder)),
+    ),
+  );
 }

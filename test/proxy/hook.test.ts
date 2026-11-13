@@ -16,6 +16,7 @@ function options(config: unknown = {}): HookOptions {
       tool === "Read" && typeof input.file_path === "string"
         ? [input.file_path]
         : [],
+    roots: () => [],
   };
 }
 
@@ -55,6 +56,13 @@ describe("hookDenial", () => {
       expect(hookDenial(call(path), options())).toBeDefined();
     },
   );
+
+  it("names a searched folder that holds a protected folder", () => {
+    const searching = { ...options(), roots: () => ["."] };
+    expect(hookDenial(call("x", "/h"), searching)).toContain(
+      "lmsk: . holds a protected path",
+    );
+  });
 
   it("allows a call without a protected target", () => {
     expect(hookDenial(call("README.md"), options())).toBeUndefined();

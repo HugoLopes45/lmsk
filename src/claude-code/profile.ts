@@ -14,6 +14,16 @@ const PATH_KEYS = new Map([
 
 export const TOOLS = [...PATH_KEYS.keys(), "Bash"];
 
+const SEARCH_TOOLS: ReadonlySet<string> = new Set(["Grep", "Glob"]);
+
+/** The folder that a search tool reads: its `path`, or the session folder without one. */
+export function rootsOf(
+  tool: string,
+  input: Record<string, unknown>,
+): string[] {
+  return SEARCH_TOOLS.has(tool) ? [pathOf(tool, input) ?? "."] : [];
+}
+
 export function pathOf(
   tool: string,
   input: Record<string, unknown>,
@@ -48,5 +58,6 @@ export function claudeProfile({
     codec: anthropicStream,
     commandKey: (tool) => (tool === "Bash" ? "command" : undefined),
     pathOf,
+    rootsOf,
   };
 }

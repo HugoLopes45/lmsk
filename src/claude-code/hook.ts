@@ -1,6 +1,6 @@
 import { commandWords, machinePaths } from "../core/index.ts";
 import { hookDenial } from "../proxy/index.ts";
-import { pathOf, TOOLS } from "./profile.ts";
+import { pathOf, rootsOf, TOOLS } from "./profile.ts";
 
 export interface HookEnv {
   env: Readonly<Record<string, string | undefined>>;
@@ -25,5 +25,6 @@ export function claudeHook(
         ? commandWords(toolInput.command)
         : [];
     },
+    roots: rootsOf,
   });
 }

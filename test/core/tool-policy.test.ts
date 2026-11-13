@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "../../src/core/config.ts";
 import { commandWords, protectedPath } from "../../src/core/index.ts";
-import { isNetworkCommand } from "../../src/core/tool-policy.ts";
+import { isNetworkCommand, searchedPath } from "../../src/core/tool-policy.ts";
 
 describe("protectedPath", () => {
   it("returns the first protected path, as written", () => {
@@ -45,7 +45,10 @@ describe("protectedPath", () => {
     // A disk that keeps names as written opens this name, which starts with `.env`.
     ["/w/.env\u0303", "**/.env*"],
     // A final ς folds like σ, whatever comes after it.
-    ["/w/\u03ba\u03c9\u03b4\u03b9\u03ba\u03cc\u03c2.txt", "**/\u03ba\u03c9\u03b4\u03b9\u03ba\u03cc\u03c2.*"],
+    [
+      "/w/\u03ba\u03c9\u03b4\u03b9\u03ba\u03cc\u03c2.txt",
+      "**/\u03ba\u03c9\u03b4\u03b9\u03ba\u03cc\u03c2.*",
+    ],
   ])(
     "matches %s with %s, also through folders that start with a dot",
     (path, pattern) => {
@@ -95,7 +98,48 @@ describe("protectedPath", () => {
     const repo = realpathSync(mkdtempSync(join(tmpdir(), "lmsk-links-")));
     writeFileSync(join(repo, "package.json"), "{}");
 
-    expect(protectedPath(["package.json/x"], repo, ["**/.env"])).toBeUndefined();
+    expect(
+      protectedPath(["package.json/x"], repo, ["**/.env"]),
+    ).toBeUndefined();
+  });
+});
+
+describe("searchedPath", () => {
+  it.each([
+    ["/", "/w", true],
+    ["/caf\u00e9", "/w", true],
+    ["/cafe\u0301", "/w", true],
+    ["/CAF\u00c9/store", "/w", true],
+    ["..", "/caf\u00e9/store/sub", true],
+    ["/caf\u00e9/store/sub", "/w", true],
+    ["/caf\u00e9-other", "/w", false],
+    ["/caf", "/w", false],
+    ["/w", "/w", false],
+  ])("checks the search root %j from %s, refused: %s", (root, cwd, refused) => {
+    expect(searchedPath([root], cwd, ["/caf\u00e9/store/**"])).toBe(
+      refused ? root : undefined,
+    );
+  });
+
+  it("refuses a search of the folder of a pattern without a glob character", () => {
+    expect(searchedPath(["/a"], "/w", ["/a/key"])).toBe("/a");
+  });
+
+  it("takes a pattern that ends in a slash as that folder, not its parent", () => {
+    expect(searchedPath(["/a/b"], "/w", ["/a/b/"])).toBe("/a/b");
+  });
+
+  it("follows a link before `..`, as the disk does", () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "lmsk-root-")));
+    mkdirSync(join(root, "home", "state", "lmsk"), { recursive: true });
+    mkdirSync(join(root, "w"));
+    symlinkSync(join(root, "home", "state"), join(root, "w", "link"));
+
+    expect(
+      searchedPath(["link/.."], join(root, "w"), [
+        join(root, "home", "state", "lmsk", "**"),
+      ]),
+    ).toBe("link/..");
   });
 });
 

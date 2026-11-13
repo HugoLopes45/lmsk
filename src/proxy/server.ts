@@ -4,6 +4,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
+import { isAbsolute } from "node:path";
 import { pipeline } from "node:stream/promises";
 import {
   errorCode,
@@ -46,6 +47,8 @@ export interface ProxyProfile extends GuardHost {
   commandKey(tool: string): string | undefined;
   /** The path that a call to `tool` opens. */
   pathOf(tool: string, input: Record<string, unknown>): string | undefined;
+  /** The folders that a call to `tool` searches. */
+  rootsOf(tool: string, input: Record<string, unknown>): string[];
 }
 
 export interface ProxyOptions {
@@ -167,6 +170,9 @@ function restorer(guard: Guard, profile: ProxyProfile) {
         const path = profile.pathOf(tool, restored);
         return path === undefined ? [] : [path];
       },
+      // The proxy serves every session, so it does not know the session folder of a relative root. The deny hook checks that root.
+      roots: (restored: Record<string, unknown>) =>
+        profile.rootsOf(tool, restored).filter((root) => isAbsolute(root)),
     };
     guard.restoreCall(call);
     return call.input;

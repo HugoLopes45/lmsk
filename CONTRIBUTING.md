@@ -23,6 +23,8 @@ To test the extension by hand in Pi, run this command in the repository:
 pi -e ./src/pi/extension.ts
 ```
 
+The code of lmsk is a protected path. So in that session, the extension refuses a `grep`, `find` or `ls` without a path at the root of the repository. Give a path, such as `src`.
+
 To test the proxy by hand, stop an installed service first, because it uses the same port. Run `npm run build`, then `node dist/cli/bin.js serve`. Then start Claude Code with a `--settings` file that sets `env.ANTHROPIC_BASE_URL` to `http://127.0.0.1:25675/` and the token in `~/.local/state/lmsk/serve-token`. An `ANTHROPIC_BASE_URL` in your shell loses to your user settings.
 
 Do not load another copy of this extension in the same session. If you installed the package with `pi install`, remove it first, or the session loads two copies.

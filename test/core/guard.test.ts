@@ -43,6 +43,7 @@ function call(
     cwd: "/",
     targets: (restored) =>
       typeof restored.path === "string" ? [restored.path] : [],
+    roots: () => [],
   };
 }
 

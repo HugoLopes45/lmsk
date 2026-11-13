@@ -4,6 +4,7 @@ import {
   isRecord,
   protectedPath,
   protectedPatterns,
+  searchedPath,
 } from "../core/index.ts";
 
 export interface HookOptions {
@@ -15,12 +16,14 @@ export interface HookOptions {
   tools: readonly string[];
   /** The paths, or command words that may be paths, that a call to `tool` opens. */
   targets(tool: string, input: Record<string, unknown>): string[];
+  /** The folders that a call to `tool` searches. */
+  roots(tool: string, input: Record<string, unknown>): string[];
 }
 
 /** The PreToolUse hook output that denies the call in `input`, or undefined when it opens no protected path. */
 export function hookDenial(
   input: unknown,
-  { configPath, home, protectedPaths, tools, targets }: HookOptions,
+  { configPath, home, protectedPaths, tools, targets, roots }: HookOptions,
 ): string | undefined {
   if (!isRecord(input) || typeof input.cwd !== "string")
     throw new CodedError("HOOK_INPUT");
@@ -32,16 +35,23 @@ export function hookDenial(
     protectedPaths,
     tools,
   });
-  const written = targets(tool, toolInput);
+  const opened = targets(tool, toolInput);
+  const written = [...opened, ...roots(tool, toolInput)];
   const mapped = written.map((target) => fromHome(target, home));
-  const hit = protectedPath(mapped, cwd, patterns);
+  const target = protectedPath(mapped.slice(0, opened.length), cwd, patterns);
+  const root =
+    target === undefined
+      ? searchedPath(mapped.slice(opened.length), cwd, patterns)
+      : undefined;
+  const hit = target ?? root;
   if (hit === undefined) return undefined;
   const path = written[mapped.indexOf(hit)];
+  const reason = target === undefined ? "holds" : "is";
   return JSON.stringify({
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
-      permissionDecisionReason: `lmsk: ${path} is a protected path`,
+      permissionDecisionReason: `lmsk: ${path} ${reason} a protected path`,
     },
   });
 }
