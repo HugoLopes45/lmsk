@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- More default `networkCommands`: `git clone`, `git fetch`, `git pull`, `git ls-remote`, `git send-email`, `pip install`, `dig`, `drill`, `nslookup`, `whois`, `xdg-open`, `aria2c`, `lynx`, `osascript -e`, `pwsh -c`, `pwsh -Command`, `powershell -c`, `powershell -Command`, `julia -e`, `lua -e` and `Rscript -e`. A command with these words keeps its fakes.
+- The first word of a `networkCommands` item can end in a version, so `python3.12 -c` and `pip3 install` keep their fakes.
 - Breaking: the Claude Code settings files `.claude/settings*.json`, the service file of the proxy and the code of lmsk are protected paths. An agent can no longer read or change them. Edit your settings yourself.
 - The files `key`, `vault.jsonl`, `vault.lock`, `serve-token` and `upstream` in any folder named `lmsk` are protected paths, also by a relative path.
 - Claude Code: `lmsk install claude` adds an `Edit` deny rule next to each `Read` rule. Run it again to add them.
