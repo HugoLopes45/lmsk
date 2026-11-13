@@ -43,14 +43,18 @@ export function machinePaths(
     configPath: join(configDir, "config.json"),
     stateDir,
     protectedPaths: [
+      // The folders themselves, so that `cd` into them is denied, as their files are.
+      configDir,
       `${configDir}/**`,
+      stateDir,
       `${stateDir}/**`,
       // pi's configuration and the stores of earlier pi versions, which hold reals, wherever PI_CODING_AGENT_DIR puts them.
       "**/lmsk-vaults/**",
       "**/lmsk/config.json",
-      // The state files, also by a path relative to a folder such as ~/.local/state.
+      // The state files and the temporary key that a crash leaves, also by a path relative to a folder such as ~/.local/state.
       ...[
         "key",
+        "key.*.tmp",
         "vault.jsonl",
         "vault.lock",
         "vault.lock/**",

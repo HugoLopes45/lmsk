@@ -21,6 +21,38 @@ describe("claudeHook", () => {
     ["Bash", { command: "od -c $HOME/.local/state/lmsk/key" }, true],
     ["Bash", { command: 'od -c "${HOME}"/.local/state/lmsk/key' }, true],
     ["Bash", { command: "cd ~/.local/state && od -c lmsk/key" }, true],
+    [
+      "Bash",
+      {
+        command:
+          "cd ~/.local/state && cat lmsk/key.0123456789abcdef0123456789abcdef.tmp",
+      },
+      true,
+    ],
+    ["Bash", { command: "cd ~/.local/state/lmsk && cat key" }, true],
+    ["Bash", { command: "cd ~/.local/state/lmsk/ && cat key" }, true],
+    ["Bash", { command: 'cd "$HOME"/.local/state/lmsk && cat key' }, true],
+    ["Bash", { command: "cd ~/.local/state/lmsk/sub && cat key" }, true],
+    ["Bash", { command: "cd ~/.local/state/lmsk-other && cat key" }, false],
+    ["Bash", { command: "cd ~/.local/state && ls" }, false],
+    ["Bash", { command: "cd ~/.config/lmsk && cat config.json" }, true],
+    ["Bash", { command: "cd ~/.config/lmsk/ && cat config.json" }, true],
+    ["Bash", { command: 'cd "$HOME"/.config/lmsk && cat config.json' }, true],
+    ["Bash", { command: "cd ~/.config/lmsk-other && cat config.json" }, false],
+    ["Bash", { command: "cat key" }, false],
+    [
+      "Bash",
+      { command: "cat key.0123456789abcdef0123456789abcdef.tmp" },
+      false,
+    ],
+    [
+      "Bash",
+      {
+        command:
+          "cd ~/.local/state/lmsk && cat key.0123456789abcdef0123456789abcdef.tmp",
+      },
+      true,
+    ],
     ["Write", { file_path: "/w/.claude/settings.local.json" }, true],
     ["Edit", { file_path: "~/.claude/settings.json" }, true],
     ["Edit", { file_path: "~/.config/systemd/user/lmsk.service" }, true],
@@ -100,6 +132,21 @@ describe("claudeHook", () => {
         ).toBe(denied ? "deny" : undefined);
       },
     );
+  });
+
+  it("denies a cd into the config folder under XDG_CONFIG_HOME", () => {
+    const output = claudeHook(
+      {
+        cwd: "/w",
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "cd /cfg/lmsk && cat config.json" },
+      },
+      { env: { XDG_CONFIG_HOME: "/cfg" }, home },
+    );
+    expect(
+      output && JSON.parse(output).hookSpecificOutput.permissionDecision,
+    ).toBe("deny");
   });
 
   it("denies an edit of the settings in CLAUDE_CONFIG_DIR", () => {

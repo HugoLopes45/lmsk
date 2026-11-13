@@ -454,6 +454,22 @@ describe("installClaude", () => {
     expect(readFileSync(upstream, "utf8")).toBe("https://gateway.invalid");
   });
 
+  it("repairs an empty saved upstream after a yes", async () => {
+    const { home, accept, install } = setup(
+      undefined,
+      { ANTHROPIC_BASE_URL: "https://gateway.invalid" },
+      "linux",
+    );
+    const upstream = join(home, ".local", "state", "lmsk", "upstream");
+    mkdirSync(dirname(upstream), { recursive: true });
+    writeFileSync(upstream, "");
+    accept();
+
+    expect(await install()).toBe(0);
+
+    expect(readFileSync(upstream, "utf8")).toBe("https://gateway.invalid");
+  });
+
   it("asks nothing when the gateway is the saved one and the service file is unchanged", async () => {
     const env = { ANTHROPIC_BASE_URL: "https://gateway.invalid" };
     const { questions, accept, decline, install } = setup(

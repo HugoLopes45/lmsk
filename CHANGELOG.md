@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Breaking: lmsk serve stops with UPSTREAM_INVALID when the saved gateway file is empty, instead of sending requests to Anthropic.
+- A crash while lmsk creates its key no longer leaves a short key that blocks the vault.
+- Breaking: a tool call with an empty id fails with CALL_ID_INVALID, instead of making the vault file unreadable.
 - Breaking: for code that imports lmsk, the package exports only `Guard`, `localIdentityRules` and `machinePaths`, and the types `GuardHost`, `HostContext`, `ToolCall`, `TextRestorer` and `PayloadFormat`. Other names are removed.
 - The README logo stays readable on dark pages, such as the npm page in dark mode.
 - A percent-encoded value is found when a non-ASCII escape such as `%C3%A9` sits beside it, in a run longer than 4096 characters, and in a JWT whose dots are written as `%2E`.

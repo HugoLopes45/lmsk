@@ -4,6 +4,7 @@ import {
   fstatSync,
   fsyncSync,
   ftruncateSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -14,13 +15,14 @@ import {
   unlinkSync,
   writeSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { isRecord } from "./config.ts";
 import { CodedError } from "./errors.ts";
 import { keyedBytes } from "./keyed-bytes.ts";
 import { type Journal, Vault, type VaultEntry, VaultError } from "./vault.ts";
 
 export type MachineVaultCode =
+  | "CALL_ID_INVALID"
   | "STORE_CORRUPT"
   | "STORE_UNSAFE"
   | "STORE_BUSY"
@@ -302,26 +304,41 @@ class FileJournal implements Journal {
   }
 }
 
-/** Reads the key, or creates it. Call it under the lock, so no process reads a key before it is written. */
-function machineKey(path: string): Buffer {
+/** Calls fsync on a directory, so the names it holds are flushed. Power-loss durability depends on the platform's fsync. */
+function fsyncDirectory(path: string): void {
+  const fd = openSync(path, "r");
   try {
-    const fd = openSync(path, "wx", FILE_MODE);
-    try {
-      const key = randomBytes(KEY_BYTES);
-      writeAll(fd, key);
-      fsyncSync(fd);
-      return key;
-    } finally {
-      closeSync(fd);
-    }
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * Reads the key, or creates it. A new key is written under a temporary name and linked into place,
+ * so a crash leaves no short key. Call it under the lock, so no process reads a key before it is written.
+ */
+function machineKey(path: string): Buffer {
+  const key = randomBytes(KEY_BYTES);
+  const candidate = `${path}.${randomBytes(16).toString("hex")}.tmp`;
+  const fd = openSync(candidate, "wx", FILE_MODE);
+  try {
+    writeAll(fd, key);
+    fsyncSync(fd);
+    linkSync(candidate, path);
+    fsyncDirectory(dirname(path));
+    return key;
   } catch (error) {
     if (!isCode(error, "EEXIST")) throw error;
+  } finally {
+    closeSync(fd);
+    unlinkSync(candidate);
   }
   assertPrivate(path, false);
-  const key = readFileSync(path);
-  if (key.length !== KEY_BYTES)
+  const existing = readFileSync(path);
+  if (existing.length !== KEY_BYTES)
     throw new MachineVaultError("STORE_CORRUPT", "the key has a wrong length");
-  return key;
+  return existing;
 }
 
 /**
@@ -362,6 +379,9 @@ export class MachineVault {
   /** Saves the reals that a tool call got back, so that every process masks them in that call's history. */
   recordCall(id: string, reals: readonly string[]): void {
     if (reals.length === 0) return;
+    // An empty id would make every later read of the journal fail.
+    if (!isText(id))
+      throw new MachineVaultError("CALL_ID_INVALID", "the call id is empty");
     this.journal.locked(() => {
       this.vault.refresh();
       this.journal.appendCall(id, reals);

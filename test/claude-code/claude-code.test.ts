@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { claudeProfile, serveClaude } from "../../src/claude-code/index.ts";
 import { serveToken } from "../../src/claude-code/serve.ts";
+import { machinePaths } from "../../src/core/index.ts";
 
 const REAL = "Zq7Kp2Lm9Xw4Rt8Vb3Nc";
 
@@ -135,6 +136,16 @@ describe("serveClaude", () => {
     expect(first.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/[\w-]{43}$/);
     expect(tokenOf(second.url)).toBe(tokenOf(first.url));
     expect(tokenOf(other.url)).not.toBe(tokenOf(first.url));
+  });
+
+  it("refuses an empty saved upstream instead of sending requests to Anthropic", async () => {
+    const home = mkdtempSync(join(tmpdir(), "lmsk-serve-"));
+    const { stateDir } = machinePaths({}, home);
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(join(stateDir, "upstream"), "", { mode: 0o600 });
+    await expect(serveClaude(options(home))).rejects.toThrow(
+      expect.objectContaining({ code: "UPSTREAM_INVALID" }),
+    );
   });
 
   it("masks what Claude Code sends before it reaches the upstream", async () => {
