@@ -107,6 +107,8 @@ These messages occur only with Claude Code:
 | `Connection refused` (`ECONNREFUSED`) | The proxy does not run. | Run `lmsk install claude`. If the error comes back, read the messages of the proxy. |
 | `lmsk: SETTINGS_INVALID: <detail>.` from `lmsk install claude` | Your user settings file is not JSON, or one of its keys that lmsk changes has a wrong type. | Correct the file, then run the command again. |
 | `lmsk: SERVICE_FAILED: <command> exited <number>.` from `lmsk install claude` | `launchctl` or `systemctl` could not start the service. | Read the output of the command above the message. Correct the cause, then run the command again. |
+| `lmsk: INSTALL_NOT_CONFIRMED: run lmsk install claude in a terminal and answer yes.` from `lmsk install claude` | The command must save a new gateway address or write a new service file. It asks only when standard input and error output are terminals. Without a terminal, or if you did not answer yes, nothing changed. | Run `lmsk install claude` in a terminal, then answer `yes`. |
+| `lmsk: SERVICE_VALUE_INVALID: a folder or a path holds a control character.` from `lmsk install claude` on Linux | The path to Node.js or to lmsk, or the folder in `XDG_CONFIG_HOME` or `XDG_STATE_HOME`, holds a line break or another control character. | Rename the folder or change the variable, then run the command again. |
 | `lmsk: PLATFORM_UNSUPPORTED: lmsk runs on macOS and Linux.` | Your operating system is not macOS or Linux. | Use pi, or use Claude Code on macOS or Linux. |
 | `TOKEN_CORRUPT` in the messages of the proxy | The file `serve-token` in the vault folder is not valid. | Delete the file, run `lmsk install claude`, then restart Claude Code. |
 

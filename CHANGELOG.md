@@ -4,6 +4,8 @@
 
 - Breaking: for code that imports lmsk, the package exports only `Guard`, `localIdentityRules` and `machinePaths`, and the types `GuardHost`, `HostContext`, `ToolCall`, `TextRestorer` and `PayloadFormat`. Other names are removed.
 - The README logo stays readable on dark pages, such as the npm page in dark mode.
+- Breaking: Claude Code: `lmsk install claude` asks for a yes before it saves a new or different gateway address. It also asks before it writes a service file with new text, and on the first install. The question is asked only when stdin and stderr are both terminals. Otherwise the command stops with `INSTALL_NOT_CONFIRMED` and changes nothing. Run it in a terminal and answer yes.
+- Claude Code: on Linux, `lmsk install claude` stops with `SERVICE_VALUE_INVALID` when a service value holds a control character, such as a line break.
 - A keyed value is found when it only starts like a placeholder, such as `@`, `%`, `/` or `~` before a password. A value that holds a word such as `example` is found too, and so is a word with digits such as `tr0ub4dor-h0rse-9x`. A placeholder that holds only names, such as `${DB_PASSWORD}`, `${PW:-postgres}`, `<password>`, `%env(APP_SECRET)%` or `~/.config/db/pw`, is still ignored.
 - A value that holds `true`, `false` or `null` inside a longer secret is found by the imported rules too.
 - More default `networkCommands`: `git clone`, `git fetch`, `git pull`, `git ls-remote`, `git send-email`, `pip install`, `dig`, `drill`, `nslookup`, `whois`, `xdg-open`, `aria2c`, `lynx`, `osascript -e`, `pwsh -c`, `pwsh -Command`, `powershell -c`, `powershell -Command`, `julia -e`, `lua -e` and `Rscript -e`. A command with these words keeps its fakes.
