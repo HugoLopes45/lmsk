@@ -16,6 +16,8 @@ describe("claudeProfile", () => {
     expect(profile.pathOf("Read", { file_path: "/a" })).toBe("/a");
     expect(profile.pathOf("Edit", { file_path: "/b" })).toBe("/b");
     expect(profile.pathOf("Grep", { pattern: "x", path: "/c" })).toBe("/c");
+    expect(profile.pathOf("NotebookEdit", { notebook_path: "/f" })).toBe("/f");
+    expect(profile.pathOf("MultiEdit", { file_path: "/g" })).toBe("/g");
     expect(profile.pathOf("Bash", { command: "cat /d" })).toBeUndefined();
     expect(profile.pathOf("mcp__x__Read", { file_path: "/e" })).toBeUndefined();
     expect(profile.commandKey("Bash")).toBe("command");
