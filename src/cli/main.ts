@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createInterface } from "node:readline/promises";
 import { text } from "node:stream/consumers";
 import { fileURLToPath } from "node:url";
 import {
@@ -13,9 +14,9 @@ export interface Io {
   cwd: string;
   home: string;
   env: Readonly<Record<string, string | undefined>>;
-  stdin: AsyncIterable<string | Buffer>;
+  stdin: NodeJS.ReadableStream & { isTTY?: boolean };
   stdout: { write(text: string): unknown };
-  stderr: { write(text: string): unknown };
+  stderr: NodeJS.WritableStream & { isTTY?: boolean };
 }
 
 const USAGE = `Usage:
@@ -39,6 +40,7 @@ export async function main(args: readonly string[], io: Io): Promise<number> {
       bin: fileURLToPath(new URL("bin.js", import.meta.url)),
       run: (program, programArgs) =>
         spawnSync(program, programArgs, { stdio: "inherit" }).status ?? 1,
+      confirm: (question) => confirm(question, io),
     });
   if (command === "serve") {
     await serveClaude({ ...launch, port: SERVE_PORT });
@@ -51,6 +53,28 @@ export async function main(args: readonly string[], io: Io): Promise<number> {
   }
   io.stderr.write(USAGE);
   return 1;
+}
+
+/** Asks on the terminal. Without a terminal for input and output, such as a tool call of an agent, the answer is no. */
+export async function confirm(
+  question: string,
+  { stdin, stderr }: Pick<Io, "stdin" | "stderr">,
+): Promise<boolean> {
+  if (!stdin.isTTY || !stderr.isTTY) return false;
+  const terminal = createInterface({ input: stdin, output: stderr });
+  const closed = new AbortController();
+  terminal.once("close", () => closed.abort());
+  try {
+    const answer = await terminal.question(`${question} [y/N] `, {
+      signal: closed.signal,
+    });
+    return /^y(?:es)?$/i.test(answer.trim());
+  } catch (error) {
+    if (closed.signal.aborted) return false;
+    throw error;
+  } finally {
+    terminal.close();
+  }
 }
 
 /** Exit code 2 is the only failure that makes Claude Code block the call; any other lets the tool run. */

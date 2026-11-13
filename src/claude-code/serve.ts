@@ -64,7 +64,7 @@ export function saveUpstream(stateDir: string, url: string): void {
   writeFileSync(upstreamFile(stateDir), url, { mode: 0o600 });
 }
 
-function savedUpstream(stateDir: string): string | undefined {
+export function savedUpstream(stateDir: string): string | undefined {
   try {
     return readFileSync(upstreamFile(stateDir), "utf8");
   } catch (error) {
