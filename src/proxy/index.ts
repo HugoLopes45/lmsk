@@ -1,4 +1,4 @@
-export { commandWords, type HookOptions, hookDenial } from "./hook.ts";
+export { type HookOptions, hookDenial } from "./hook.ts";
 export {
   type ProxyOptions,
   type ProxyProfile,

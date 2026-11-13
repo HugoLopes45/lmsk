@@ -23,6 +23,20 @@ export function shellReadings(command: string): string[] {
   ];
 }
 
+/** A word list, not a parser: quotes split words, so a quoted path with a blank is not seen whole. The words of the command without its quotes and backslashes count too, so `.e''nv` reads as `.env`. */
+export function commandWords(command: string): string[] {
+  const words = shellReadings(command).flatMap((reading) =>
+    reading.split(/[\s;&|()<>`'"]+/),
+  );
+  return [...new Set(words)].filter((word) => word !== "");
+}
+
+/** The shell reads a word `~/...`, `$HOME/...` or `${HOME}/...` from home. Another user's `~name` stays a relative word. */
+export function fromHome(target: string, home: string): string {
+  const prefix = /^(?:~|\$HOME|\$\{HOME\})\//.exec(target)?.[0];
+  return prefix === undefined ? target : join(home, target.slice(prefix.length));
+}
+
 /** A restored value in such a command would leave the machine. A word list, not a sandbox: a shell expansion such as a split variable, an escape code or a glob, code on standard input, combined options such as `-uc`, or a program that is not in the list evades it. The words of an item may have up to 10 other words between them, such as `git -C dir push`. The gap can cross a line break. */
 export function isNetworkCommand(command: string, config: MaskConfig): boolean {
   return config.networkCommands.some((name) => {

@@ -1,9 +1,17 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { commandWords, fromHome } from "../core/index.ts";
 import type { HookApi } from "./host.ts";
 
-const PATH_TOOLS: ReadonlySet<string> = new Set(["read", "grep", "find", "ls"]);
+const PATH_TOOLS: ReadonlySet<string> = new Set([
+  "read",
+  "grep",
+  "find",
+  "ls",
+  "write",
+  "edit",
+]);
 
 const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
 
@@ -17,13 +25,18 @@ function normalizePath(path: string): string {
   return bare.startsWith("file://") ? fileURLToPath(bare) : bare;
 }
 
-/** The path that a core path tool opens, as pi's tool resolves it. */
-export function pathOf(
+const SHELL_TOOLS: ReadonlySet<string> = new Set(["bash", "powershell"]);
+
+/** The path that a core path tool opens, as pi's tool resolves it, or the words of a shell command that may be paths. */
+export function targetsOf(
   tool: string,
   input: Record<string, unknown>,
-): string | undefined {
-  if (!PATH_TOOLS.has(tool)) return undefined;
-  return typeof input.path === "string" ? normalizePath(input.path) : undefined;
+): string[] {
+  if (PATH_TOOLS.has(tool))
+    return typeof input.path === "string" ? [normalizePath(input.path)] : [];
+  return SHELL_TOOLS.has(tool) && typeof input.command === "string"
+    ? commandWords(input.command).map((word) => fromHome(word, homedir()))
+    : [];
 }
 
 /** The input field that holds a shell command. */

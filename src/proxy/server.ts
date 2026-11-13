@@ -163,8 +163,10 @@ function restorer(guard: Guard, profile: ProxyProfile) {
       verified: true,
       commandKey: profile.commandKey(tool),
       cwd: profile.cwd,
-      pathOf: (restored: Record<string, unknown>) =>
-        profile.pathOf(tool, restored),
+      targets: (restored: Record<string, unknown>) => {
+        const path = profile.pathOf(tool, restored);
+        return path === undefined ? [] : [path];
+      },
     };
     guard.restoreCall(call);
     return call.input;

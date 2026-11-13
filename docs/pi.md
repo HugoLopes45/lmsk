@@ -60,7 +60,7 @@ If the reply spells `Z q 7 K p 2 L m 9 X w 4 R t 8 V b 3 N c`, masking did not w
 - **Write your messages as usual.** You can paste logs, errors and `.env` lines. `lmsk` masks them before they leave your computer.
 - **Read replies as usual.** pi shows the real values when a reply ends, and can show fakes while the reply streams. Thinking text keeps its fakes, and so does a value that the model glues to a letter, a digit or `_`. A value under 8 characters keeps its fake too, unless it is a value of a `literal` or `env` rule. Type `/lmsk reveal` to see the last reply with each real value. For thinking text, type `/lmsk reveal` and the text.
 - **Let pi write files.** When pi writes a file or runs a command with a fake, the file and the command get the real value.
-- **pi does not read secret files.** `read`, `grep`, `find` and `ls` refuse `.env`, keys and other secret files. The list is in [Default protected paths](CONFIGURATION.md#default-protected-paths).
+- **pi does not open secret files.** `read`, `grep`, `find`, `ls`, `write` and `edit` refuse `.env`, keys and other secret files. A `bash` or `powershell` command that names one is refused too. The list is in [Default protected paths](CONFIGURATION.md#default-protected-paths).
 - **Add your client name once.** Follow [Hide who you work for](GUIDE.md#hide-who-you-work-for). Then the name becomes `Client 1` in each request.
 
 ## Commands

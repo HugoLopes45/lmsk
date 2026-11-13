@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { commandWords, type HookOptions, hookDenial } from "../../src/proxy/index.ts";
+import { type HookOptions, hookDenial } from "../../src/proxy/index.ts";
 
 function options(config: unknown = {}): HookOptions {
   const configPath = join(mkdtempSync(join(tmpdir(), "lmsk-hook-")), "c.json");
@@ -73,28 +73,5 @@ describe("hookDenial", () => {
       { ...call(".env"), tool_input: "x" },
     ])
       expect(() => hookDenial(input, options())).toThrow("HOOK_INPUT");
-  });
-});
-
-describe("commandWords", () => {
-  it("splits a shell command at blanks, operators and quotes", () => {
-    expect(commandWords(`cat .env|grep "a b";ls>out`)).toEqual([
-      "cat",
-      ".env",
-      "grep",
-      "a",
-      "b",
-      "ls",
-      "out",
-    ]);
-  });
-
-  it.each([
-    ["cat .e''nv", ".env"],
-    ['cat .e"nv"', ".env"],
-    ["cat .en\\v", ".env"],
-    ["cat ~/.aws''/credentials", "~/.aws/credentials"],
-  ])("reads %s also without its quotes and backslashes", (command, word) => {
-    expect(commandWords(command)).toContain(word);
   });
 });

@@ -62,8 +62,8 @@ export interface ToolCall {
   /** The input field that holds a shell command. */
   commandKey?: string;
   cwd: string;
-  /** The path that the tool opens with `input`. */
-  pathOf(input: Record<string, unknown>): string | undefined;
+  /** The paths, or command words that may be paths, that the tool opens with `input`. */
+  targets(input: Record<string, unknown>): string[];
 }
 
 /** `off` lasts until the guard opens again. */
@@ -158,8 +158,7 @@ export class Guard {
     const input = call.verified
       ? this.restoreInput(call.tool, call.input, call.commandKey, reals)
       : call.input;
-    const path = call.pathOf(input);
-    if (path !== undefined && this.isProtected(path, call.cwd))
+    if (this.isProtected(call.targets(input), call.cwd))
       return { blocked: true };
     if (this.state.ok) this.state.opened.store.recordCall(call.id, [...reals]);
     Object.assign(call.input, input);
@@ -167,11 +166,11 @@ export class Guard {
   }
 
   /** A blocked guard keeps the default paths and the host's own files protected. */
-  private isProtected(path: string, cwd: string): boolean {
+  private isProtected(paths: readonly string[], cwd: string): boolean {
     const patterns = this.state.ok
       ? this.state.opened.config.protectedPaths
       : [...DEFAULT_SETTINGS.protectedPaths, ...this.host.protectedPaths];
-    return protectedPath([path], cwd, patterns) !== undefined;
+    return protectedPath(paths, cwd, patterns) !== undefined;
   }
 
   /**

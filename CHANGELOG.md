@@ -2,14 +2,16 @@
 
 ## Unreleased
 
-- Breaking: the Claude Code settings files `.claude/settings*.json`, the service file of the proxy and the code of lmsk are protected paths. With Claude Code, an agent can no longer read or change them. With pi, it can no longer read them. Edit your settings yourself.
+- Breaking: the Claude Code settings files `.claude/settings*.json`, the service file of the proxy and the code of lmsk are protected paths. An agent can no longer read or change them. Edit your settings yourself.
 - The files `key`, `vault.jsonl`, `vault.lock`, `serve-token` and `upstream` in any folder named `lmsk` are protected paths, also by a relative path.
 - Claude Code: `lmsk install claude` adds an `Edit` deny rule next to each `Read` rule. Run it again to add them.
 - Claude Code: the deny hook reads a path that starts with `$HOME/` or `${HOME}/` from your home folder, as it reads `~/`.
+- Breaking: pi: `write` and `edit` refuse a protected path, such as `.env`. A `bash` or `powershell` command that names a protected path is refused too, as with Claude Code. Edit such files yourself.
 - Claude Code: the deny hook also checks `NotebookEdit` and `MultiEdit`, and these tools get real values back. Run `lmsk install claude` again to update the hook.
 - Protected paths also match an accented letter written as a base letter and a separate accent.
 - The deny hook checks the words of a long shell command about 4 times faster.
 - Breaking, for code that imports lmsk: `isProtectedPath(path, cwd, patterns)` is now `protectedPath(paths, cwd, patterns)`, which returns the first protected path.
+- Breaking, for code that imports lmsk: `ToolCall.pathOf(input)` is now `ToolCall.targets(input)`, which returns a list of paths. `commandWords` and `fromHome` are new exports.
 - Protected paths also match when a letter is written in another form that the disk reads as the same letter, such as the long s `ſ` for `s`.
 
 ## 0.3.0

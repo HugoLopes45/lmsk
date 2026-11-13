@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS } from "../../src/core/config.ts";
-import { protectedPath } from "../../src/core/index.ts";
+import { commandWords, protectedPath } from "../../src/core/index.ts";
 import { isNetworkCommand } from "../../src/core/tool-policy.ts";
 
 describe("protectedPath", () => {
@@ -213,4 +213,27 @@ describe("isNetworkCommand through shell forms", () => {
       expect(performance.now() - start).toBeLessThan(500);
     },
   );
+});
+
+describe("commandWords", () => {
+  it("splits a shell command at blanks, operators and quotes", () => {
+    expect(commandWords(`cat .env|grep "a b";ls>out`)).toEqual([
+      "cat",
+      ".env",
+      "grep",
+      "a",
+      "b",
+      "ls",
+      "out",
+    ]);
+  });
+
+  it.each([
+    ["cat .e''nv", ".env"],
+    ['cat .e"nv"', ".env"],
+    ["cat .en\\v", ".env"],
+    ["cat ~/.aws''/credentials", "~/.aws/credentials"],
+  ])("reads %s also without its quotes and backslashes", (command, word) => {
+    expect(commandWords(command)).toContain(word);
+  });
 });
