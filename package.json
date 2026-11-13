@@ -39,8 +39,8 @@
   ],
   "exports": {
     ".": {
-      "types": "./dist/core/index.d.ts",
-      "default": "./dist/core/index.js"
+      "types": "./dist/public.d.ts",
+      "default": "./dist/public.js"
     }
   },
   "bin": {
@@ -59,14 +59,14 @@
     "build": "tsc -p tsconfig.build.json",
     "lint": "oxlint --deny-warnings",
     "fmt": "oxfmt src test scripts",
-    "test": "vitest --run",
+    "test": "npm run build && vitest --run",
     "release": "node scripts/release.ts prepare",
     "schema": "node scripts/write-schema.ts"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "^1.0.3",
-    "@earendil-works/pi-coding-agent": "^1.0.3",
-    "typebox": "^1.4.3"
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-ai": {

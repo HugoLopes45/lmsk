@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Breaking: for code that imports lmsk, the package exports only `Guard`, `localIdentityRules` and `machinePaths`, and the types `GuardHost`, `HostContext`, `ToolCall`, `TextRestorer` and `PayloadFormat`. Other names are removed.
 - A keyed value is found when it only starts like a placeholder, such as `@`, `%`, `/` or `~` before a password. A value that holds a word such as `example` is found too, and so is a word with digits such as `tr0ub4dor-h0rse-9x`. A placeholder that holds only names, such as `${DB_PASSWORD}`, `${PW:-postgres}`, `<password>`, `%env(APP_SECRET)%` or `~/.config/db/pw`, is still ignored.
 - A value that holds `true`, `false` or `null` inside a longer secret is found by the imported rules too.
 - More default `networkCommands`: `git clone`, `git fetch`, `git pull`, `git ls-remote`, `git send-email`, `pip install`, `dig`, `drill`, `nslookup`, `whois`, `xdg-open`, `aria2c`, `lynx`, `osascript -e`, `pwsh -c`, `pwsh -Command`, `powershell -c`, `powershell -Command`, `julia -e`, `lua -e` and `Rscript -e`. A command with these words keeps its fakes.
@@ -15,15 +16,14 @@
 - Claude Code: the deny hook also checks `NotebookEdit` and `MultiEdit`, and these tools get real values back. Run `lmsk install claude` again to update the hook.
 - Protected paths also match an accented letter written as a base letter and a separate accent.
 - The deny hook checks the words of a long shell command about 4 times faster.
-- Breaking, for code that imports lmsk: `isProtectedPath(path, cwd, patterns)` is now `protectedPath(paths, cwd, patterns)`, which returns the first protected path.
-- Breaking, for code that imports lmsk: `ToolCall.pathOf(input)` is now `ToolCall.targets(input)`, which returns a list of paths. `commandWords` and `fromHome` are new exports.
+- Breaking, for code that imports lmsk: `ToolCall.pathOf(input)` is now `ToolCall.targets(input)`, which returns a list of paths.
 - Claude Code: the proxy stops a streamed reply when an event name is not the type of its data. It also stops it when a block index is not a whole number, or when a block starts at an index that is still open. The stop is logged with `STREAM_INVALID`.
 - Claude Code: the proxy reads a lone CR as a line end in a streamed reply, as LF and CRLF.
 - Claude Code: a text block that a provider signs keeps its fakes. A signature that arrives after the text was restored is dropped.
 - Protected paths also match when a letter is written in another form that the disk reads as the same letter, such as the long s `ſ` for `s`.
 - Breaking: a search tool is refused on a folder that holds a folder of an absolute protected path, such as the lmsk state folder. This covers `grep`, `find` and `ls` in pi, and `Grep` and `Glob` in Claude Code. A search without a path counts as a search of the session folder. So a search of `~` or `/` is refused.
 - The deny hook, and pi in a shell command, read a lone `~`, `$HOME` or `${HOME}` as your home folder.
-- Breaking, for code that imports lmsk: `ToolCall` has a new `roots(input)` member, the folders that the tool searches. `searchedPath` is a new export.
+- Breaking, for code that imports lmsk: `ToolCall` has a new `roots(input)` member, the folders that the tool searches.
 
 ## 0.3.0
 
