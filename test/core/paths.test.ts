@@ -1,4 +1,4 @@
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { machinePaths } from "../../src/core/index.ts";
 
@@ -21,11 +21,17 @@ describe("machinePaths", () => {
         "/h/.claude/settings*.json",
         "/h/Library/LaunchAgents/io.github.hugolopes45.lmsk.plist",
         "/h/.config/systemd/user/lmsk.service",
-        fileURLToPath(new URL("../../dist/**", import.meta.url)),
+        join(process.cwd(), "dist", "**"),
       ],
       launchdPath: "/h/Library/LaunchAgents/io.github.hugolopes45.lmsk.plist",
       systemdPath: "/h/.config/systemd/user/lmsk.service",
     });
+  });
+
+  it("ignores a relative CLAUDE_CONFIG_DIR, which no absolute path matches", () => {
+    const { protectedPaths } = machinePaths({ CLAUDE_CONFIG_DIR: "rel" }, "/h");
+    expect(protectedPaths.filter((path) => path.startsWith("rel"))).toEqual([]);
+    expect(protectedPaths).toContain("/h/.claude/settings*.json");
   });
 
   it("protects the Claude Code settings in CLAUDE_CONFIG_DIR and the service file in XDG_CONFIG_HOME", () => {

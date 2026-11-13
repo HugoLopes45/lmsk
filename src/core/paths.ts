@@ -14,7 +14,7 @@ export interface MachinePaths {
 /** The code that the hook and the service run, from `src/core` and from `dist/core`. */
 const CODE = fileURLToPath(new URL("../../dist/**", import.meta.url));
 
-/** An XDG base directory: the variable when it is absolute, else the default under home. */
+/** A base directory: the variable when it is absolute, else the default under home. */
 function baseDir(value: string | undefined, fallback: string): string {
   return value !== undefined && isAbsolute(value) ? value : fallback;
 }
@@ -51,7 +51,10 @@ export function machinePaths(
       ),
       // A change to these turns off the hook or the proxy of Claude Code.
       "**/.claude/settings*.json",
-      join(env.CLAUDE_CONFIG_DIR || join(home, ".claude"), "settings*.json"),
+      join(
+        baseDir(env.CLAUDE_CONFIG_DIR, join(home, ".claude")),
+        "settings*.json",
+      ),
       launchdPath,
       systemdPath,
       CODE,

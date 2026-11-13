@@ -130,6 +130,8 @@ A tool call with a fake path that becomes a protected path after restore keeps i
 
 The hook does not check the `glob` of a `Grep` or `Glob` call. So a search of a folder can find a protected file in it. Claude Code applies the `Read` deny rules to `Grep` and `Glob` as a best effort.
 
+The hook finds a relative path from the session folder, and it does not follow `cd`. So it does not refuse `cd ~/.claude && cp /tmp/s.json settings.json`. It also does not refuse a command that names only a parent folder, such as `mv ~/.claude /tmp/x`.
+
 The hook reads a shell command as a word list, not with a parser. It reads the words again without quotes, backslashes and line continuations, so `cat .e''nv` and `cat .e$'n'v` are refused like `cat .env`. Other shell expansions can still hide a path, such as a variable, an escape code `$'\x2e'`, a command substitution, a glob or a brace list. A quoted path with a space, a `name=value` word such as `if=.env`, another user's `~name` or another program can hide a path too.
 
 ## Limits that are specific to Claude Code
