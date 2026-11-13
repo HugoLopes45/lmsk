@@ -42,8 +42,10 @@ describe("hookDenial", () => {
       });
   });
 
-  it("reads a target that starts with ~ from home, as the shell does", () => {
-    expect(hookDenial(call("~/state/v.json"), options())).toBeDefined();
+  it("reads a target that starts with ~ from home, as the shell does, and names it as written", () => {
+    expect(hookDenial(call("~/state/v.json"), options())).toContain(
+      "lmsk: ~/state/v.json is a protected path",
+    );
     expect(hookDenial(call("~state/v.json", "/h"), options())).toBeUndefined();
   });
 
