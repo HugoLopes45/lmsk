@@ -36,9 +36,12 @@ export function isNetworkCommand(command: string, config: MaskConfig): boolean {
   });
 }
 
-/** `matchesGlob` has no dot option: `*` and `**` skip a segment that starts with a dot, such as `~/.config`. The same mark in path and pattern keeps their literal dots equal. Lower case on both sides: macOS and Windows disks open `~/.AWS` as `~/.aws`. */
+/** `matchesGlob` has no dot option: `*` and `**` skip a segment that starts with a dot, such as `~/.config`. The same mark in path and pattern keeps their literal dots equal. Upper then lower case on both sides: macOS and Windows disks open `~/.AWS` as `~/.aws`, and the long s `ſ` as `s`. */
 function undotted(path: string): string {
-  return path.replaceAll(/(^|[/{,])\./g, "$1\u0001").toLowerCase();
+  return path
+    .replaceAll(/(^|[/{,])\./g, "$1\u0001")
+    .toUpperCase()
+    .toLowerCase();
 }
 
 /** The path that `path` leads to through links, also when it does not exist yet: a write follows a linked folder and a dangling link. */

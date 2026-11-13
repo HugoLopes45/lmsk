@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Claude Code: the deny hook reads a path that starts with `$HOME/` or `${HOME}/` from your home folder, as it reads `~/`.
+- Protected paths also match when a letter is written in another form that the disk reads as the same letter, such as the long s `ſ` for `s`.
+
 ## 0.3.0
 
 - Breaking: `lmsk claude` is gone. Run `lmsk install claude` once. It starts the proxy as a service at login and points your Claude Code user settings at it. Then start `claude` as usual: each session goes through the proxy. Run it again after you update lmsk or Node.js, change the configuration file, or start to use a gateway. There is no uninstall command: see [Uninstall](docs/claude-code.md#uninstall).

@@ -24,6 +24,11 @@ describe("isProtectedPath", () => {
     ["/h/.AWS/credentials", "/h/.aws/**"],
     ["/w/.NPMRC", "**/.npmrc"],
     ["/h/.config/LMSK/config.json", "/h/.config/lmsk/**"],
+    // These disks also fold the long s and the Kelvin sign to s and k.
+    ["/h/.local/\u017ftate/lmsk/key", "/h/.local/state/lmsk/**"],
+    ["/h/.config/lm\u017fk/config.json", "**/lmsk/config.json"],
+    ["/h/.\u017f\u017fh/id_r\u017fa", "**/.ssh/**"],
+    ["/h/.config/lms\u212a/config.json", "**/lmsk/config.json"],
   ])(
     "matches %s with %s, also through folders that start with a dot",
     (path, pattern) => {
