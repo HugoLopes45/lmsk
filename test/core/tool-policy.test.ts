@@ -32,6 +32,11 @@ describe("isProtectedPath", () => {
     // A letter whose upper or lower case has two code points, such as ß or İ, stays one for `?`.
     ["/w/a\u00df", "/w/a?"],
     ["/w/a\u0130", "/w/a?"],
+    // The disk opens an accented letter written as a base letter and a mark as the same file.
+    ["/h/jose\u0301/.ssh/id", "/h/jos\u00e9/.ssh/**"],
+    ["/h/jos\u00e9/.ssh/id", "/h/jose\u0301/.ssh/**"],
+    // A disk that keeps names as written opens this name, which starts with `.env`.
+    ["/w/.env\u0303", "**/.env*"],
     // A final ς folds like σ, whatever comes after it.
     ["/w/\u03ba\u03c9\u03b4\u03b9\u03ba\u03cc\u03c2.txt", "**/\u03ba\u03c9\u03b4\u03b9\u03ba\u03cc\u03c2.*"],
   ])(
@@ -42,6 +47,7 @@ describe("isProtectedPath", () => {
   );
 
   it.each([
+    ["/h/jose/.ssh/id", "/h/jos\u00e9/.ssh/**"],
     ["/w/env", "**/.env*"],
     ["/w/a.pem.txt", "**/*.pem"],
     ["/w/x.env", "**/.env*"],

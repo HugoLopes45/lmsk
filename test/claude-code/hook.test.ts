@@ -34,6 +34,10 @@ describe("claudeHook", () => {
     ["Bash", { command: 'cat "READ"ME.md' }, false],
     ["Read", { file_path: "/w/README.md" }, false],
     ["Grep", { pattern: "x", path: "/w/.env.local" }, true],
+    ["NotebookEdit", { notebook_path: "/w/.claude/settings.local.json" }, true],
+    ["NotebookEdit", { notebook_path: "/w/a.ipynb" }, false],
+    ["MultiEdit", { file_path: "~/.claude/settings.json" }, true],
+    ["MultiEdit", { file_path: "/w/a.ts" }, false],
   ])(
     "denies %s %j when it opens a protected path: %s",
     (tool, toolInput, denied) => {

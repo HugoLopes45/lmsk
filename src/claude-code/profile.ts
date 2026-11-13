@@ -8,6 +8,8 @@ const PATH_KEYS = new Map([
   ["Edit", "file_path"],
   ["Grep", "path"],
   ["Glob", "path"],
+  ["NotebookEdit", "notebook_path"],
+  ["MultiEdit", "file_path"],
 ]);
 
 export const TOOLS = [...PATH_KEYS.keys(), "Bash"];

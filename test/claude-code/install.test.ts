@@ -21,7 +21,7 @@ const NODE = "/opt/node/bin/node";
 const BIN = "/opt/lmsk/dist/cli/bin.js";
 const LABEL = "io.github.hugolopes45.lmsk";
 const HOOK = {
-  matcher: "Read|Write|Edit|Grep|Glob|Bash",
+  matcher: "Read|Write|Edit|Grep|Glob|NotebookEdit|MultiEdit|Bash",
   hooks: [
     {
       type: "command",

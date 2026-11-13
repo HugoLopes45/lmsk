@@ -96,10 +96,12 @@ export function isProtectedPath(
   // 40 links per path is the Linux limit; past it, the write itself fails with ELOOP. One count for the whole path, as the system keeps, bounds links that lead back to each other.
   const budget = { links: 40 };
   const from = isAbsolute(path) ? "/" : linkTarget(cwd, budget);
-  const paths = [resolve(cwd, path), walk(from, path, budget)];
+  // macOS disks open a letter and its accent written as two code points as the one-code-point letter. Other disks keep the name as written, so both forms are matched.
+  const both = (text: string) => [...new Set([text, text.normalize("NFC")])];
+  const paths = [resolve(cwd, path), walk(from, path, budget)].flatMap(both);
   return paths.some((candidate) =>
-    patterns.some((pattern) =>
-      matchesGlob(undotted(candidate), undotted(pattern)),
-    ),
+    patterns
+      .flatMap(both)
+      .some((pattern) => matchesGlob(undotted(candidate), undotted(pattern))),
   );
 }
