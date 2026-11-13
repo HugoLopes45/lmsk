@@ -126,6 +126,44 @@ describe("keyed secrets", () => {
     for (const text of standIns) expect(await found(text), text).toEqual([]);
   });
 
+  it.each([
+    ["@Rk9xQ2mZ7", `password: "@Rk9xQ2mZ7"`],
+    ["%21Qz8mT4vL", `password=%21Qz8mT4vL`],
+    ["tr0ub4dor-h0rse-9x", `password: tr0ub4dor-h0rse-9x`],
+    ["MyExample!2024", `password: "MyExample!2024"`],
+    ["/Rk9xQ2mZ7", `password: "/Rk9xQ2mZ7"`],
+    ["~Rk9xQ2mZ7", `password: "~Rk9xQ2mZ7"`],
+    ["${DB_PW:-Rk9x7Q2mZ}", `password: \${DB_PW:-Rk9x7Q2mZ}`],
+    ["$up3rS3cret", `password: "$up3rS3cret"`],
+    ["<Xk9#mQ2pL7>", `password: "<Xk9#mQ2pL7>"`],
+    ["{{Xk9#mQ2pL7}}", `password: "{{Xk9#mQ2pL7}}"`],
+    ["{Rk9xQ2mZ7}", `password: "{Rk9xQ2mZ7}"`],
+  ])("takes %s, which starts or ends like a stand-in", async (value, text) => {
+    expect(await found(text)).toEqual([value]);
+  });
+
+  it.each([
+    `password: "\${DB_PASSWORD}"`,
+    `password: "<password>"`,
+    `password: "%DB_PASSWORD%"`,
+    `password: "{{.Values.pw}}"`,
+    `password: "{{ vault.pw }}"`,
+    `password: $PGPASSWORD`,
+    `password: "./secrets/db.txt"`,
+    `password: "~/.config/db/pw"`,
+    `POSTGRES_PASSWORD: \${POSTGRES_PASSWORD:-postgres}`,
+    `secret: '%env(APP_SECRET)%'`,
+    `secret: '%kernel.secret%'`,
+    `password: $env:DB_PASSWORD`,
+    `Password={pwd};`,
+    `password: @db.password@`,
+    `"password":"[REDACTED]"`,
+    `API_KEY=<your api key>`,
+    `gcloud run deploy --token $(gcloud auth print-access-token)`,
+  ])("ignores the stand-in %s", async (text) => {
+    expect(await found(text)).toEqual([]);
+  });
+
   it("ignores a code reference or call that ends a line", async () => {
     for (const text of [
       `password: this.password`,

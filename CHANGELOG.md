@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A keyed value is found when it only starts like a placeholder, such as `@`, `%`, `/` or `~` before a password. A value that holds a word such as `example` is found too, and so is a word with digits such as `tr0ub4dor-h0rse-9x`. A placeholder that holds only names, such as `${DB_PASSWORD}`, `${PW:-postgres}`, `<password>`, `%env(APP_SECRET)%` or `~/.config/db/pw`, is still ignored.
+- A value that holds `true`, `false` or `null` inside a longer secret is found by the imported rules too.
 - More default `networkCommands`: `git clone`, `git fetch`, `git pull`, `git ls-remote`, `git send-email`, `pip install`, `dig`, `drill`, `nslookup`, `whois`, `xdg-open`, `aria2c`, `lynx`, `osascript -e`, `pwsh -c`, `pwsh -Command`, `powershell -c`, `powershell -Command`, `julia -e`, `lua -e` and `Rscript -e`. A command with these words keeps its fakes.
 - The first word of a `networkCommands` item can end in a version, so `python3.12 -c` and `pip3 install` keep their fakes.
 - pi: the text of a model call through `ctx.modelRegistry` also masks the real values that earlier tool calls received, as provider requests do.

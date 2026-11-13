@@ -185,12 +185,25 @@ function strings(value: unknown): string[] {
     : [];
 }
 
+/** `^a|b$` anchors only its first and last branches. An allowlist regex that starts with `^` and ends with `$` means the whole value, so its branches share both anchors: a value that only holds `b` stays found. */
+function anchorBranches(regex: string): string {
+  if (!/^\^.*[^\\]\$$/s.test(regex)) return regex;
+  let body = regex
+    .slice(1, -1)
+    .replace(/\\./g, "")
+    .replace(/\[[^\]]*\]/g, "");
+  while (/\([^()]*\)/.test(body)) body = body.replace(/\([^()]*\)/g, "");
+  return body.includes("|") ? `^(?:${regex.slice(1, -1)})$` : regex;
+}
+
 function allowlist(raw: Record<string, unknown>): Allowlist | undefined {
   const all = raw.condition === "AND";
   // Paths and commits cannot be evaluated on a payload: an AND list that needs them never passes.
   if (all && (strings(raw.paths).length || strings(raw.commits).length))
     return undefined;
-  const regexes = strings(raw.regexes).map(convertGoRegex);
+  const regexes = strings(raw.regexes).map((regex) =>
+    anchorBranches(convertGoRegex(regex)),
+  );
   const stopwords = strings(raw.stopwords).map((word) => word.toLowerCase());
   if (!regexes.length && !stopwords.length) return undefined;
   const target =
