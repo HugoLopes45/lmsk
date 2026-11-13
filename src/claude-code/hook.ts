@@ -1,5 +1,5 @@
-import { machinePaths } from "../core/index.ts";
-import { commandWords, hookDenial } from "../proxy/index.ts";
+import { commandWords, machinePaths } from "../core/index.ts";
+import { hookDenial } from "../proxy/index.ts";
 import { pathOf, TOOLS } from "./profile.ts";
 
 export interface HookEnv {

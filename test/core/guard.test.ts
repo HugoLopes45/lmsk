@@ -41,8 +41,8 @@ function call(
     input,
     verified: true,
     cwd: "/",
-    pathOf: (restored) =>
-      typeof restored.path === "string" ? restored.path : undefined,
+    targets: (restored) =>
+      typeof restored.path === "string" ? [restored.path] : [],
   };
 }
 

@@ -540,6 +540,21 @@ describe("provider requests", () => {
     expect(ctx.notices[0]?.level).toBe("error");
   });
 
+  it("blocks every provider request when the config restores powershell, which pi never restores", async () => {
+    writeGlobalConfig({ restoredTools: ["powershell"] });
+    const pi = fakePi();
+    const ctx = testContext();
+    startSession(ctx, pi);
+
+    const result = await pi.handlers.before_provider_request?.(
+      providerRequest("plain text"),
+      ctx,
+    );
+
+    expect(result).toEqual({});
+    expect(ctx.aborts).toBe(1);
+  });
+
   it("blocks every provider request when setup never ran", async () => {
     const pi = fakePi();
     const ctx = testContext();
@@ -1715,7 +1730,7 @@ describe("compaction and summaries", () => {
 });
 
 describe("protected paths", () => {
-  it.each(["read", "grep", "find", "ls"] as const)(
+  it.each(["read", "grep", "find", "ls", "write", "edit"] as const)(
     "blocks %s on a protected path",
     async (toolName) => {
       const pi = fakePi();
@@ -1746,6 +1761,160 @@ describe("protected paths", () => {
       expect(result).toMatchObject({ block: true });
     },
   );
+
+  it.each([
+    ["a path", (file: string) => `od -c ${file}`],
+    ["a quoted path", (file: string) => `cat "${file}"`],
+    ["a redirect", (file: string) => `echo x>${file}`],
+  ])("blocks a bash command that names the machine key in %s", async (_, command) => {
+    const pi = fakePi();
+    const ctx = testContext();
+    startSession(ctx, pi);
+    const input = { command: command(join(root, "state", "lmsk", "key")) };
+
+    const result = await pi.handlers.tool_call?.(
+      { type: "tool_call", toolCallId: "1", toolName: "bash", input },
+      ctx,
+    );
+
+    expect(result).toMatchObject({ block: true });
+  });
+
+  it.each(["$HOME", "${HOME}", "~"])(
+    "blocks a bash command that names a protected path from %s",
+    async (home) => {
+      vi.stubEnv("HOME", root);
+      writeJson(join(projectDir, ".pi", "lmsk.json"), {
+        protectedPaths: [`${root}/keys/**`],
+      });
+      const pi = fakePi();
+      const ctx = testContext();
+      startSession(ctx, pi);
+      const input = { command: `cat ${home}/keys/a.txt` };
+
+      const result = await pi.handlers.tool_call?.(
+        { type: "tool_call", toolCallId: "1", toolName: "bash", input },
+        ctx,
+      );
+
+      expect(result).toMatchObject({ block: true });
+    },
+  );
+
+  it("blocks a bash command whose fake word restores to a protected path", async () => {
+    writeJson(join(projectDir, ".pi", "lmsk.json"), {
+      rules: [{ id: "codename", type: "literal", values: [CODENAME] }],
+      protectedPaths: [`**/${CODENAME}*`],
+    });
+    const pi = fakePi();
+    const ctx = testContext();
+    startSession(ctx, pi);
+    const masked = maskedContent(
+      await pi.handlers.before_provider_request?.(
+        providerRequest(`codename ${CODENAME}`),
+        ctx,
+      ),
+    );
+    const fake = /"content":"codename ([^"]+)"/.exec(masked)?.[1];
+    const command = `cat ${fake ?? ""}`;
+    const input = { command };
+
+    const result = await pi.handlers.tool_call?.(
+      { type: "tool_call", toolCallId: "1", toolName: "bash", input },
+      ctx,
+    );
+
+    expect(fake).toBeDefined();
+    expect(result).toEqual({ block: true, reason: "protected path" });
+    expect(input.command).toBe(command);
+  });
+
+  it("keeps the fakes of a bash call in the assistant message when its restored word is a protected path", async () => {
+    writeJson(join(projectDir, ".pi", "lmsk.json"), {
+      rules: [{ id: "codename", type: "literal", values: [CODENAME] }],
+      protectedPaths: [`**/${CODENAME}*`],
+    });
+    const pi = fakePi();
+    const ctx = testContext();
+    startSession(ctx, pi);
+    const masked = maskedContent(
+      await pi.handlers.before_provider_request?.(
+        providerRequest(`codename ${CODENAME}`),
+        ctx,
+      ),
+    );
+    const fake = /"content":"codename ([^"]+)"/.exec(masked)?.[1] ?? "";
+
+    const result = await pi.handlers.message_end?.(
+      {
+        type: "message_end",
+        message: assistantMessage([
+          {
+            type: "toolCall",
+            id: "call-1",
+            name: "bash",
+            arguments: { command: `cat ${fake}` },
+          },
+        ]),
+      },
+      ctx,
+    );
+
+    expect(fake).not.toBe("");
+    expect(result).toMatchObject({
+      message: {
+        content: [
+          {
+            type: "toolCall",
+            id: "call-1",
+            name: "bash",
+            arguments: { command: `cat ${fake}` },
+          },
+        ],
+      },
+    });
+  });
+
+  it("blocks a powershell command that names a protected path", async () => {
+    const pi = fakePi();
+    const ctx = testContext();
+    startSession(ctx, pi);
+    const input = { command: "Get-Content .env" };
+
+    const result = await pi.handlers.tool_call?.(
+      { type: "tool_call", toolCallId: "1", toolName: "powershell", input },
+      ctx,
+    );
+
+    expect(result).toEqual({ block: true, reason: "protected path" });
+  });
+
+  it("blocks a write on a protected path when pi does not list the tool as built in", async () => {
+    const pi = fakePi({ tools: [] });
+    const ctx = testContext();
+    startSession(ctx, pi);
+
+    const result = await pi.handlers.tool_call?.(
+      toolCallEvent("write", ".env.local"),
+      ctx,
+    );
+
+    expect(result).toMatchObject({ block: true });
+  });
+
+  it("runs a bash command that names no protected path", async () => {
+    const pi = fakePi();
+    const ctx = testContext();
+    startSession(ctx, pi);
+    const input = { command: "ls src && cat package.json" };
+
+    const result = await pi.handlers.tool_call?.(
+      { type: "tool_call", toolCallId: "1", toolName: "bash", input },
+      ctx,
+    );
+
+    expect(result).toBeUndefined();
+  });
 
   it("blocks a read whose fake path restores to a protected path", async () => {
     writeJson(join(projectDir, ".pi", "lmsk.json"), {

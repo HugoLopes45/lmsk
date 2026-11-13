@@ -17,7 +17,7 @@ import { compactMasked, summarizeTreeMasked } from "./compaction.ts";
 import { installModelGuard } from "./guard-runtime.ts";
 import type { BranchRecord, HookApi, HookContext } from "./host.ts";
 import { GLOBAL_CONFIG, NAME, PI_DEFAULTS, PROJECT_CONFIG } from "./profile.ts";
-import { commandKeyOf, isBuiltinTool, pathOf } from "./tools.ts";
+import { commandKeyOf, isBuiltinTool, targetsOf } from "./tools.ts";
 
 /** The text of the last assistant message on the branch. */
 function lastReply(ctx: HookContext): string | undefined {
@@ -124,7 +124,7 @@ function lmsk(pi: HookApi): void {
     verified: isBuiltinTool(pi, tool),
     commandKey: commandKeyOf(tool),
     cwd,
-    pathOf: (args) => pathOf(tool, args),
+    targets: (args) => targetsOf(tool, args),
   });
 
   pi.on("tool_call", (event, ctx) => {
