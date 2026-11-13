@@ -29,8 +29,10 @@ describe("isProtectedPath", () => {
     ["/h/.config/lm\u017fk/config.json", "**/lmsk/config.json"],
     ["/h/.\u017f\u017fh/id_r\u017fa", "**/.ssh/**"],
     ["/h/.config/lms\u212a/config.json", "**/lmsk/config.json"],
-    // A letter whose upper case has two letters, such as ß, stays one letter for `?`.
+    // A letter whose upper or lower case has two code points, such as ß or İ, stays one for `?`.
     ["/w/a\u00df", "/w/a?"],
+    ["/w/a\u0130", "/w/a?"],
+    // A final ς folds like σ, whatever comes after it.
     ["/w/\u03ba\u03c9\u03b4\u03b9\u03ba\u03cc\u03c2.txt", "**/\u03ba\u03c9\u03b4\u03b9\u03ba\u03cc\u03c2.*"],
   ])(
     "matches %s with %s, also through folders that start with a dot",
