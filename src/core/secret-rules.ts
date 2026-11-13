@@ -26,8 +26,9 @@ const CODE_REFERENCE =
  * An unquoted value up to the next space or quote, so it may hold `.`, `:`,
  * `&`, `(` and `<`. It stops before a `&name=` or `;name=` (a query or
  * connection string part), and it is not a code reference or a word that ends a sentence.
+ * It does not start with `[`: that is a list, such as a header in a Go map.
  */
-const WORD_VALUE = `(?![=!?|*+])(?![^\\s"'\`]{0,200}[&;][A-Za-z][A-Za-z0-9_]*=)(?!(?:${CODE_REFERENCE}|[A-Za-z]+\\.)${WORD_END})([^\\s"'\`]{3,199}[^\\s"'\`,;])(?=${WORD_END})`;
+const WORD_VALUE = `(?![=!?|*+[])(?![^\\s"'\`]{0,200}[&;][A-Za-z][A-Za-z0-9_]*=)(?!(?:${CODE_REFERENCE}|[A-Za-z]+\\.)${WORD_END})([^\\s"'\`]{3,199}[^\\s"'\`,;])(?=${WORD_END})`;
 /** A keyed value: quoted, unquoted up to a space or quote, or unquoted up to a delimiter. */
 const KEYED_VALUE = `(?:${QUOTE}${QUOTED_VALUE}${QUOTE}|${WORD_VALUE}|${BARE_VALUE})`;
 const UUID = /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/
@@ -72,32 +73,37 @@ const SECRET_KEY =
   /(?:[A-Za-z0-9_-]{0,40}(?:password|passwd|passcode|secret[_-]?key|secret|api[_-]?key|token|auth|credentials?|(?:private|access)[_-]?key(?:[_-]?id)?)|(?:[A-Za-z0-9]{1,40}[_-])?(?:pass|pwd|pw|pat|sig))(?![A-Za-z0-9])/
     .source;
 
-/** Values that name a variable, a placeholder, a type, a code reference or a path. */
+/** Values that name a variable, a placeholder, a type, a code reference or a path. Most shapes are a whole value that holds only names, so a secret that only starts like one is still found. */
 const STAND_IN: Allowlist = {
   target: "secret",
   regexes: [
-    "^[$<{\\[%@*/~.]",
+    "^\\$(?:[A-Za-z_]+|\\{[A-Za-z_]\\w*\\})$",
+    // A default of letters only, such as `${PW:-postgres}`.
+    "^\\$\\{[A-Za-z_][\\w.:]*(?::?[-=?+][A-Za-z_]*)?\\}$",
+    "^\\$env:[A-Za-z_]\\w*$",
+    // A command substitution cut at its first blank, such as `$(gcloud`.
+    "^\\$\\([a-z][\\w.-]*$",
+    "^<[A-Za-z_ -]+>$",
+    // A placeholder cut at its first blank, such as `<your`.
+    "^<[A-Za-z_-]+$",
+    "^\\{\\{\\s*[\\w.]+\\s*\\}\\}$",
+    "^\\{[A-Za-z_.]+\\}$",
+    "^%(?:env\\([\\w:]+\\)|[A-Za-z_][\\w.]*)%$",
+    "^@[A-Za-z_][\\w.]*@$",
+    "^\\[[A-Za-z_ ]+\\]$",
+    // A path needs two segments, or a start of `~`, `.` or `..`.
+    "^(?:(?:~|\\.{1,2})(?:/[\\w.-]+)+|(?:/[\\w.-]+){2,})/?$",
     "^(?:urn|https?):",
     "^-{3,}",
     "^(?:[xX*#.-]+|0+)$",
-    "^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$",
+    // Words joined by `-`, each word maybe ending in digits, such as `x-aws-ec2-metadata-token`.
+    "^[a-z]+\\d*(?:-[a-z]+\\d*)+$",
     "[!=]==|!=|\\?\\?|\\|\\|",
     // Letters only, or words joined by `_`: an identifier, a type, an env var name or a dictionary word.
     "^[A-Za-z]+(?:_[A-Za-z]+)*$",
   ],
-  stopwords: [
-    "changeme",
-    "change_me",
-    "placeholder",
-    "example",
-    "dummy",
-    "redacted",
-    "your_",
-    "your-",
-    "process.env",
-    "os.environ",
-    "getenv",
-  ],
+  // A placeholder word such as `changeme` or `your_password` passes as a whole identifier above, not inside a longer value. Code references pass anywhere.
+  stopwords: ["process.env", "os.environ", "getenv"],
   all: false,
 };
 
@@ -126,7 +132,7 @@ export const SECRET_RULES: Rule[] = [
       .source,
     {
       group: 1,
-      // Not STAND_IN: its `%` prefix and its stopwords pass a percent-encoded or an "example" password.
+      // Not STAND_IN: it passes a letters-only value of any length, and a URL password is often only letters.
       allow: [
         {
           target: "secret",

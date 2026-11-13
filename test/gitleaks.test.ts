@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { convertGoRegex, importGitleaks } from "../scripts/import-gitleaks.ts";
+import { GITLEAKS_RULES } from "../src/core/gitleaks-rules.ts";
 
 function compile(go: string): RegExp {
   return new RegExp(convertGoRegex(go));
@@ -59,6 +60,30 @@ describe("convertGoRegex", () => {
 });
 
 describe("importGitleaks", () => {
+  it("anchors each branch of an allowlist alternation that starts with ^ and ends with $", () => {
+    const { global } = importGitleaks({
+      rules: [],
+      allowlist: { regexes: ["(?i)^true|false|null$", "^a|b(c|d)$"] },
+    });
+    const [boolean, nested] = (global?.regexes ?? []).map(
+      (source) => new RegExp(source),
+    );
+    expect(boolean?.test("FALSE")).toBe(true);
+    expect(boolean?.test("Xq9falseR7tLm2vB8")).toBe(false);
+    expect(boolean?.test("trueXq9R7tLm2vB8")).toBe(false);
+    expect(nested?.test("bd")).toBe(true);
+    expect(nested?.test("xbd")).toBe(false);
+  });
+
+  it("keeps a value that holds a word of the global allowlist in the shipped rules", () => {
+    const [shared] = GITLEAKS_RULES[0]?.allow ?? [];
+    const regexes = (shared?.regexes ?? []).map((source) => new RegExp(source));
+    expect(regexes.some((regex) => regex.test("null"))).toBe(true);
+    expect(regexes.some((regex) => regex.test("Xq9falseR7tLm2vB8"))).toBe(
+      false,
+    );
+  });
+
   it("maps rule fields and global allowlists, and lists skipped rules", () => {
     const { rules, global, skipped } = importGitleaks({
       allowlist: {
