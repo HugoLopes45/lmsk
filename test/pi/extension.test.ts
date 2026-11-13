@@ -540,6 +540,21 @@ describe("provider requests", () => {
     expect(ctx.notices[0]?.level).toBe("error");
   });
 
+  it("blocks every provider request when the config restores powershell, which pi never restores", async () => {
+    writeGlobalConfig({ restoredTools: ["powershell"] });
+    const pi = fakePi();
+    const ctx = testContext();
+    startSession(ctx, pi);
+
+    const result = await pi.handlers.before_provider_request?.(
+      providerRequest("plain text"),
+      ctx,
+    );
+
+    expect(result).toEqual({});
+    expect(ctx.aborts).toBe(1);
+  });
+
   it("blocks every provider request when setup never ran", async () => {
     const pi = fakePi();
     const ctx = testContext();
@@ -1846,7 +1861,18 @@ describe("protected paths", () => {
     );
 
     expect(fake).not.toBe("");
-    expect(JSON.stringify(result ?? {})).not.toContain(CODENAME);
+    expect(result).toMatchObject({
+      message: {
+        content: [
+          {
+            type: "toolCall",
+            id: "call-1",
+            name: "bash",
+            arguments: { command: `cat ${fake}` },
+          },
+        ],
+      },
+    });
   });
 
   it("blocks a powershell command that names a protected path", async () => {
