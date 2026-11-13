@@ -3,7 +3,7 @@
 <h1>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-dark.svg">
-    <img src="docs/brand/logo.svg" alt="lmsk" width="320">
+    <img src="docs/brand/logo-readme.svg" alt="lmsk" width="320">
   </picture>
 </h1>
 
