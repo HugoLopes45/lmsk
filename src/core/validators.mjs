@@ -5,7 +5,8 @@ import { BlockList, isIPv4, isIPv6 } from "node:net";
 
 function blockList(type, subnets) {
   const list = new BlockList();
-  for (const [address, prefix] of subnets) list.addSubnet(address, prefix, type);
+  for (const [address, prefix] of subnets)
+    list.addSubnet(address, prefix, type);
   return list;
 }
 
@@ -41,13 +42,19 @@ export const CARD_CONTEXT = /^(?:card|card_number|pan)\s*[:=]\s*/i;
 
 export function validPan(value) {
   const digits = value.replace(/[ -]/g, "");
-  return /^(?:4\d{12,18}|(?:5[1-5]|2[2-7])\d{14}|3[47]\d{13}|6(?:011|5\d{2}|4[4-9]\d)\d{12,15})$/.test(digits) && luhnSum(digits);
+  return (
+    /^(?:4\d{12,18}|(?:5[1-5]|2[2-7])\d{14}|3[47]\d{13}|6(?:011|5\d{2}|4[4-9]\d)\d{12,15})$/.test(
+      digits,
+    ) && luhnSum(digits)
+  );
 }
 
 function luhn(value, match) {
   const digits = value.replace(/[ -]/g, "");
   if (!CARD_CONTEXT.test(match)) return luhnSum(digits);
-  return validPan(digits) || [3, 4].some((size) => validPan(digits.slice(0, -size)));
+  return (
+    validPan(digits) || [3, 4].some((size) => validPan(digits.slice(0, -size)))
+  );
 }
 
 /** ISO 13616 mod-97 check: the rearranged number, with letters as 10 to 35, leaves 1. */
@@ -72,6 +79,8 @@ export const VALIDATORS = {
   "fr-nir": frNir,
   iban,
   luhn,
-  "public-ipv4": (value) => isIPv4(value) && !NON_PUBLIC_IPV4.check(value, "ipv4"),
-  "public-ipv6": (value) => isIPv6(value) && !NON_PUBLIC_IPV6.check(value, "ipv6"),
+  "public-ipv4": (value) =>
+    isIPv4(value) && !NON_PUBLIC_IPV4.check(value, "ipv4"),
+  "public-ipv6": (value) =>
+    isIPv6(value) && !NON_PUBLIC_IPV6.check(value, "ipv6"),
 };

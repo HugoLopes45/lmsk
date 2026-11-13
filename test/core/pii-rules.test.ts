@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import fc from "fast-check";
 import { afterEach, describe, expect, it } from "vitest";
-import { type RegexRule, mergeConfigs, validateConfig } from "../../src/core/config.ts";
+import {
+  type RegexRule,
+  mergeConfigs,
+  validateConfig,
+} from "../../src/core/config.ts";
 import { PII_RULES } from "../../src/core/pii-rules.ts";
 import { type ScanPattern, Scanner } from "../../src/core/scanner.ts";
 

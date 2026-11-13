@@ -2,6 +2,7 @@
 /*
 !/.github/
 !/.gitignore
+!/.oxfmtrc.json
 !/.oxlintrc.json
 !/CHANGELOG.md
 !/CONTRIBUTING.md

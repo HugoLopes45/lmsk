@@ -27,7 +27,7 @@ export interface InstallOptions {
   node: string;
   bin: string;
   /** Runs a service manager command and returns its exit status. */
-  run(command: string, args: readonly string[]): number;
+  run: (command: string, args: readonly string[]) => number;
   notify: ProxyOptions["notify"];
 }
 

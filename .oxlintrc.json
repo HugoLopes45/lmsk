@@ -1,6 +1,16 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "options": {
+    "typeAware": true
+  },
   "rules": {
+    "typescript/await-thenable": "error",
+    "typescript/no-base-to-string": "error",
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/no-unnecessary-type-assertion": "error",
+    "typescript/restrict-template-expressions": "error",
+    "typescript/switch-exhaustiveness-check": "error",
     "complexity": [
       "error",
       {
@@ -9,6 +19,27 @@
     ]
   },
   "overrides": [
+    {
+      "files": ["test/core/guard.test.ts", "test/pi/e2e.test.ts"],
+      "rules": {
+        "typescript/unbound-method": "off"
+      }
+    },
+    {
+      "files": [
+        "src/core/encoded.ts",
+        "src/core/scanner.ts",
+        "test/core/masker.test.ts",
+        "test/core/pii-rules.test.ts",
+        "test/core/shape.test.ts",
+        "test/pi/extension.test.ts",
+        "test/pi/leak-baseline.ts",
+        "test/proxy/server.test.ts"
+      ],
+      "rules": {
+        "typescript/no-misused-spread": "off"
+      }
+    },
     {
       "files": [
         "src/core/**"

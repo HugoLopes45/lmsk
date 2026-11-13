@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
+import { text } from "node:stream/consumers";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -173,11 +174,11 @@ describe("installClaude", () => {
 
   it("keeps the gateway that the settings pointed Claude Code at as the upstream of the proxy, also when installed again", async () => {
     const bodies: string[] = [];
-    const gateway = createServer(async (req, res) => {
-      const chunks: Buffer[] = [];
-      for await (const chunk of req) chunks.push(Buffer.from(chunk));
-      bodies.push(Buffer.concat(chunks).toString());
-      res.end("{}");
+    const gateway = createServer((req, res) => {
+      void text(req).then((body) => {
+        bodies.push(body);
+        res.end("{}");
+      });
     });
     await new Promise<void>((resolve) =>
       gateway.listen(0, "127.0.0.1", resolve),

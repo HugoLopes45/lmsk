@@ -30,12 +30,17 @@ const CODE_REFERENCE =
 const WORD_VALUE = `(?![=!?|*+])(?![^\\s"'\`]{0,200}[&;][A-Za-z][A-Za-z0-9_]*=)(?!(?:${CODE_REFERENCE}|[A-Za-z]+\\.)${WORD_END})([^\\s"'\`]{3,199}[^\\s"'\`,;])(?=${WORD_END})`;
 /** A keyed value: quoted, unquoted up to a space or quote, or unquoted up to a delimiter. */
 const KEYED_VALUE = `(?:${QUOTE}${QUOTED_VALUE}${QUOTE}|${WORD_VALUE}|${BARE_VALUE})`;
-const UUID = /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/.source;
+const UUID = /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/
+  .source;
 /** Base64 text in lines, such as a PEM or PuTTY key body. */
-const BASE64_LINES = /[A-Za-z0-9+/=]{1,4000}(?:\n[A-Za-z0-9+/=]{1,4000}){0,400}/.source;
+const BASE64_LINES = /[A-Za-z0-9+/=]{1,4000}(?:\n[A-Za-z0-9+/=]{1,4000}){0,400}/
+  .source;
 /** Vendor key bodies with a fixed or bounded shape; each is matched as a whole token. */
 const VENDOR_KEYS: [string, string][] = [
-  ["mapbox-token", String.raw`sk\.eyJ[A-Za-z0-9_-]{20,200}\.[A-Za-z0-9_-]{20,200}`],
+  [
+    "mapbox-token",
+    String.raw`sk\.eyJ[A-Za-z0-9_-]{20,200}\.[A-Za-z0-9_-]{20,200}`,
+  ],
   ["infisical-token", String.raw`st\.${UUID}\.[a-f0-9]{32}\.[a-f0-9]{32}`],
   ["asana-token", String.raw`\d/\d{8,30}(?:/\d{8,30})?:[a-f0-9]{32}`],
   ["fal-key", String.raw`${UUID}:[a-f0-9]{32}`],
@@ -56,7 +61,10 @@ const VENDOR_KEYS: [string, string][] = [
   ["new-relic-user-key", String.raw`NRAK-[A-Z0-9]{20,40}`],
   ["hubspot-token", String.raw`pat-(?:na|eu|ap)\d-${UUID}`],
   ["linear-oauth-token", String.raw`lin_oauth_[a-f0-9]{64}`],
-  ["braintree-token", String.raw`access_token\$(?:production|sandbox)\$[a-z0-9]{16}\$[a-f0-9]{32}`],
+  [
+    "braintree-token",
+    String.raw`access_token\$(?:production|sandbox)\$[a-z0-9]{16}\$[a-f0-9]{32}`,
+  ],
 ];
 
 /** Long key words match with any prefix; short ones need a separator or stand alone. */
@@ -103,7 +111,8 @@ export const SECRET_RULES: Rule[] = [
   ),
   regexRule(
     "table-cell-secret",
-    /\|\s*[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD)[A-Z_]*\s*\|\s*([A-Za-z0-9]{16,200})\s*\|/.source,
+    /\|\s*[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD)[A-Z_]*\s*\|\s*([A-Za-z0-9]{16,200})\s*\|/
+      .source,
     { group: 1 },
   ),
   regexRule(
@@ -113,7 +122,8 @@ export const SECRET_RULES: Rule[] = [
   ),
   regexRule(
     "connection-password",
-    /[A-Za-z][A-Za-z0-9+.-]{0,30}:\/\/[^\s:@/[\]]{0,80}:(?!\d{1,5}[/?#])([^\s@]{1,200})@/.source,
+    /[A-Za-z][A-Za-z0-9+.-]{0,30}:\/\/[^\s:@/[\]]{0,80}:(?!\d{1,5}[/?#])([^\s@]{1,200})@/
+      .source,
     {
       group: 1,
       // Not STAND_IN: its `%` prefix and its stopwords pass a percent-encoded or an "example" password.
@@ -154,7 +164,8 @@ export const SECRET_RULES: Rule[] = [
   ),
   regexRule(
     "authorization-hex",
-    /[Aa]uthorization["']?\s*[:=]\s*["']?([a-f0-9]{32,64})(?![A-Za-z0-9])/.source,
+    /[Aa]uthorization["']?\s*[:=]\s*["']?([a-f0-9]{32,64})(?![A-Za-z0-9])/
+      .source,
     { group: 1 },
   ),
   regexRule(

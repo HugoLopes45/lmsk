@@ -1766,19 +1766,22 @@ describe("protected paths", () => {
     ["a path", (file: string) => `od -c ${file}`],
     ["a quoted path", (file: string) => `cat "${file}"`],
     ["a redirect", (file: string) => `echo x>${file}`],
-  ])("blocks a bash command that names the machine key in %s", async (_, command) => {
-    const pi = fakePi();
-    const ctx = testContext();
-    startSession(ctx, pi);
-    const input = { command: command(join(root, "state", "lmsk", "key")) };
+  ])(
+    "blocks a bash command that names the machine key in %s",
+    async (_, command) => {
+      const pi = fakePi();
+      const ctx = testContext();
+      startSession(ctx, pi);
+      const input = { command: command(join(root, "state", "lmsk", "key")) };
 
-    const result = await pi.handlers.tool_call?.(
-      { type: "tool_call", toolCallId: "1", toolName: "bash", input },
-      ctx,
-    );
+      const result = await pi.handlers.tool_call?.(
+        { type: "tool_call", toolCallId: "1", toolName: "bash", input },
+        ctx,
+      );
 
-    expect(result).toMatchObject({ block: true });
-  });
+      expect(result).toMatchObject({ block: true });
+    },
+  );
 
   it.each(["$HOME", "${HOME}", "~"])(
     "blocks a bash command that names a protected path from %s",
@@ -2457,7 +2460,7 @@ function toolCall(
   toolName: string,
   input: Record<string, unknown>,
 ): ToolCallEvent {
-  return { type: "tool_call", toolCallId, toolName, input } as ToolCallEvent;
+  return { type: "tool_call", toolCallId, toolName, input };
 }
 
 const OD_C_CODENAME = [

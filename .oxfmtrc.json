@@ -1,0 +1,6 @@
+{
+  "printWidth": 80,
+  "ignorePatterns": [
+    "src/core/gitleaks-rules.ts"
+  ]
+}

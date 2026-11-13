@@ -21,7 +21,10 @@ import { keyedBytes } from "./keyed-bytes.ts";
 import { type Journal, Vault, type VaultEntry, VaultError } from "./vault.ts";
 
 export type MachineVaultCode =
-  "STORE_CORRUPT" | "STORE_UNSAFE" | "STORE_BUSY" | "STORE_IO";
+  | "STORE_CORRUPT"
+  | "STORE_UNSAFE"
+  | "STORE_BUSY"
+  | "STORE_IO";
 
 export class MachineVaultError extends CodedError<MachineVaultCode> {}
 

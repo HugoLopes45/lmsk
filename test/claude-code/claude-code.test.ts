@@ -2,6 +2,7 @@ import fs, { mkdtempSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
+import { text } from "node:stream/consumers";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { claudeProfile, serveClaude } from "../../src/claude-code/index.ts";
@@ -50,12 +51,12 @@ async function upstream(): Promise<{
   close(): void;
 }> {
   const bodies: string[] = [];
-  const server = createServer(async (req, res) => {
-    const chunks: Buffer[] = [];
-    for await (const chunk of req) chunks.push(Buffer.from(chunk));
-    bodies.push(Buffer.concat(chunks).toString());
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end("{}");
+  const server = createServer((req, res) => {
+    void text(req).then((body) => {
+      bodies.push(body);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end("{}");
+    });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();

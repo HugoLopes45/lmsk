@@ -514,7 +514,9 @@ function projectProblems(
 ): string[] {
   const rules = asList(level.rules).flatMap((rule) =>
     isRecord(rule) && inherited.has(rule.id)
-      ? [`rules.${rule.id} is inherited: project config cannot change it.`]
+      ? [
+          `rules.${String(rule.id)} is inherited: project config cannot change it.`,
+        ]
       : [],
   );
   const removals = (["protectedPaths", "networkCommands"] as const).flatMap(

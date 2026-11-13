@@ -45,7 +45,10 @@ describe("protectedPath", () => {
     // A disk that keeps names as written opens this name, which starts with `.env`.
     ["/w/.env\u0303", "**/.env*"],
     // A final ς folds like σ, whatever comes after it.
-    ["/w/\u03ba\u03c9\u03b4\u03b9\u03ba\u03cc\u03c2.txt", "**/\u03ba\u03c9\u03b4\u03b9\u03ba\u03cc\u03c2.*"],
+    [
+      "/w/\u03ba\u03c9\u03b4\u03b9\u03ba\u03cc\u03c2.txt",
+      "**/\u03ba\u03c9\u03b4\u03b9\u03ba\u03cc\u03c2.*",
+    ],
   ])(
     "matches %s with %s, also through folders that start with a dot",
     (path, pattern) => {
@@ -95,7 +98,9 @@ describe("protectedPath", () => {
     const repo = realpathSync(mkdtempSync(join(tmpdir(), "lmsk-links-")));
     writeFileSync(join(repo, "package.json"), "{}");
 
-    expect(protectedPath(["package.json/x"], repo, ["**/.env"])).toBeUndefined();
+    expect(
+      protectedPath(["package.json/x"], repo, ["**/.env"]),
+    ).toBeUndefined();
   });
 });
 

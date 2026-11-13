@@ -94,8 +94,7 @@ export function anthropicStream(
     if (!isRecord(block)) return;
     const signed =
       typeof block.signature === "string" && block.signature !== "";
-    if (block.type === "text" && !signed)
-      texts.set(data.index, textRestorer());
+    if (block.type === "text" && !signed) texts.set(data.index, textRestorer());
     const call = toolUseStart(block);
     if (call !== undefined) calls.set(data.index, call);
   };

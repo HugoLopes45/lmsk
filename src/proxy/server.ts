@@ -227,7 +227,7 @@ export async function startProxy(
   );
   const restore = restorer(guard, profile);
   const text = () => guard.textRestorer();
-  const server = createServer(async (req, res) => {
+  const handle = async (req: IncomingMessage, res: ServerResponse) => {
     const path = req.url ?? "";
     if (!path.startsWith(prefix)) return refuse(res, 403, "FORBIDDEN");
     let masked: MaskedRequest;
@@ -244,7 +244,8 @@ export async function startProxy(
         else refuse(res, 502, "UPSTREAM", true);
       },
     );
-  });
+  };
+  const server = createServer((req, res) => void handle(req, res));
   try {
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
