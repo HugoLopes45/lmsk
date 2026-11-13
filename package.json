@@ -55,9 +55,10 @@
     "access": "public"
   },
   "scripts": {
-    "check": "node scripts/release.ts check && oxlint --deny-warnings && tsc --noEmit && npm run build && vitest --run",
+    "check": "node scripts/release.ts check && oxfmt --check src test scripts && oxlint --deny-warnings && tsc --noEmit && npm run build && vitest --run",
     "build": "tsc -p tsconfig.build.json",
     "lint": "oxlint --deny-warnings",
+    "fmt": "oxfmt src test scripts",
     "test": "vitest --run",
     "release": "node scripts/release.ts prepare",
     "schema": "node scripts/write-schema.ts"
@@ -80,7 +81,9 @@
     "@earendil-works/pi-coding-agent": "^1.0.3",
     "@types/node": "^22.19.0",
     "fast-check": "^4.10.2",
+    "oxfmt": "^0.78.0",
     "oxlint": "^1.91.0",
+    "oxlint-tsgolint": "^7.0.2007",
     "typebox": "^1.4.3",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"

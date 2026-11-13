@@ -19,9 +19,12 @@ import {
 
 /** One scripted provider reply: assistant text, or one tool call. */
 type ContentReply =
-  { text: string } | { tool: string; args: Record<string, unknown> };
+  | { text: string }
+  | { tool: string; args: Record<string, unknown> };
 export type Reply = (
-  ContentReply | { error: number; message?: string } | { disconnect: true }
+  | ContentReply
+  | { error: number; message?: string }
+  | { disconnect: true }
 ) & { delayMs?: number };
 
 const PROVIDER_TIMEOUT_MS = 5000;

@@ -174,7 +174,9 @@ describe("mergeConfigs", () => {
       mergeConfigs([{ restoredTools: ["codemode"] }]),
       HOST.tools,
     );
-    expect(problems).toEqual(["restoredTools: codemode is not a tool that the host restores."]);
+    expect(problems).toEqual([
+      "restoredTools: codemode is not a tool that the host restores.",
+    ]);
   });
 
   it("reports a null list setting", () => {
@@ -229,7 +231,9 @@ describe("loadConfig", () => {
       result.config.rules.find((rule) => rule.id === "email")?.enabled,
     ).toBe(false);
     expect(result.sources).toEqual([ok]);
-    expect(loadConfig([bad], undefined, HOST).problems).toEqual([`${bad}: invalid JSON.`]);
+    expect(loadConfig([bad], undefined, HOST).problems).toEqual([
+      `${bad}: invalid JSON.`,
+    ]);
   });
 
   it("reports a file that is not valid UTF-8 instead of replacing its bytes", () => {
@@ -243,7 +247,9 @@ describe("loadConfig", () => {
         "latin1",
       ),
     );
-    expect(loadConfig([path], undefined, HOST).problems).toEqual([`${path}: invalid UTF-8.`]);
+    expect(loadConfig([path], undefined, HOST).problems).toEqual([
+      `${path}: invalid UTF-8.`,
+    ]);
   });
 
   it("reads valid multi-byte UTF-8 unchanged", () => {
@@ -268,14 +274,18 @@ describe("loadConfig", () => {
     const dir = mkdtempSync(join(tmpdir(), "mask-config-"));
     const path = join(dir, "bom.json");
     writeFileSync(path, "\uFEFF{}");
-    expect(loadConfig([path], undefined, HOST).problems).toEqual([`${path}: invalid JSON.`]);
+    expect(loadConfig([path], undefined, HOST).problems).toEqual([
+      `${path}: invalid JSON.`,
+    ]);
   });
 
   it("reports a dangling symlink as unreadable instead of missing", () => {
     const dir = mkdtempSync(join(tmpdir(), "mask-config-"));
     const link = join(dir, "dangling-link.json");
     symlinkSync(join(dir, "target-missing.json"), link);
-    expect(loadConfig([link], undefined, HOST).problems).toEqual([`${link}: cannot be read.`]);
+    expect(loadConfig([link], undefined, HOST).problems).toEqual([
+      `${link}: cannot be read.`,
+    ]);
   });
 
   it("reads a symlink whose target exists", () => {

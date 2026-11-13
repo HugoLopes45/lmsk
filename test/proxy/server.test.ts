@@ -1,7 +1,13 @@
 import { execFile } from "node:child_process";
 import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { promisify } from "node:util";
-import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
+import {
+  createServer,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,7 +40,8 @@ async function upstream(
   contentType = "application/json",
 ): Promise<{ url: string; received: Received[] }> {
   const received: Received[] = [];
-  const server: Server = createServer(async (req, res) => {
+  const server: Server = createServer((req, res) => void respond(req, res));
+  async function respond(req: IncomingMessage, res: ServerResponse) {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
     const body = Buffer.concat(chunks).toString();
@@ -46,7 +53,7 @@ async function upstream(
     });
     res.writeHead(200, { "content-type": contentType });
     res.end(typeof reply === "string" ? reply : reply(body));
-  });
+  }
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   closers.push(() => new Promise((resolve) => server.close(() => resolve())));
   return { url: `http://127.0.0.1:${port(server.address())}`, received };
@@ -146,7 +153,7 @@ function post(
 function toolUseStream(id: string, tool: string, input: unknown): string {
   const json = JSON.stringify(input);
   const half = Math.floor(json.length / 2);
-  const events = [
+  const events: [string, unknown][] = [
     ["message_start", { type: "message_start", message: { id: "m" } }],
     [
       "content_block_start",
@@ -156,17 +163,19 @@ function toolUseStream(id: string, tool: string, input: unknown): string {
         content_block: { type: "tool_use", id, name: tool, input: {} },
       },
     ],
-    ...[json.slice(0, half), json.slice(half)].map((part) => [
-      "content_block_delta",
-      {
-        type: "content_block_delta",
-        index: 0,
-        delta: { type: "input_json_delta", partial_json: part },
-      },
-    ]),
+    ...[json.slice(0, half), json.slice(half)].map(
+      (part): [string, unknown] => [
+        "content_block_delta",
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "input_json_delta", partial_json: part },
+        },
+      ],
+    ),
     ["content_block_stop", { type: "content_block_stop", index: 0 }],
     ["message_stop", { type: "message_stop" }],
-  ] as const;
+  ];
   return events
     .map(
       ([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,

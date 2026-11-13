@@ -14,7 +14,7 @@ export interface HookOptions {
   /** The tools that the adapter restores, so the configuration validates as it does in the proxy. */
   tools: readonly string[];
   /** The paths, or command words that may be paths, that a call to `tool` opens. */
-  targets(tool: string, input: Record<string, unknown>): string[];
+  targets: (tool: string, input: Record<string, unknown>) => string[];
 }
 
 /** The PreToolUse hook output that denies the call in `input`, or undefined when it opens no protected path. */

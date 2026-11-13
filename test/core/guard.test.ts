@@ -56,12 +56,12 @@ interface Harness {
   guard: Guard;
   ctx: HostContext & { notices: string[]; aborts: number };
   stateDir: string;
-  open(
+  open: (
     config?: unknown,
     host?: Partial<Pick<OpenOptions, "env" | "defaultRules">>,
-  ): void;
+  ) => void;
   /** Another guard, as in another process, on the same machine vault. */
-  sibling(config?: unknown): Guard;
+  sibling: (config?: unknown) => Guard;
 }
 
 const guards: Guard[] = [];
