@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { readEvents, writeEvent } from "../../src/proxy/sse.ts";
@@ -94,6 +95,45 @@ describe("SSE", () => {
         'event: ping\r\revent: content_block_start\rdata: {"a":1}\r\r',
       ]),
     ).toEqual([{ event: "content_block_start", data: '{"a":1}' }]);
+  });
+
+  it.each([
+    ["CR", ["data: a\r\r", "\ndata: b\r\r"]],
+    ["CRLF split across chunks", ["data: a\r\n\r", "\ndata: b\r\n\r\n"]],
+  ])(
+    "gives an event when its blank line arrives, before the next chunk, with %s",
+    async (_name, [first, second]) => {
+      let release = () => {};
+      const sent = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      async function* body(): AsyncGenerator<Uint8Array> {
+        yield new TextEncoder().encode(first);
+        await sent;
+        yield new TextEncoder().encode(second);
+      }
+      const read = readEvents(body());
+
+      const early = await Promise.race([read.next(), delay(100, "waiting")]);
+      release();
+
+      expect(early).toEqual({
+        done: false,
+        value: { event: undefined, data: "a" },
+      });
+      expect(await read.next()).toEqual({
+        done: false,
+        value: { event: undefined, data: "b" },
+      });
+      expect(await read.next()).toEqual({ done: true, value: undefined });
+    },
+  );
+
+  it.each([
+    [["data: a\r", "\ndata: b\r\n\r\n"]],
+    [["data: a\r", "", "\ndata: b\r\n\r\n"]],
+  ])("reads a CRLF split across chunks as one line end: %j", async (chunks) => {
+    expect(await events(chunks)).toEqual([{ event: undefined, data: "a\nb" }]);
   });
 
   it("writes an event that reads back the same", async () => {

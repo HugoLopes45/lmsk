@@ -247,6 +247,12 @@ describe("anthropicStream", () => {
     );
   });
 
+  it("passes an event of an unknown type unchanged, also with an index that is not a number", () => {
+    const unknown = sse({ type: "content_block_future", index: "1" });
+
+    expect(run([unknown], upper)).toEqual([unknown]);
+  });
+
   it("stops the stream when a block starts over an open thinking block", () => {
     const thinking = sse({
       type: "content_block_start",

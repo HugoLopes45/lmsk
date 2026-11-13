@@ -38,6 +38,12 @@ function delta(index: unknown, delta: Record<string, string>): SseEvent {
   return { event: "content_block_delta", data: JSON.stringify(data) };
 }
 
+const BLOCK_EVENTS = new Set([
+  "content_block_start",
+  "content_block_delta",
+  "content_block_stop",
+]);
+
 /** The JSON data of `event`, checked so that the agent and this codec read it alike. */
 function checkedData(event: SseEvent): Record<string, unknown> | undefined {
   const data = parseObject(event.data);
@@ -47,8 +53,7 @@ function checkedData(event: SseEvent): Record<string, unknown> | undefined {
       "STREAM_INVALID",
       "an event name is not its data type",
     );
-  const block =
-    typeof data.type === "string" && data.type.startsWith("content_block_");
+  const block = typeof data.type === "string" && BLOCK_EVENTS.has(data.type);
   const index = data.index;
   const whole =
     typeof index === "number" && Number.isSafeInteger(index) && index >= 0;
