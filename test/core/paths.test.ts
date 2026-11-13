@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { machinePaths } from "../../src/core/index.ts";
 
@@ -11,8 +12,33 @@ describe("machinePaths", () => {
         "/h/.local/state/lmsk/**",
         "**/lmsk-vaults/**",
         "**/lmsk/config.json",
+        "**/lmsk/key",
+        "**/lmsk/vault.jsonl",
+        "**/lmsk/vault.lock",
+        "**/lmsk/serve-token",
+        "**/lmsk/upstream",
+        "**/.claude/settings*.json",
+        "/h/.claude/settings*.json",
+        "/h/Library/LaunchAgents/io.github.hugolopes45.lmsk.plist",
+        "/h/.config/systemd/user/lmsk.service",
+        fileURLToPath(new URL("../../dist/**", import.meta.url)),
       ],
+      launchdPath: "/h/Library/LaunchAgents/io.github.hugolopes45.lmsk.plist",
+      systemdPath: "/h/.config/systemd/user/lmsk.service",
     });
+  });
+
+  it("protects the Claude Code settings in CLAUDE_CONFIG_DIR and the service file in XDG_CONFIG_HOME", () => {
+    const paths = machinePaths(
+      { CLAUDE_CONFIG_DIR: "/cc", XDG_CONFIG_HOME: "/cfg" },
+      "/h",
+    );
+    expect(paths.protectedPaths).toEqual(
+      expect.arrayContaining([
+        "/cc/settings*.json",
+        "/cfg/systemd/user/lmsk.service",
+      ]),
+    );
   });
 
   it("uses absolute XDG directories and ignores relative ones, as the XDG specification requires", () => {

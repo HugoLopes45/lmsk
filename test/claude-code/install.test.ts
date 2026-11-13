@@ -109,6 +109,9 @@ describe("installClaude", () => {
         "Read(./x)",
         "Read(//**/.env*)",
         `Read(/${home}/.local/state/lmsk/**)`,
+        "Edit(//**/.env*)",
+        `Edit(/${home}/.local/state/lmsk/**)`,
+        "Edit(//**/.claude/settings*.json)",
       ]),
     );
     // The file now holds the URL token.

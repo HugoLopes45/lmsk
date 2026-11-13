@@ -99,7 +99,7 @@ To write your first rules, read [Add your own secrets](GUIDE.md#add-your-own-sec
   - `env.CLAUDE_CODE_MAX_RETRIES` gets `3` if your user settings do not set it, so that a proxy error shows sooner.
   - `env.NO_PROXY` and `env.no_proxy` get `127.0.0.1` added to their value, so that your HTTP proxy does not get the requests to `lmsk`.
   - `env.CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY`, `CLAUDE_CODE_USE_MANTLE` and `CLAUDE_CODE_USE_ANTHROPIC_AWS` get an empty value. This turns off the other providers, because the proxy cannot mask their requests.
-  - `permissions.deny` gets one `Read` rule for each protected path.
+  - `permissions.deny` gets one `Read` rule and one `Edit` rule for each protected path.
   - `hooks.PreToolUse` gets the hook of `lmsk`. It replaces a hook of an earlier `lmsk install claude`.
 - **The service file.** On macOS, it is `~/Library/LaunchAgents/io.github.hugolopes45.lmsk.plist`. On Linux, it is `~/.config/systemd/user/lmsk.service`.
 - **The vault folder**, `~/.local/state/lmsk/`, or `lmsk/` in `XDG_STATE_HOME` if it was set. It gets `serve-token`, the private token of the proxy, and `upstream`, the address of your gateway.

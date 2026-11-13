@@ -7,7 +7,7 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   CodedError,
   isRecord,
@@ -157,12 +157,12 @@ function xml(text: string): string {
 }
 
 function launchdService(
-  { home, run }: InstallOptions,
+  { run }: InstallOptions,
+  plist: string,
   argv: readonly string[],
   vars: [string, string][],
   log: string,
 ): void {
-  const plist = join(home, "Library", "LaunchAgents", `${LABEL}.plist`);
   const strings = argv.map((arg) => `<string>${xml(arg)}</string>`).join("");
   const env = vars
     .map(([name, value]) => `<key>${name}</key><string>${xml(value)}</string>`)
@@ -194,15 +194,11 @@ function unitWord(text: string): string {
 }
 
 function systemdService(
-  { home, env, run }: InstallOptions,
+  { run }: InstallOptions,
+  unit: string,
   argv: readonly string[],
   vars: [string, string][],
 ): void {
-  const configDir =
-    env.XDG_CONFIG_HOME !== undefined && isAbsolute(env.XDG_CONFIG_HOME)
-      ? env.XDG_CONFIG_HOME
-      : join(home, ".config");
-  const unit = join(configDir, "systemd", "user", "lmsk.service");
   const environment = vars.map(
     ([name, value]) => `Environment=${unitWord(`${name}=${value}`)}\n`,
   );
@@ -246,7 +242,10 @@ function install(options: InstallOptions): void {
     rules: [],
     protectedPaths: paths.protectedPaths,
     tools: TOOLS,
-  }).map((pattern) => `Read(/${pattern.startsWith("/") ? "" : "/"}${pattern})`);
+  }).flatMap((pattern) => {
+    const path = `/${pattern.startsWith("/") ? "" : "/"}${pattern}`;
+    return [`Read(${path})`, `Edit(${path})`];
+  });
   const next = installedSettings(settings, url, deny, options);
   const gateway = [
     record(settings.env, "env").ANTHROPIC_BASE_URL,
@@ -266,8 +265,14 @@ function install(options: InstallOptions): void {
     },
   );
   if (platform === "darwin")
-    launchdService(options, argv, vars, join(paths.stateDir, "serve.log"));
-  else systemdService(options, argv, vars);
+    launchdService(
+      options,
+      paths.launchdPath,
+      argv,
+      vars,
+      join(paths.stateDir, "serve.log"),
+    );
+  else systemdService(options, paths.systemdPath, argv, vars);
   writePrivate(file, `${JSON.stringify(next, null, 2)}\n`);
 }
 
