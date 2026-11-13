@@ -16,7 +16,7 @@ export {
   type ToolCall,
 } from "./guard.ts";
 export { localIdentityRules } from "./identity.ts";
-export { isProtectedPath, shellReadings } from "./tool-policy.ts";
+export { protectedPath, shellReadings } from "./tool-policy.ts";
 export { DEFAULT_MASK, envValues, Masker, MaskError } from "./masker.ts";
 export {
   assertPayloadSize,
