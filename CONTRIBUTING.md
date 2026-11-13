@@ -11,7 +11,7 @@ npm ci
 npm run check
 ```
 
-`npm run check` validates package and lockfile metadata, release notes, formatting, lint, TypeScript, and the offline tests. Run `npm run fmt` to format `src/`, `test/` and `scripts/`. The tests use Pi's faux provider and local stand-ins for Claude Code and the providers, not a real model. The tests and type checks read the TypeScript in `src/`; `npm run build` writes the JavaScript in `dist/` that the published package uses.
+`npm run check` validates package and lockfile metadata, release notes, formatting, lint, TypeScript, and the offline tests. Run `npm run fmt` to format `src/`, `test/` and `scripts/`. The tests use Pi's faux provider and local stand-ins for Claude Code and the providers, not a real model. The tests and type checks read the TypeScript in `src/`; `npm run build` writes the JavaScript in `dist/` that the published package uses. `test/public-api.test.ts` reads `dist/`, so `npm test` and `npm run check` build first.
 
 CI also installs the latest published Pi packages on Node 24 and runs these checks again. It also runs once a week, even when the repository does not change.
 

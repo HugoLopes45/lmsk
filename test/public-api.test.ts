@@ -59,7 +59,7 @@ describe("README example", () => {
           "node",
           file,
         ],
-        { encoding: "utf8" },
+        { cwd: root, encoding: "utf8" },
       );
       expect(result.error, "tsc did not start").toBeUndefined();
       expect(result.status, result.stdout + result.stderr).toBe(0);
