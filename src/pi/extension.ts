@@ -80,8 +80,14 @@ function lmsk(pi: HookApi): void {
   });
 
   pi.on("session_start", (_event, ctx) => {
-    installModelGuard(ctx.modelRegistry, guard.maskText, (payload) =>
-      guard.maskPayload(payload, callIdsOf(ctx.sessionManager.getBranch())),
+    const callIds = () => callIdsOf(ctx.sessionManager.getBranch());
+    installModelGuard(
+      ctx.modelRegistry,
+      async (text) => {
+        const [masked] = await guard.maskTexts([text], callIds());
+        return masked;
+      },
+      (payload) => guard.maskPayload(payload, callIds()),
     );
     guard.open(
       () => ({

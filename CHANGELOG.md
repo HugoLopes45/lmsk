@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- pi: the text of a model call through `ctx.modelRegistry` also masks the real values that earlier tool calls received, as provider requests do.
 - Breaking: the Claude Code settings files `.claude/settings*.json`, the service file of the proxy and the code of lmsk are protected paths. An agent can no longer read or change them. Edit your settings yourself.
 - The files `key`, `vault.jsonl`, `vault.lock`, `serve-token` and `upstream` in any folder named `lmsk` are protected paths, also by a relative path.
 - Claude Code: `lmsk install claude` adds an `Edit` deny rule next to each `Read` rule. Run it again to add them.

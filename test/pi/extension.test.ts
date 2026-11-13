@@ -1452,6 +1452,35 @@ describe("real values in the session", () => {
     expect(ctx.aborts).toBe(0);
   });
 
+  it("masks a call's short restored real in the text of a model call", async () => {
+    writeJson(join(projectDir, ".pi", "lmsk.json"), SHORT_CONFIG);
+    const pi = fakePi();
+    const branch: BranchRecord[] = [];
+    const ctx = testContext({ branch });
+    const classify = vi.mocked(ctx.modelRegistry.classify);
+    startSession(ctx, pi);
+    const fake = await learnShortFake(pi, ctx);
+    await pi.handlers.tool_call?.(
+      toolCall("call-1", "bash", { command: `echo ${fake}` }),
+      ctx,
+    );
+    branch.push({
+      type: "message",
+      message: assistantMessage([
+        { type: "toolCall", id: "call-1", name: "bash", arguments: {} },
+      ]),
+    });
+
+    await ctx.modelRegistry.classify(classifierModel(), {
+      state: { note: `got ${SHORT}` },
+      questions: {},
+    });
+
+    expect(classify).toHaveBeenCalledOnce();
+    expect(JSON.stringify(classify.mock.calls)).toContain("got ");
+    expect(JSON.stringify(classify.mock.calls)).not.toContain(SHORT);
+  });
+
   it("masks a short real that a nested call restored, in a request that holds the id of the call that the model made", async () => {
     writeJson(join(projectDir, ".pi", "lmsk.json"), SHORT_CONFIG);
     const pi = fakePi();
