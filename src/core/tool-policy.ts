@@ -36,12 +36,13 @@ export function isNetworkCommand(command: string, config: MaskConfig): boolean {
   });
 }
 
-/** `matchesGlob` has no dot option: `*` and `**` skip a segment that starts with a dot, such as `~/.config`. The same mark in path and pattern keeps their literal dots equal. Upper then lower case on both sides: macOS and Windows disks open `~/.AWS` as `~/.aws`, and the long s `ſ` as `s`. */
+/** `matchesGlob` has no dot option: `*` and `**` skip a segment that starts with a dot, such as `~/.config`. The same mark in path and pattern keeps their literal dots equal. Each letter in upper then lower case on both sides: macOS and Windows disks open `~/.AWS` as `~/.aws`, and the long s `ſ` as `s`. A letter whose fold has more than one letter, such as `ß`, keeps its lower case, so that `?` still matches it. */
 function undotted(path: string): string {
-  return path
-    .replaceAll(/(^|[/{,])\./g, "$1\u0001")
-    .toUpperCase()
-    .toLowerCase();
+  const marked = path.replaceAll(/(^|[/{,])\./g, "$1\u0001");
+  return Array.from(marked, (letter) => {
+    const folded = letter.toUpperCase().toLowerCase();
+    return Array.from(folded).length === 1 ? folded : letter.toLowerCase();
+  }).join("");
 }
 
 /** The path that `path` leads to through links, also when it does not exist yet: a write follows a linked folder and a dangling link. */
