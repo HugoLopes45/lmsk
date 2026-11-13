@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -57,6 +57,50 @@ describe("claudeHook", () => {
       ).toBe(denied ? "deny" : undefined);
     },
   );
+
+  describe("a search root", () => {
+    const linked = mkdtempSync(join(tmpdir(), "lmsk-claude-code-link-"));
+    mkdirSync(join(home, ".local", "state"), { recursive: true });
+    symlinkSync(join(home, ".local"), join(linked, "local"));
+
+    it.each([
+      ["Grep", { pattern: "x", path: "~" }, "/w", true],
+      ["Grep", { pattern: "x", path: "~/" }, "/w", true],
+      ["Grep", { pattern: "x", path: "$HOME" }, "/w", true],
+      ["Grep", { pattern: "x", path: "${HOME}" }, "/w", true],
+      ["Grep", { pattern: "x", path: "~/.local" }, "/w", true],
+      ["Grep", { pattern: "x", path: "~/.local/state/lmsk" }, "/w", true],
+      ["Grep", { pattern: "x", path: "/" }, "/w", true],
+      ["Glob", { pattern: "*", path: "~/.claude" }, "/w", true],
+      ["Glob", { pattern: "*", path: "~/.LOCAL" }, "/w", true],
+      ["Grep", { pattern: "x", path: "state" }, join(home, ".local"), true],
+      ["Grep", { pattern: "x", path: join(linked, "local") }, "/w", true],
+      ["Grep", { pattern: "x" }, home, true],
+      ["Glob", { pattern: "*" }, home, true],
+      ["Grep", { pattern: "x", path: "~/.local/sta" }, "/w", false],
+      ["Grep", { pattern: "x", path: "~/src" }, "/w", false],
+      ["Grep", { pattern: "x" }, "/w", false],
+      ["Glob", { pattern: "*", path: "/w/src" }, "/w", false],
+    ])(
+      "checks the search root of %s %j from %s, denied: %s",
+      (tool, toolInput, cwd, denied) => {
+        const output = claudeHook(
+          {
+            cwd,
+            hook_event_name: "PreToolUse",
+            tool_name: tool,
+            tool_input: toolInput,
+          },
+          { env: {}, home },
+        );
+        expect(
+          output === undefined
+            ? undefined
+            : JSON.parse(output).hookSpecificOutput.permissionDecision,
+        ).toBe(denied ? "deny" : undefined);
+      },
+    );
+  });
 
   it("denies an edit of the settings in CLAUDE_CONFIG_DIR", () => {
     const output = claudeHook(

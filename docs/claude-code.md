@@ -128,7 +128,7 @@ The `Read` deny rules also refuse a file command that Claude Code recognizes in 
 
 A tool call with a fake path that becomes a protected path after restore keeps its fakes. So it does not open the protected file.
 
-The hook does not check the `glob` of a `Grep` or `Glob` call. So a search of a folder can find a protected file in it. Claude Code applies the `Read` deny rules to `Grep` and `Glob` as a best effort.
+The hook refuses a `Grep` or `Glob` call on a folder that holds a folder of an absolute protected path, such as `~/.claude` or the lmsk state folder. So a search of `~` or `/`, or a search without a path from your home folder, is refused. The proxy does not know the session folder, so only the deny hook checks a search with a relative path or without a path. The hook does not check the `glob` of a `Grep` or `Glob` call, and a pattern such as `**/.env*` names no folder. So a search of a project folder can still find a `.env` file in it. Claude Code applies the `Read` deny rules to `Grep` and `Glob` as a best effort.
 
 The hook finds a relative path from the session folder, and it does not follow `cd`. So it does not refuse `cd ~/.claude && cp /tmp/s.json settings.json`. It also does not refuse a command that names only a parent folder, such as `mv ~/.claude /tmp/x`.
 

@@ -20,6 +20,7 @@ export {
   commandWords,
   fromHome,
   protectedPath,
+  searchedPath,
   shellReadings,
 } from "./tool-policy.ts";
 export { DEFAULT_MASK, envValues, Masker, MaskError } from "./masker.ts";
