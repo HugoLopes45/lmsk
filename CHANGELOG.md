@@ -18,6 +18,9 @@
 - Claude Code: the proxy reads a lone CR as a line end in a streamed reply, as LF and CRLF.
 - Claude Code: a text block that a provider signs keeps its fakes. A signature that arrives after the text was restored is dropped.
 - Protected paths also match when a letter is written in another form that the disk reads as the same letter, such as the long s `ſ` for `s`.
+- Breaking: a search tool is refused on a folder that holds a folder of an absolute protected path, such as the lmsk state folder. This covers `grep`, `find` and `ls` in pi, and `Grep` and `Glob` in Claude Code. A search without a path counts as a search of the session folder. So a search of `~` or `/` is refused.
+- The deny hook, and pi in a shell command, read a lone `~`, `$HOME` or `${HOME}` as your home folder.
+- Breaking, for code that imports lmsk: `ToolCall` has a new `roots(input)` member, the folders that the tool searches. `searchedPath` is a new export.
 
 ## 0.3.0
 

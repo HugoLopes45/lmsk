@@ -39,6 +39,17 @@ export function targetsOf(
     : [];
 }
 
+const SEARCH_TOOLS: ReadonlySet<string> = new Set(["grep", "find", "ls"]);
+
+/** The folder that a core search or list tool reads: its `path`, or the session folder without one. */
+export function rootsOf(
+  tool: string,
+  input: Record<string, unknown>,
+): string[] {
+  if (!SEARCH_TOOLS.has(tool)) return [];
+  return [normalizePath(typeof input.path === "string" ? input.path : ".")];
+}
+
 /** The input field that holds a shell command. */
 export function commandKeyOf(tool: string): string | undefined {
   return tool === "bash" ? "command" : undefined;
