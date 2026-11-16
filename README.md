@@ -78,7 +78,7 @@ This example shows a tool result from `docker compose logs api --tail 3`. All va
 }
 ```
 
-Here is the masked version of that block. The surrounding log stays readable. Each session makes its own fakes, and a value gets the same fake during the whole session:
+Here is the masked version of that block. The surrounding log stays readable. Each session makes its own fakes, and a value gets the same fake as long as the vault of the session lives:
 
 ```json
 {
@@ -107,7 +107,7 @@ You can add your own rules, for example to turn `Falcon Industries` into `Client
 
 ### A local vault
 
-The mapping stays in one encrypted local vault for each session, in `~/.local/state/lmsk/session-vaults/`, with owner-only file permissions. lmsk deletes it when the session ends. A vault that no session used for one hour is deleted about one minute later, or at the next request or session start. lmsk does not upload it. A conversation that holds a tool call of an ended vault is refused with `VAULT_ENDED`. See [vault storage and backup guidance](docs/GUIDE.md#what-lmsk-does-not-protect).
+The mapping stays in one encrypted local vault for each session, in `~/.local/state/lmsk/session-vaults/`, with owner-only file permissions. Its key is in the same folder, so a copy of the whole folder can be decrypted. lmsk deletes it when the session ends. A vault that no session used for one hour is deleted about one minute later, or at the next request or session start. lmsk does not upload it. A conversation that holds a tool call of an ended vault is refused with `VAULT_ENDED`. See [vault storage and backup guidance](docs/GUIDE.md#what-lmsk-does-not-protect).
 
 ### Try it with a sample key
 
