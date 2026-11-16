@@ -108,6 +108,58 @@ describe("Vault", () => {
     expect(fake).toHaveLength("Secret-1234".length);
   });
 
+  it("gives a real of 2 to 7 characters a fake with a letter and a digit, so the model cannot write it as a word", () => {
+    fc.assert(
+      fc.property(
+        fc.stringMatching(/^[a-z]{2,7}$/),
+        fc.string({ minLength: 1, maxLength: 8 }),
+        (real, seed) => {
+          const fake = new Vault(shared(seeded(seed))).fakeFor(real, "");
+          expect(fake).toMatch(/[A-Za-z]/);
+          expect(fake).toMatch(/[0-9]/);
+        },
+      ),
+      { seed: 90210, numRuns: 300 },
+    );
+  });
+
+  it("gives a shape real of 2 to 7 letters a fake with a letter and a digit, so the model cannot write it as a word", () => {
+    fc.assert(
+      fc.property(
+        fc.stringMatching(/^[a-z]{2,7}$/),
+        fc.string({ minLength: 1, maxLength: 8 }),
+        (real, seed) => {
+          const fake = new Vault(shared(seeded(seed))).shapeFor(real, "");
+          expect(fake).toMatch(/[A-Za-z]/);
+          expect(fake).toMatch(/[0-9]/);
+        },
+      ),
+      { seed: 90210, numRuns: 300 },
+    );
+  });
+
+  it("gives a part of 2 to 7 characters of a known real a fake with a letter and a digit", () => {
+    fc.assert(
+      fc.property(
+        fc.string({ minLength: 1, maxLength: 8 }),
+        fc.integer({ min: 2, max: 7 }),
+        (seed, length) => {
+          const vault = new Vault(shared(seeded(seed)));
+          vault.fakeFor("Qx7secretvalue91", "");
+          const fake = vault.partFor(
+            "Qx7secretvalue91".slice(0, length),
+            "",
+            () => true,
+            false,
+          );
+          expect(fake).toMatch(/[A-Za-z]/);
+          expect(fake).toMatch(/[0-9]/);
+        },
+      ),
+      { seed: 90210, numRuns: 300 },
+    );
+  });
+
   it("avoids a fake that already occurs in the text being masked", () => {
     const first = new Vault(shared(seeded("avoid"))).fakeFor("Secret-1234", "");
     const fake = new Vault(shared(seeded("avoid"))).fakeFor(
@@ -118,17 +170,21 @@ describe("Vault", () => {
   });
 
   it("never gives a fake that contains an existing fake", () => {
-    // Upper-case letters 23, 24 make "XY"; 23, 24, 25 would make "XYZ", which contains "XY".
-    const vault = new Vault(shared(sequence([23, 24, 23, 24, 25, 0, 1, 2])));
+    // Bytes 23, 24 make "XY", and byte 3 makes its last character the digit 3: "X3".
+    // Bytes 23, 55, 0 would then make "X3A", which contains "X3".
+    const vault = new Vault(
+      shared(sequence([23, 24, 3, 23, 55, 0, 9, 1, 2, 30])),
+    );
     const fakeA = vault.fakeFor("aa", "");
     const fakeB = vault.fakeFor("bbb", "");
-    expect(fakeA).toBe("XY");
+    expect(fakeA).toBe("X3");
     expect(fakeB).not.toContain(fakeA);
   });
 
   it("throws VAULT_COLLISION when every candidate equals the real", () => {
     const zeros: RandomBytes = (size) => new Uint8Array(size);
-    expect(() => new Vault(shared(zeros)).fakeFor("AAAA", "")).toThrow(
+    // Zero bytes make "AAAA", then a digit 0 in place of its last letter.
+    expect(() => new Vault(shared(zeros)).fakeFor("AAA0", "")).toThrow(
       /^VAULT_COLLISION/,
     );
   });

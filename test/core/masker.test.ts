@@ -707,12 +707,16 @@ describe("Masker spans", () => {
 
   it("gives a shape real that heads a known shape real the head of its fake", async () => {
     const { masker } = build([
-      literal("local-identity", ["jdupont@acme-corp.com", "jdupont"], "shape"),
+      literal(
+        "local-identity",
+        ["jeandupont@acme-corp.com", "jeandupont"],
+        "shape",
+      ),
     ]);
-    const [email] = await masker.mask(["jdupont@acme-corp.com"]);
-    const [path] = await masker.mask(["/Users/jdupont/app"]);
-    expect(path).toBe(`/Users/${email.slice(0, 7)}/app`);
-    expect(masker.restoreValue(path)).toBe("/Users/jdupont/app");
+    const [email] = await masker.mask(["jeandupont@acme-corp.com"]);
+    const [path] = await masker.mask(["/Users/jeandupont/app"]);
+    expect(path).toBe(`/Users/${email.slice(0, 10)}/app`);
+    expect(masker.restoreValue(path)).toBe("/Users/jeandupont/app");
   });
 
   it("gives a short letters-only shape real a fake that is no word, even as the head of a known fake", async () => {
@@ -1837,6 +1841,23 @@ describe("Masker derived parts", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("does not block a learned host name in base64 data", async () => {
+    const { masker } = build([
+      literal("local-identity", ["buildhost-internal"]),
+    ]);
+    await masker.mask(["host buildhost-internal"]);
+    const data = Buffer.concat([
+      Buffer.from([0xff]),
+      Buffer.from("buildhost-internal"),
+      Buffer.from([0xfe]),
+    ]).toString("base64");
+    await expect(
+      masker.assertNoHiddenReal([
+        `data:application/octet-stream;base64,${data}`,
+      ]),
+    ).resolves.toBeUndefined();
+  });
+
   it("blocks a spaced-out token that holds the character of a one-character fake", async () => {
     const { masker } = build([literal("initials", ["jo"]), ...DEFAULT_RULES]);
     const [fake] = await masker.mask(["jo"]);
@@ -1845,6 +1866,32 @@ describe("Masker derived parts", () => {
       masker.assertNoHiddenReal([[...token].join(" ")]),
     ).rejects.toThrow("HIDDEN_REAL");
   });
+
+  it.each(
+    [0, 1, 2].flatMap(
+      (offset) =>
+        [
+          [offset, "base64"],
+          [offset, "base64url"],
+        ] as const,
+    ),
+  )(
+    "blocks a learned real at byte offset %i in binary %s data",
+    async (offset, encoding) => {
+      const real = "Huntr3ss-Fake-9wP";
+      const { masker } = build([literal("password", [real])]);
+      await masker.mask([real]);
+      const bytes = Buffer.concat([
+        Buffer.alloc(offset + 30, 0xff),
+        Buffer.from(real),
+        Buffer.alloc(30, 0xfe),
+      ]);
+      const text = `data:application/octet-stream;base64,${bytes.toString(encoding)}`;
+      await expect(masker.assertNoHiddenReal([text])).rejects.toThrow(
+        "HIDDEN_REAL",
+      );
+    },
+  );
 
   it.each([
     ["in another case", "import { QUILLHARBOR } from './client';"],

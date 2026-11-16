@@ -1,10 +1,12 @@
 import { randomBytes } from "node:crypto";
 import {
+  chmodSync,
   closeSync,
   linkSync,
   mkdirSync,
   openSync,
   readFileSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -57,6 +59,23 @@ export function serveToken(stateDir: string): string {
   return token;
 }
 
+/** Claude Code can rewrite its settings, which hold the proxy token, with a mode that lets other users read or change it. */
+function keepSettingsPrivate(file: string, notify: ProxyOptions["notify"]) {
+  let mode: number;
+  try {
+    mode = statSync(file).mode & 0o777;
+  } catch (error) {
+    if (isRecord(error) && error.code === "ENOENT") return;
+    throw error;
+  }
+  if ((mode & 0o077) === 0) return;
+  chmodSync(file, mode & 0o700);
+  notify(
+    `lmsk: other users could read or change ${file}, which holds the proxy token. Now only you can. If another user can log in to this computer, delete serve-token in the state folder, then run lmsk install claude.`,
+    "warning",
+  );
+}
+
 const upstreamFile = (stateDir: string) => join(stateDir, "upstream");
 
 /** Keeps the gateway that Claude Code used before the install, from its user settings or the shell. */
@@ -85,6 +104,10 @@ export async function serveClaude({
   const upstream = env.ANTHROPIC_BASE_URL || savedUpstream(paths.stateDir);
   if (upstream === "")
     throw new CodedError("UPSTREAM_INVALID", "the saved upstream is empty");
+  keepSettingsPrivate(
+    join(env.CLAUDE_CONFIG_DIR || join(home, ".claude"), "settings.json"),
+    notify,
+  );
   return startProxy(
     claudeProfile({
       cwd,

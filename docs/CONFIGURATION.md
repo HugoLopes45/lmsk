@@ -45,7 +45,7 @@ Rules combine by `id`. A rule with a new `id` is added. A rule with an existing 
 - Emails that were already replaced in this session stay replaced. Start a new session with `/new` to see all emails in clear.
 - Your own git email stays hidden by the `local-identity` rule. All other emails then reach the model provider in clear.
 
-In a list setting, such as `protectedPaths`, your items are added to the default items. An item that starts with `!` removes a default item. For example, `"!**/*.tfvars"` removes the `**/*.tfvars` glob.
+In a list setting, such as `protectedPaths`, your items are added to the default items. An item that starts with `!` removes a default item. For example, `"!**/*.tfvars"` removes the `**/*.tfvars` glob. You cannot remove the protected paths of the files of lmsk: if you try, the configuration is invalid.
 
 ## What a project file can do
 
@@ -119,7 +119,7 @@ The check is not a sandbox. Any shell expansion can still hide a command, such a
 
 ### Default protected paths
 
-`**/.env*`, `**/*.pem`, `**/*.key`, `**/*.p12`, `**/*.pfx`, `**/*.jks`, `**/id_rsa*`, `**/id_ed25519*`, `**/.ssh/**`, `**/.aws/**`, `**/.kube/**`, `**/.gnupg/**`, `**/.config/gcloud/**`, `**/.docker/config.json`, `**/.npmrc`, `**/.pypirc`, `**/.netrc`, `**/.git-credentials`, `**/*.tfvars`, `**/*.tfstate`, `**/secrets.yaml`, `**/secrets.yml`, and the files of lmsk: `**/lmsk-vaults/**`, `**/lmsk/config.json`, `**/lmsk/key`, `**/lmsk/vault.jsonl`, `**/lmsk/vault.lock`, `**/lmsk/vault.lock/**`, `**/lmsk/serve-token`, `**/lmsk/upstream`, the Claude Code settings `**/.claude/settings*.json`, and with pi `**/.pi/lmsk.json`.
+`**/.env*`, `**/*.pem`, `**/*.key`, `**/*.p12`, `**/*.pfx`, `**/*.jks`, `**/id_rsa*`, `**/id_ed25519*`, `**/.ssh/**`, `**/.aws/**`, `**/.kube/**`, `**/.gnupg/**`, `**/.config/gcloud/**`, `**/.docker/config.json`, `**/.npmrc`, `**/.pypirc`, `**/.netrc`, `**/.git-credentials`, `**/*.tfvars`, `**/*.tfstate`, `**/secrets.yaml`, `**/secrets.yml`, and the files of lmsk: `**/lmsk-vaults/**`, `**/lmsk/config.json`, `**/lmsk/key`, `**/lmsk/vault.jsonl`, `**/lmsk/vault.lock`, `**/lmsk/vault.lock/**`, `**/lmsk/session-vaults/**`, `**/lmsk/serve-token`, `**/lmsk/upstream`, the Claude Code settings `**/.claude/settings*.json`, and with pi `**/.pi/lmsk.json`.
 
 Each agent also protects the folders of lmsk, `~/.config/lmsk/` and `~/.local/state/lmsk/`, the code of lmsk, the Claude Code settings files and the service file of the proxy. A change to these files turns off lmsk. A tool call whose path becomes a protected path after restore keeps its fakes. Each agent also checks each word of a shell command. See [How the hook works](claude-code.md#how-the-hook-works).
 
@@ -247,7 +247,7 @@ Hides a value that follows one of the `keys`, for example in `clientId: abc123` 
 | Strategy | Fake | Real value back in tools |
 |---|---|---|
 | `opaque` (default) | A random value of the same length, made of letters and digits. An email keeps its `@`. | Yes |
-| `shape` | A random value that keeps the class of each character. Digits stay digits, and an email keeps its `@` and its dots. A value of 2 to 4 letters gets letters and digits instead, so that its fake is no short word. A card fake can fail the Luhn check, and an IPv4 fake can be a private address. | Yes |
+| `shape` | A random value that keeps the class of each character. Digits stay digits, and an email keeps its `@` and its dots. A value of 2 to 7 letters, and a part of 2 to 7 characters of a longer value, such as the name of an email, get letters and digits instead, so that the fake is no short word. A card fake can fail the Luhn check, and an IPv4 fake can be a private address. | Yes |
 | `fixed` | The `replacement` text. It must contain `{n}`, which becomes a different number for each different name, for example `Company1` and `Company2`. The variants of one name share a number, see [`regex`](#regex). | Yes |
 | `mask` | The `replacement` text, the same for every value. The default is `[MASKED]`. | No |
 | `block` | No fake. The extension cancels the request. | Not applicable |

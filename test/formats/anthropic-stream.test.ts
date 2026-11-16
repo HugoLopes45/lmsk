@@ -191,18 +191,26 @@ describe("anthropicStream", () => {
     ["arguments that are not JSON", ['{"command": "echo', " fake"]],
     ["arguments that are not an object", ['["echo"]']],
     ["empty arguments", [""]],
-  ])("emits %s unchanged, without a restore", async (_name, parts) => {
-    const deltas = parts.map((part) => jsonDelta(1, part));
-    const restore = () => {
-      throw new Error("no restore expected");
-    };
+  ])(
+    "emits %s unchanged, and records the call with no input",
+    async (_name, parts) => {
+      const deltas = parts.map((part) => jsonDelta(1, part));
+      const seen: unknown[] = [];
+      const restore = (call: unknown) => {
+        seen.push(call);
+        return { command: "restored" };
+      };
 
-    expect(run([start(1), ...deltas, stop(1)], restore)).toEqual([
-      start(1),
-      ...deltas,
-      stop(1),
-    ]);
-  });
+      expect(run([start(1), ...deltas, stop(1)], restore)).toEqual([
+        start(1),
+        ...deltas,
+        stop(1),
+      ]);
+      expect(seen).toEqual([
+        { id: expect.any(String), tool: expect.any(String), input: {} },
+      ]);
+    },
+  );
 
   it("stops the stream when an event name differs from its data type", () => {
     const hidden = {

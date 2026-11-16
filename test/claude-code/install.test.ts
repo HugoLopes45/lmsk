@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -28,17 +29,24 @@ function servicePath(home: string, platform: NodeJS.Platform): string {
     : join(home, ".config", "systemd", "user", "lmsk.service");
 }
 
-const HOOK = {
+/** The hook command names the state folder of the install: Claude Code can run with another `XDG_STATE_HOME`. */
+const hookArgs = (home: string) => [
+  BIN,
+  "hook",
+  "claude",
+  join(home, ".local", "state", "lmsk"),
+];
+const hookOf = (home: string) => ({
   matcher: "Read|Write|Edit|Grep|Glob|NotebookEdit|MultiEdit|Bash",
   hooks: [
     {
       type: "command",
       command: NODE,
-      args: [BIN, "hook", "claude"],
+      args: hookArgs(home),
       onFailure: "block",
     },
   ],
-};
+});
 
 function setup(
   settings?: string,
@@ -150,16 +158,26 @@ describe("installClaude", () => {
     expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 
+  it("turns off the non-streaming fallback, whose tool calls the proxy does not restore", async () => {
+    const { accept, install, read } = setup("{}");
+    accept();
+
+    expect(await install()).toBe(0);
+
+    expect(read().env.CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK).toBe("1");
+  });
+
   it("installs again without a second hook, NO_PROXY entry or deny rule, also from another path", async () => {
     const other = {
       matcher: "Bash",
       hooks: [{ type: "command", command: "x" }],
     };
+    const old = hookOf("/old");
     const moved = {
-      ...HOOK,
-      hooks: [{ ...HOOK.hooks[0], args: ["/old/bin.js", "hook", "claude"] }],
+      ...old,
+      hooks: [{ ...old.hooks[0], args: ["/old/bin.js", "hook", "claude"] }],
     };
-    const { accept, install, read } = setup(
+    const { home, accept, install, read } = setup(
       JSON.stringify({
         env: { NO_PROXY: "corp.test" },
         hooks: { PreToolUse: [other, moved] },
@@ -172,18 +190,38 @@ describe("installClaude", () => {
     expect(await install()).toBe(0);
 
     const settings = read();
-    expect(settings.hooks.PreToolUse).toEqual([other, HOOK]);
+    expect(settings.hooks.PreToolUse).toEqual([other, hookOf(home)]);
     expect(settings.env.NO_PROXY).toBe("corp.test,127.0.0.1");
     expect(settings.permissions.deny.length, "no deny rule twice").toBe(
       new Set(settings.permissions.deny).size,
     );
   });
 
+  it("adds one SessionEnd hook that deletes the vault of the session, also when installed again", async () => {
+    const other = { hooks: [{ type: "command", command: "x" }] };
+    const { home, accept, install, read } = setup(
+      JSON.stringify({ hooks: { SessionEnd: [other] } }),
+    );
+
+    accept();
+
+    expect(await install()).toBe(0);
+    expect(await install()).toBe(0);
+
+    expect(read().hooks.SessionEnd).toEqual([
+      other,
+      {
+        hooks: [{ type: "command", command: NODE, args: hookArgs(home) }],
+      },
+    ]);
+  });
+
   it("keeps a hook of the user that shares a group with the lmsk hook", async () => {
     const mine = { type: "command", command: "audit" };
-    const { accept, install, read } = setup(
+    const old = hookOf("/old");
+    const { home, accept, install, read } = setup(
       JSON.stringify({
-        hooks: { PreToolUse: [{ ...HOOK, hooks: [HOOK.hooks[0], mine] }] },
+        hooks: { PreToolUse: [{ ...old, hooks: [old.hooks[0], mine] }] },
       }),
     );
 
@@ -191,7 +229,10 @@ describe("installClaude", () => {
 
     expect(await install()).toBe(0);
 
-    expect(read().hooks.PreToolUse).toEqual([{ ...HOOK, hooks: [mine] }, HOOK]);
+    expect(read().hooks.PreToolUse).toEqual([
+      { ...hookOf(home), hooks: [mine] },
+      hookOf(home),
+    ]);
   });
 
   it("keeps a settings symlink, as dotfile managers make, and updates the file that it points at", async () => {
@@ -240,6 +281,7 @@ describe("installClaude", () => {
     });
     const res = await fetch(`${proxy.url}/v1/messages`, {
       method: "POST",
+      headers: { "x-claude-code-session-id": "s1" },
       body: "{}",
     });
     await proxy.close();
@@ -318,6 +360,54 @@ describe("installClaude", () => {
       `Environment="XDG_STATE_HOME=${state.replace("%", "%%")}"`,
     );
   });
+
+  it("gives the service the Claude Code configuration folder of the install, so the proxy protects that settings file", async () => {
+    const config = mkdtempSync(join(tmpdir(), "lmsk-install-config-"));
+    const { home, accept, install } = setup(
+      undefined,
+      { CLAUDE_CONFIG_DIR: config },
+      "linux",
+    );
+    accept();
+
+    expect(await install()).toBe(0);
+
+    const unit = readFileSync(
+      join(home, ".config", "systemd", "user", "lmsk.service"),
+      "utf8",
+    );
+    expect(unit).toContain(`Environment="CLAUDE_CONFIG_DIR=${config}"`);
+  });
+
+  it.each([
+    [0o644, 0o600],
+    [0o444, 0o400],
+  ])(
+    "makes a settings file of mode %o private again when the proxy starts, so other users cannot read its token",
+    async (mode, expected) => {
+      const { home, file, accept, install } = setup();
+      accept();
+      expect(await install()).toBe(0);
+      chmodSync(file, mode);
+      const notices: string[] = [];
+
+      const proxy = await serveClaude({
+        cwd: home,
+        home,
+        env: {},
+        notify: (message) => notices.push(message),
+        port: 0,
+      });
+      await proxy.close();
+
+      expect(statSync(file).mode & 0o777).toBe(expected);
+      expect(notices).toEqual([
+        expect.stringContaining(
+          "delete serve-token in the state folder, then run lmsk install claude",
+        ),
+      ]);
+    },
+  );
 
   it("gives the systemd service a node path with a dollar sign as written", async () => {
     const { home, accept, install } = setup(
@@ -555,6 +645,22 @@ describe("installClaude", () => {
       ).toBe(false);
     },
   );
+
+  it("refuses a relative CLAUDE_CONFIG_DIR, whose settings Claude Code reads from the folder of each session", async () => {
+    const { home, calls, notices, accept, install } = setup(undefined, {
+      CLAUDE_CONFIG_DIR: "relative-claude",
+    });
+    accept();
+
+    expect(await install()).toBe(1);
+
+    expect(calls).toEqual([]);
+    expect(notices).toEqual([
+      expect.stringMatching(/^lmsk: CLAUDE_CONFIG_DIR_INVALID: /),
+    ]);
+    expect(existsSync(join(home, ".claude", "settings.json"))).toBe(false);
+    expect(existsSync("relative-claude")).toBe(false);
+  });
 
   it("leaves the settings as they are when the proxy does not start", async () => {
     const { file, notices, accept, status, install } = setup("{}");

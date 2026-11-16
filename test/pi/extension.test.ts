@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -33,6 +39,7 @@ import {
 import type { BranchRecord } from "../../src/pi/host.ts";
 import { HIDDEN } from "../../src/core/guard.ts";
 import { Scanner } from "../../src/core/index.ts";
+import { sessionDir } from "../../src/core/machine-vault.ts";
 
 /** A made-up project codename that no default rule matches, so only a configured rule masks it. */
 const CODENAME = "Quill-Harbor-Ninety";
@@ -85,6 +92,7 @@ interface TestContext {
   ui: { notify(message: string, level?: "info" | "warning" | "error"): void };
   sessionManager: {
     getBranch(): BranchRecord[];
+    getSessionId(): string;
   };
   model: { id: string; provider: string };
   modelRegistry: GuardedRegistry;
@@ -172,7 +180,10 @@ function testContext(
         ctx.notices.push({ message, level });
       },
     },
-    sessionManager: { getBranch: () => options.branch ?? [] },
+    sessionManager: {
+      getBranch: () => options.branch ?? [],
+      getSessionId: () => "s1",
+    },
     model: { id: "summary-model", provider: "openai" },
     modelRegistry: {
       classify: vi.fn(),
@@ -1028,6 +1039,39 @@ describe("shutdown", () => {
       { message: expect.stringContaining("SESSION_SHUTDOWN"), level: "error" },
     ]);
     close.mockRestore();
+  });
+
+  it.each(["quit", "new", "resume", "fork"] as const)(
+    "deletes the vault of the session when pi leaves it (%s)",
+    async (reason) => {
+      const pi = fakePi();
+      const ctx = testContext();
+      startSession(ctx, pi);
+      const vaultDir = sessionDir(join(root, "state", "lmsk"), "s1");
+      expect(existsSync(vaultDir)).toBe(true);
+
+      await pi.handlers.session_shutdown?.(
+        { type: "session_shutdown", reason },
+        ctx,
+      );
+
+      expect(existsSync(vaultDir)).toBe(false);
+    },
+  );
+
+  it("keeps the vault of the session when pi reloads", async () => {
+    const pi = fakePi();
+    const ctx = testContext();
+    startSession(ctx, pi);
+
+    await pi.handlers.session_shutdown?.(
+      { type: "session_shutdown", reason: "reload" },
+      ctx,
+    );
+
+    expect(existsSync(sessionDir(join(root, "state", "lmsk"), "s1"))).toBe(
+      true,
+    );
   });
 });
 

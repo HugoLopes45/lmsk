@@ -1,4 +1,11 @@
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +16,11 @@ import {
   type OpenOptions,
   type ToolCall,
 } from "../../src/core/guard.ts";
+import {
+  deleteVault,
+  MachineVault,
+  sessionDir,
+} from "../../src/core/machine-vault.ts";
 import { Masker } from "../../src/core/masker.ts";
 import { SECRET_RULES } from "../../src/core/secret-rules.ts";
 
@@ -57,12 +69,14 @@ interface Harness {
   guard: Guard;
   ctx: HostContext & { notices: string[]; aborts: number };
   stateDir: string;
+  /** The vault folder of the session that `open` opens. */
+  vaultDir: string;
   open: (
     config?: unknown,
-    host?: Partial<Pick<OpenOptions, "env" | "defaultRules">>,
+    host?: Partial<Pick<OpenOptions, "env" | "defaultRules" | "sessionId">>,
   ) => void;
-  /** Another guard, as in another process, on the same machine vault. */
-  sibling: (config?: unknown) => Guard;
+  /** Another guard, as in another process, on the vault of `sessionId`. */
+  sibling: (config?: unknown, sessionId?: string) => Guard;
 }
 
 const guards: Guard[] = [];
@@ -70,6 +84,7 @@ const guards: Guard[] = [];
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+  vi.useRealTimers();
   for (const guard of guards.splice(0)) guard.close();
 });
 
@@ -104,7 +119,7 @@ function harness(): Harness {
   const openOn = (
     target: Guard,
     config: unknown,
-    host: Partial<Pick<OpenOptions, "env" | "defaultRules">>,
+    host: Partial<Pick<OpenOptions, "env" | "defaultRules" | "sessionId">>,
   ): void => {
     const path = join(dir, "config.json");
     writeFileSync(path, JSON.stringify(config));
@@ -113,6 +128,7 @@ function harness(): Harness {
         configPaths: [path],
         projectConfigPath: undefined,
         stateDir,
+        sessionId: "s1",
         env: {},
         defaultRules: [],
         ...host,
@@ -125,10 +141,11 @@ function harness(): Harness {
     guard,
     ctx,
     stateDir,
+    vaultDir: sessionDir(stateDir, "s1"),
     open: (config = LITERAL, host = {}) => openOn(guard, config, host),
-    sibling(config = LITERAL) {
+    sibling(config = LITERAL, sessionId = "s1") {
       const other = newGuard();
-      openOn(other, config, {});
+      openOn(other, config, { sessionId });
       return other;
     },
   };
@@ -136,12 +153,125 @@ function harness(): Harness {
 
 describe("Guard", () => {
   it("masks text and appends its mapping to the machine vault", async () => {
-    const { guard, open, stateDir } = harness();
+    const { guard, open, vaultDir } = harness();
     open();
     const masked = await guard.maskText(`key ${REAL}`);
     expect(masked).not.toContain(REAL);
     const fake = masked.slice("key ".length);
-    expect(readFileSync(join(stateDir, "vault.jsonl"), "utf8")).toContain(fake);
+    expect(MachineVault.open(vaultDir).vault.restore(fake)).toBe(REAL);
+  });
+
+  it("deletes the shared vault of lmsk 0.3, which holds reals in clear", () => {
+    const { open, stateDir } = harness();
+    mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(stateDir, "key"), "k".repeat(32));
+    writeFileSync(join(stateDir, "vault.jsonl"), `{"r":"${REAL}","f":"x"}\n`);
+    open();
+    expect(existsSync(join(stateDir, "key"))).toBe(false);
+    expect(existsSync(join(stateDir, "vault.jsonl"))).toBe(false);
+  });
+
+  it("keeps the fakes of a session out of the vault of another session", async () => {
+    const { guard, open, sibling } = harness();
+    open();
+    const fake = await guard.maskText(REAL);
+    expect(sibling(undefined, "s2").restoreText(fake)).toBe(fake);
+  });
+
+  it("deletes the vault of the session when the session ends", async () => {
+    const { guard, open, vaultDir } = harness();
+    open();
+    await guard.maskText(REAL);
+    guard.end();
+    expect(existsSync(vaultDir)).toBe(false);
+  });
+
+  it("deletes the vault of the session when the session ends while a config error blocks the guard", async () => {
+    const { guard, open, vaultDir } = harness();
+    open();
+    await guard.maskText(REAL);
+    open({ rules: "not a list" });
+    expect(guard.blocked).toBe(true);
+    guard.end();
+    expect(existsSync(vaultDir)).toBe(false);
+  });
+
+  it("deletes the vault of the session when the session ends after an open whose options throw", async () => {
+    const { guard, ctx, open, vaultDir } = harness();
+    open();
+    await guard.maskText(REAL);
+    guard.open(() => {
+      throw new Error("no options");
+    }, ctx);
+    guard.end();
+    expect(existsSync(vaultDir)).toBe(false);
+  });
+
+  it("deletes the vault after an hour without a mask, and masks the next request with a new vault", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "Date"] });
+    const { guard, open, vaultDir } = harness();
+    open();
+    const fake = await guard.maskText(REAL);
+    vi.advanceTimersByTime(61 * 60 * 1000);
+    expect(existsSync(vaultDir)).toBe(false);
+    expect(guard.restoreText(fake)).toBe(fake);
+    expect(await guard.maskText(REAL)).not.toContain(REAL);
+  });
+
+  it("keeps the vault of a session that masks at least once an hour", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "Date"] });
+    const { guard, open } = harness();
+    open();
+    const fake = await guard.maskText(REAL);
+    vi.advanceTimersByTime(50 * 60 * 1000);
+    await guard.maskText("later");
+    vi.advanceTimersByTime(50 * 60 * 1000);
+    expect(guard.restoreText(fake)).toBe(REAL);
+  });
+
+  it("keeps the vault of a session that another process used in the last hour", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "Date"] });
+    const { guard, open, sibling } = harness();
+    open();
+    const fake = await guard.maskText(REAL);
+    vi.advanceTimersByTime(50 * 60 * 1000);
+    sibling().restoreText("used");
+    vi.advanceTimersByTime(50 * 60 * 1000);
+    expect(guard.restoreText(fake)).toBe(REAL);
+  });
+
+  it("deletes at open the vault of a session that no process used for an hour, as after a crash", async () => {
+    const { guard, open, vaultDir, sibling } = harness();
+    open();
+    await guard.maskText(REAL);
+    const hourAgo = (Date.now() - 61 * 60 * 1000) / 1000;
+    utimesSync(vaultDir, hourAgo, hourAgo);
+    sibling(undefined, "s2");
+    expect(existsSync(vaultDir)).toBe(false);
+  });
+
+  it("masks with a new vault after another process ends the session", async () => {
+    const { guard, open, vaultDir } = harness();
+    open();
+    const fake = await guard.maskText(REAL);
+    deleteVault(vaultDir);
+    expect(await guard.maskText(REAL)).not.toContain(REAL);
+    expect(guard.restoreText(fake)).toBe(fake);
+  });
+
+  it("refuses a payload that holds a call of an ended vault, whose short reals the new vault does not know", async () => {
+    const { guard, open, vaultDir } = harness();
+    open(PATHS);
+    const short = await shortFake(guard);
+    guard.restoreCall(call("c1", "read", { path: "a.txt", note: short }));
+    deleteVault(vaultDir);
+    const payload = { text: `saw ${SHORT}` };
+    await expect(guard.maskPayload(payload, ["c1"])).rejects.toMatchObject({
+      code: "VAULT_ENDED",
+    });
+    await expect(guard.maskTexts([SHORT], ["c1"])).rejects.toMatchObject({
+      code: "VAULT_ENDED",
+    });
   });
 
   it("gives a real the same fake in another process and restores it there", async () => {
@@ -501,10 +631,10 @@ describe("Guard", () => {
   });
 
   it("keeps the fakes of a call whose reals it cannot save", async () => {
-    const { guard, open, stateDir } = harness();
+    const { guard, open, vaultDir } = harness();
     open(PATHS);
     const short = await shortFake(guard);
-    writeFileSync(join(stateDir, "vault.lock"), String(process.ppid), {
+    writeFileSync(join(vaultDir, "vault.lock"), String(process.ppid), {
       mode: 0o600,
     });
     const input = { path: "a.txt", note: short };
@@ -512,6 +642,16 @@ describe("Guard", () => {
       expect.objectContaining({ code: "STORE_BUSY" }),
     );
     expect(input.note).toBe(short);
+  });
+
+  it("masks a payload whose host gives the id of a blocked call", async () => {
+    const { guard, open } = harness();
+    open(PATHS);
+    const path = await guard.maskText(STORE_PATH);
+    guard.restoreCall(call("c1", "read", { path }));
+    expect(await guard.maskPayload({ text: "hi" }, ["c1"])).toEqual({
+      text: "hi",
+    });
   });
 
   it("saves nothing for a blocked call", async () => {
@@ -547,10 +687,10 @@ describe("Guard", () => {
   });
 
   it("blocks when the machine vault is not private", async () => {
-    const { guard, ctx, open, stateDir } = harness();
+    const { guard, ctx, open, vaultDir } = harness();
     open();
     await guard.maskText(REAL);
-    chmodSync(join(stateDir, "vault.jsonl"), 0o644);
+    chmodSync(join(vaultDir, "vault.jsonl"), 0o644);
     open();
     await expect(guard.maskText("x")).rejects.toThrow("STORE_UNSAFE");
     expect(ctx.notices).toEqual([

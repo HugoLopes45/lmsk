@@ -1,6 +1,11 @@
 import { existsSync } from "node:fs";
 import { type EnvRule, isRecord, type Rule } from "./config.ts";
-import { decodedViews, hiddenReadings, type View } from "./encoded.ts";
+import {
+  base64Cores,
+  decodedViews,
+  hiddenReadings,
+  type View,
+} from "./encoded.ts";
 import { CodedError } from "./errors.ts";
 import { IDENTITY_RULE_ID } from "./identity.ts";
 import {
@@ -923,6 +928,17 @@ export class Masker {
     );
   }
 
+  /** Base64 data that is not text, or is too long or after `;base64,`, has no decoded view. */
+  private hidesBase64(texts: string[], reals: string[]): boolean {
+    return reals.some(
+      (real) =>
+        !this.identity.has(real) &&
+        base64Cores(real).some((core) =>
+          texts.some((text) => text.includes(core)),
+        ),
+    );
+  }
+
   private hidesGlued(
     texts: string[],
     readings: string[][],
@@ -930,6 +946,7 @@ export class Masker {
     reals: string[],
   ): boolean {
     const views = transforms ? glueViews(readings) : undefined;
+    if (transforms && this.hidesBase64(texts, reals)) return true;
     return reals.some((real) => {
       if (this.identity.has(real)) return false;
       const bare = real.replace(/\s+/g, "");

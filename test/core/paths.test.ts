@@ -1,6 +1,7 @@
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { machinePaths, protectedPath } from "../../src/core/index.ts";
+import { searchedPath } from "../../src/core/tool-policy.ts";
 
 describe("machinePaths", () => {
   it("uses the XDG defaults under home and protects lmsk's state and pi's stores and configurations", () => {
@@ -19,6 +20,7 @@ describe("machinePaths", () => {
         "**/lmsk/vault.jsonl",
         "**/lmsk/vault.lock",
         "**/lmsk/vault.lock/**",
+        "**/lmsk/session-vaults/**",
         "**/lmsk/serve-token",
         "**/lmsk/upstream",
         "**/.claude/settings*.json",
@@ -32,7 +34,7 @@ describe("machinePaths", () => {
     });
   });
 
-  it.each(["vault.jsonl", "vault.lock/1-a"])(
+  it.each(["vault.jsonl", "vault.lock/1-a", "session-vaults/ab12/key"])(
     "protects the state file %s also outside the state folder",
     (file) => {
       const { protectedPaths } = machinePaths({}, "/h");
@@ -41,6 +43,42 @@ describe("machinePaths", () => {
       );
     },
   );
+
+  it.each(["/h/a[b]", "/h/a*{x,y}?", "/h/+(a)", "/h/a\\b", "/h/a,.b"])(
+    "protects lmsk's files under a home with glob characters: %s",
+    (home) => {
+      const { stateDir, protectedPaths } = machinePaths({}, home);
+      for (const file of [
+        `${stateDir}/key`,
+        stateDir,
+        `${home}/.config/lmsk/rules.txt`,
+        `${home}/.claude/settings.local.json`,
+        `${home}/Library/LaunchAgents/io.github.hugolopes45.lmsk.plist`,
+        `${home}/.config/systemd/user/lmsk.service`,
+      ])
+        expect(protectedPath([file], "/", protectedPaths)).toBe(file);
+      // A search of the home or of a folder above the state folder reads the key.
+      for (const root of [home, `${home}/.local`])
+        expect(searchedPath([root], "/", protectedPaths)).toBe(root);
+    },
+  );
+
+  it("protects the code of lmsk installed in a folder with glob characters", async () => {
+    vi.resetModules();
+    const url = await vi.importActual<typeof import("node:url")>("node:url");
+    const root = url.fileURLToPath(new URL("../../", import.meta.url));
+    vi.doMock("node:url", () => ({
+      ...url,
+      fileURLToPath: (path: URL) =>
+        url.fileURLToPath(path).replace(root, "/h/a[b]/lmsk/"),
+    }));
+    const paths = await import("../../src/core/paths.ts");
+    vi.doUnmock("node:url");
+    const file = "/h/a[b]/lmsk/dist/core/vault.js";
+    expect(
+      protectedPath([file], "/", paths.machinePaths({}, "/h").protectedPaths),
+    ).toBe(file);
+  });
 
   it("protects the temporary key file that a crash leaves in the state folder", () => {
     const { protectedPaths } = machinePaths({}, "/h");

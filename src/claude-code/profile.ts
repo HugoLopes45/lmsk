@@ -1,4 +1,8 @@
-import { allFormats, anthropicStream } from "../formats/index.ts";
+import {
+  allFormats,
+  anthropicCallIds,
+  anthropicStream,
+} from "../formats/index.ts";
 import type { ProxyProfile } from "../proxy/index.ts";
 
 /** The input field of each built-in tool that holds the path it opens. */
@@ -53,9 +57,10 @@ export function claudeProfile({
     format: allFormats,
     // A user who already routes Claude Code through a gateway keeps it behind the proxy.
     upstream: env.ANTHROPIC_BASE_URL || "https://api.anthropic.com",
-    keptHeaders: ["x-claude-code-session-id"],
+    sessionHeader: "x-claude-code-session-id",
     cwd,
     codec: anthropicStream,
+    callIds: anthropicCallIds,
     commandKey: (tool) => (tool === "Bash" ? "command" : undefined),
     pathOf,
     rootsOf,

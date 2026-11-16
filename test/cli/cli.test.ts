@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,7 +6,7 @@ import { PassThrough, Readable, Writable } from "node:stream";
 import { describe, expect, it } from "vitest";
 import { SERVE_PORT } from "../../src/claude-code/index.ts";
 import { confirm, main } from "../../src/cli/main.ts";
-import { isRecord } from "../../src/core/index.ts";
+import { isRecord, MachineVault, sessionDir } from "../../src/core/index.ts";
 
 async function run(args: string[], stdin = "") {
   const out = { stdout: "", stderr: "" };
@@ -80,6 +80,21 @@ describe("lmsk", () => {
       if (blocker.listening)
         await new Promise<void>((resolve) => blocker.close(() => resolve()));
     }
+  });
+
+  it("deletes at SessionEnd the vault in the state folder that the hook command names, as the install sets it", async () => {
+    const stateDir = mkdtempSync(join(tmpdir(), "lmsk-cli-state-"));
+    MachineVault.open(sessionDir(stateDir, "s1"));
+    const end = JSON.stringify({
+      cwd: "/w",
+      hook_event_name: "SessionEnd",
+      session_id: "s1",
+      reason: "other",
+    });
+
+    expect((await run(["hook", "claude", stateDir], end)).code).toBe(0);
+
+    expect(existsSync(sessionDir(stateDir, "s1"))).toBe(false);
   });
 
   it("blocks the tool call with exit code 2 when the hook fails, because other codes let it run", async () => {

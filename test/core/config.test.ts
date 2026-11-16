@@ -384,6 +384,15 @@ describe("loadConfig with a project level", () => {
     expect(config.restoredTools).toEqual(HOST.tools);
   });
 
+  it("reports a global protectedPaths entry that removes a host path, so the host's own files stay protected", () => {
+    const global = levelFile({ protectedPaths: ["!**/host-vaults/**"] });
+    const result = loadConfig([global], undefined, HOST);
+    expect(result.problems).toEqual([
+      "protectedPaths: config cannot remove **/host-vaults/**, a file of the host.",
+    ]);
+    expect(protectedPatterns([global], HOST)).toContain("**/host-vaults/**");
+  });
+
   it("reports a project protectedPaths entry that removes a host path", () => {
     const project = levelFile({ protectedPaths: ["!**/host-vaults/**"] });
     expect(loadConfig([], project, HOST).problems).toEqual([
