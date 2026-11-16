@@ -105,5 +105,5 @@ export const allFormats: PayloadFormat = {
   },
 };
 
-export { anthropicStream } from "./anthropic-stream.ts";
+export { anthropicCallIds, anthropicStream } from "./anthropic-stream.ts";
 export type { Restore, SseEvent, StreamCodec, ToolInput } from "./stream.ts";

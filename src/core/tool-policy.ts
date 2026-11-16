@@ -140,6 +140,18 @@ function fixedFolder(pattern: string): string | undefined {
   return dirname(pattern);
 }
 
+/** The globs of the folders above the files of an absolute pattern, up to its first `**`. A folder with a glob character, such as a home folder with a `[`, has no fixed folder, so `fixedFolder` alone misses a search of it. */
+function folderGlobs(pattern: string): string[] {
+  if (!isAbsolute(pattern)) return [];
+  const segments = pattern.split("/");
+  const deep = segments.findIndex((segment) => segment.includes("**"));
+  const end = deep === -1 ? segments.length - 1 : deep;
+  return Array.from(
+    { length: end },
+    (_, index) => segments.slice(0, index + 1).join("/") || "/",
+  );
+}
+
 /** The path as written from `cwd` and on disk, in both forms, with the marks of `undotted`. */
 function forms(path: string, cwd: string): string[] {
   const budget = { links: 40 };
@@ -173,9 +185,12 @@ export function searchedPath(
     const folder = fixedFolder(pattern);
     return folder === undefined ? [] : forms(folder, "/");
   });
+  const globs = patterns.flatMap(folderGlobs).flatMap(both).map(undotted);
   return roots.find((root) =>
-    forms(root, cwd).some((path) =>
-      folders.some((folder) => holds(path, folder)),
+    forms(root, cwd).some(
+      (path) =>
+        folders.some((folder) => holds(path, folder)) ||
+        globs.some((glob) => matchesGlob(path, glob)),
     ),
   );
 }

@@ -7,7 +7,14 @@ import {
   type Rule,
 } from "./config.ts";
 import { CodedError, errorCode } from "./errors.ts";
-import { MachineVault } from "./machine-vault.ts";
+import {
+  deleteIdleVault,
+  deleteIdleVaults,
+  deleteSharedVault,
+  deleteVault,
+  MachineVault,
+  sessionDir,
+} from "./machine-vault.ts";
 import { Masker } from "./masker.ts";
 import { mapPayload, type PayloadFormat, textsOf } from "./payload.ts";
 import { type ShownFakes, TextRestorer } from "./restorer.ts";
@@ -40,13 +47,19 @@ export interface OpenOptions {
   configPaths: readonly string[];
   /** The project configuration file. Pass it only when the project is trusted. */
   projectConfigPath: string | undefined;
-  /** The private directory of the machine vault. */
+  /** The private directory of the session vaults. */
   stateDir: string;
+  /** The agent session. Each session has its own vault, which ends with the session. */
+  sessionId: string;
   /** The environment of the agent's processes. An `env` rule learns its values from it. */
   env: Readonly<Record<string, string | undefined>>;
   /** Rules that the host adds under the configuration, such as `localIdentityRules()`. */
   defaultRules: readonly Rule[];
 }
+
+/** A session vault that no process used for this long ends. */
+export const IDLE_MS = 60 * 60 * 1000;
+const IDLE_CHECK_MS = 60 * 1000;
 
 export const HIDDEN =
   "lmsk: withheld. This text holds a secret spaced out, wrapped, reversed or encoded.";
@@ -78,8 +91,13 @@ export type Redaction = "enabled" | "off";
 interface Opened {
   config: MaskConfig;
   scanner: Scanner;
+  dir: string;
+  /** A new vault of the session, and its masker, after the last vault ended. */
+  build: () => Pick<Opened, "masker" | "store">;
   masker: Masker;
   store: MachineVault;
+  /** The last use of the vault by this process. */
+  usedAt: number;
 }
 
 type State = { ok: true; opened: Opened } | { ok: false; code: string };
@@ -90,19 +108,31 @@ function openState(options: OpenOptions, host: GuardHost): State {
     rules: options.defaultRules,
   });
   if (loaded.problems.length > 0) return { ok: false, code: "CONFIG_INVALID" };
-  const store = MachineVault.open(options.stateDir);
+  deleteSharedVault(options.stateDir);
+  const dir = sessionDir(options.stateDir, options.sessionId);
   const scanner = new Scanner(loaded.config.scanTimeoutMs);
   try {
-    const masker = new Masker(
-      loaded.config.rules,
-      scanner,
-      store.vault,
-      options.env,
-      host.format,
-    );
+    const build = (): Pick<Opened, "masker" | "store"> => {
+      const store = MachineVault.open(dir);
+      const masker = new Masker(
+        loaded.config.rules,
+        scanner,
+        store.vault,
+        options.env,
+        host.format,
+      );
+      return { masker, store };
+    };
     return {
       ok: true,
-      opened: { config: loaded.config, scanner, masker, store },
+      opened: {
+        config: loaded.config,
+        scanner,
+        dir,
+        build,
+        ...build(),
+        usedAt: Date.now(),
+      },
     };
   } catch (error) {
     scanner.close();
@@ -122,6 +152,9 @@ export class Guard {
   private reportedStop = false;
   private reportedBlock = false;
   private queue: Promise<unknown> = Promise.resolve();
+  private idleCheck: ReturnType<typeof setInterval> | undefined;
+  /** Kept when the open fails, so the end of a blocked session still deletes the vault of an earlier open. */
+  private dir: string | undefined;
 
   constructor(host: GuardHost) {
     this.host = host;
@@ -129,12 +162,17 @@ export class Guard {
 
   /** Closes the earlier state and opens a new one. A failure, also a throw of `options`, blocks masking until the next open. */
   open(options: () => OpenOptions, ctx: HostContext): void {
-    if (this.state.ok) this.state.opened.scanner.close();
+    this.close();
     try {
-      this.state = openState(options(), this.host);
+      const opened = options();
+      this.dir = sessionDir(opened.stateDir, opened.sessionId);
+      this.sweep(opened.stateDir, ctx);
+      this.state = openState(opened, this.host);
     } catch (error) {
       this.state = { ok: false, code: errorCode(error) };
     }
+    this.idleCheck = setInterval(() => this.endIdle(), IDLE_CHECK_MS);
+    this.idleCheck.unref();
     this.redaction = "enabled";
     this.reportedStop = false;
     this.reportedBlock = false;
@@ -143,8 +181,47 @@ export class Guard {
 
   /** Stops the scanner worker so the process can exit. The closed state keeps a later scan from restarting it. */
   close(): void {
+    clearInterval(this.idleCheck);
     if (this.state.ok) this.state.opened.scanner.close();
     this.state = { ok: false, code: "SESSION_SHUTDOWN" };
+  }
+
+  /** Closes the guard and deletes the vault of the session, at the end of the session. */
+  end(): void {
+    this.close();
+    if (this.dir !== undefined) deleteVault(this.dir);
+  }
+
+  /** The vault of another session that stays on disk does not block this one, so its failure is a notice. */
+  private sweep(stateDir: string, ctx: HostContext): void {
+    try {
+      deleteIdleVaults(stateDir, Date.now() - IDLE_MS);
+    } catch (error) {
+      ctx.ui.notify(
+        `${this.host.name}: an idle vault was not deleted: ${errorCode(error)}.`,
+        "warning",
+      );
+    }
+  }
+
+  /** A failed delete blocks the guard, so no later request uses a vault that should have ended. */
+  private endIdle(): void {
+    if (!this.state.ok) return;
+    try {
+      endIfIdle(this.state.opened);
+    } catch (error) {
+      this.close();
+      this.state = { ok: false, code: errorCode(error) };
+    }
+  }
+
+  /** The vault of the session, marked used. A vault that ended or sat idle is replaced by a new one. */
+  private live(opened: Opened): MachineVault {
+    endIfIdle(opened);
+    if (opened.store.ended) Object.assign(opened, opened.build());
+    opened.usedAt = Date.now();
+    opened.store.markUsed();
+    return opened.store;
   }
 
   /** Whether an open is needed: none ran yet, or the last one failed. A closed guard is not blocked: it must not open again. */
@@ -165,15 +242,21 @@ export class Guard {
    * keeps its fakes.
    */
   restoreCall(call: ToolCall): { blocked: boolean } {
+    if (this.state.ok) this.live(this.state.opened);
     const reals = new Set<string>();
     const input = call.verified
       ? this.restoreInput(call.tool, call.input, call.commandKey, reals)
       : call.input;
-    if (this.isProtected(call.targets(input), call.roots(input), call.cwd))
-      return { blocked: true };
-    if (this.state.ok) this.state.opened.store.recordCall(call.id, [...reals]);
+    const blocked = this.isProtected(
+      call.targets(input),
+      call.roots(input),
+      call.cwd,
+    );
+    if (this.state.ok)
+      this.state.opened.store.recordCall(call.id, blocked ? [] : [...reals]);
+    if (blocked) return { blocked };
     Object.assign(call.input, input);
-    return { blocked: false };
+    return { blocked };
   }
 
   /** A blocked guard keeps the default paths and the host's own files protected. */
@@ -241,7 +324,7 @@ export class Guard {
       this.state.ok && this.state.opened === opened;
     const run = this.queue.then(async () => {
       if (!current()) throw new CodedError("SESSION_CHANGED");
-      opened.store.vault.refresh();
+      this.live(opened).vault.refresh();
       // A replaced state's closed scanner fails its late mask; that failure belongs to no live state.
       const masked = await mask().catch((error: unknown) => {
         throw current() ? error : new CodedError("SESSION_CHANGED");
@@ -300,6 +383,7 @@ export class Guard {
       const ids = textsOf(payload, (value, map) =>
         mapPayload(value, map, EVERY_TEXT),
       );
+      store.assertRecorded(callIds);
       const masked = await masker.maskPayload(
         payload,
         store.realsOf([...ids, ...callIds]),
@@ -329,6 +413,7 @@ export class Guard {
     const opened = this.opened();
     if (this.off) return texts;
     return this.exclusive(opened, async () => {
+      opened.store.assertRecorded(callIds);
       const masked = await opened.masker.mask(
         texts,
         opened.store.realsOf(callIds),
@@ -407,7 +492,7 @@ export class Guard {
    * Show the result to the user only: it holds real values.
    */
   restoreText(text: string): string {
-    const { vault } = this.opened().store;
+    const { vault } = this.live(this.opened());
     vault.refresh();
     return vault.restore(text);
   }
@@ -419,6 +504,12 @@ export class Guard {
   private offNotice(): string {
     return `${this.host.name}: off. The provider gets real values.`;
   }
+}
+
+/** The folder time tells the last use by any process of the session. */
+function endIfIdle(opened: Opened): void {
+  const since = Date.now() - IDLE_MS;
+  if (opened.usedAt < since) deleteIdleVault(opened.dir, since);
 }
 
 /** A throwing abort must not undo the neutral result that the caller returns. */

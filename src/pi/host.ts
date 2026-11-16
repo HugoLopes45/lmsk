@@ -29,7 +29,10 @@ export interface HookContext {
   isProjectTrusted(): boolean;
   abort(): void;
   ui: { notify(message: string, level: "info" | "warning" | "error"): void };
-  sessionManager: { getBranch(): readonly BranchRecord[] };
+  sessionManager: {
+    getBranch(): readonly BranchRecord[];
+    getSessionId(): string;
+  };
   modelRegistry: GuardedRegistry;
 }
 

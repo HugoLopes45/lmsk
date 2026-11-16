@@ -15,11 +15,20 @@ export interface MachinePaths {
 export const SERVICE_LABEL = "io.github.hugolopes45.lmsk";
 
 /** The code that the hook and the service run, from `src/core` and from `dist/core`. */
-const CODE = fileURLToPath(new URL("../../dist/**", import.meta.url));
+const CODE = `${literal(fileURLToPath(new URL("../../dist", import.meta.url)))}/**`;
 
 /** A base directory: the variable when it is absolute, else the default under home. */
 function baseDir(value: string | undefined, fallback: string): string {
   return value !== undefined && isAbsolute(value) ? value : fallback;
+}
+
+/**
+ * `path` as a glob that matches it. Each glob character, such as a `[` in the home folder, becomes
+ * `?`: `matchesGlob` has no escape that works in every place, and `?` also matches that character.
+ * A dot after `{` or `,` also becomes `?`, because `undotted` marks that dot in the path.
+ */
+function literal(path: string): string {
+  return path.replace(/(?<=[{,])\./g, "?").replace(/[[\]*?{}(),+@!\\]/g, "?");
 }
 
 export function machinePaths(
@@ -44,10 +53,10 @@ export function machinePaths(
     stateDir,
     protectedPaths: [
       // The folders themselves, so that `cd` into them is denied, as their files are.
-      configDir,
-      `${configDir}/**`,
-      stateDir,
-      `${stateDir}/**`,
+      literal(configDir),
+      `${literal(configDir)}/**`,
+      literal(stateDir),
+      `${literal(stateDir)}/**`,
       // pi's configuration and the stores of earlier pi versions, which hold reals, wherever PI_CODING_AGENT_DIR puts them.
       "**/lmsk-vaults/**",
       "**/lmsk/config.json",
@@ -58,17 +67,18 @@ export function machinePaths(
         "vault.jsonl",
         "vault.lock",
         "vault.lock/**",
+        "session-vaults/**",
         "serve-token",
         "upstream",
       ].map((name) => `**/lmsk/${name}`),
       // A change to these turns off the hook or the proxy of Claude Code.
       "**/.claude/settings*.json",
       join(
-        baseDir(env.CLAUDE_CONFIG_DIR, join(home, ".claude")),
+        literal(baseDir(env.CLAUDE_CONFIG_DIR, join(home, ".claude"))),
         "settings*.json",
       ),
-      launchdPath,
-      systemdPath,
+      literal(launchdPath),
+      literal(systemdPath),
       CODE,
     ],
     launchdPath,

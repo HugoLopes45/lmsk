@@ -48,12 +48,13 @@ The first form means that the extension stopped one request and the session cont
 | `BLOCKED` | A rule with the `block` strategy found a value. Other causes: a found value overlaps a fake, or a value in an encoded text cannot get a safe fake. | If you made a `block` rule, remove the value from the conversation, as for `HIDDEN_REAL`. Otherwise, start a new session with `/new`. |
 | `PAYLOAD_SIZE` | The text that masking scans in a request is larger than 8 MiB. Images, PDFs, and the signatures and encrypted content of provider blocks do not count. | Start a new session with `/new`. Ask the agent for smaller outputs, for example part of a file. |
 | `PAYLOAD_SHAPE` | The request is not plain JSON data. | Report the problem as an issue. Do not include secrets. |
-| `VAULT_FULL` | The vault has 50000 values, or its values have 2000000 characters together, or the file `vault.jsonl` has a size of 32 MiB. This is the maximum. | [Start a new vault](#start-a-new-vault). |
-| `VAULT_COLLISION` | The extension found no unused fake for a value, or a line of the vault gives one fake to two values. | Send the request again. If the error comes back, [start a new vault](#start-a-new-vault). |
+| `VAULT_FULL` | The vault of the session has 50000 values, or its values have 2000000 characters together, or its file `vault.jsonl` has a size of 32 MiB. This is the maximum. | [Start a new vault](#start-a-new-vault). |
+| `VAULT_COLLISION` | The extension found no unused fake for a value, or a line of the vault of the session gives one fake to two values. | Send the request again. If the error comes back, [start a new vault](#start-a-new-vault). |
+| `VAULT_ENDED` | The conversation holds a tool call that the vault of the session did not restore: its vault ended because the session ended or no request used it for one hour, or, with Claude Code, the call came in a reply that was not streamed. lmsk no longer knows the real values that the call got back, so it cannot mask them. | Go back to a point before the tool calls: in pi, type `/tree`; in Claude Code, type `/rewind`, then choose `Restore conversation`. Or [start a new session](#start-a-new-vault). |
 
 ## Code that stops a reply
 
-With Claude Code, the reply ends early. The proxy writes `lmsk: a reply stopped: <code>` to its messages: `serve.log` in the vault folder on macOS, or `journalctl --user -u lmsk.service` on Linux.
+With Claude Code, the reply ends early. The proxy writes `lmsk: a reply stopped: <code>` to its messages: `serve.log` in the state folder on macOS, or `journalctl --user -u lmsk.service` on Linux.
 
 | Code | Meaning | What to do |
 |---|---|---|
@@ -61,14 +62,14 @@ With Claude Code, the reply ends early. The proxy writes `lmsk: a reply stopped:
 
 ## Codes that block the session
 
-The vault is the file `vault.jsonl` that keeps each real value next to its fake. Its folder is `~/.local/state/lmsk/`, or `lmsk/` in `XDG_STATE_HOME` if you set it. Each agent on your computer uses this vault. The `key` file in the same folder makes the fakes.
+The state folder of lmsk is `~/.local/state/lmsk/`, or `lmsk/` in `XDG_STATE_HOME` if you set it. Each session has its own vault in a folder in `session-vaults/` in the state folder. The vault is the file `vault.jsonl`, which keeps each real value next to its fake, encrypted with the `key` file in the same folder. The key also makes the fakes.
 
 | Code | Meaning | What to do |
 |---|---|---|
 | `CONFIG_INVALID` | A configuration file has an error. See [CONFIG_INVALID](#config_invalid). | Correct the file, then type `/reload`. |
-| `STORE_BUSY` | Another process held `vault.lock`, the lock of the vault, for more than 2 seconds. Or the lock has no owner that lmsk knows, for example after a process stopped while it took or released the lock. | Type `/reload`. If the error comes back, do steps 1 and 2 of [Start a new vault](#start-a-new-vault). Remove `vault.lock` from the vault folder. Then do step 4, and start pi again. |
-| `STORE_UNSAFE` | The vault folder, `vault.jsonl` or `key` has wrong permissions or a wrong owner. The folder must have mode 700 and the two files mode 600, all owned by your user. | On macOS or Linux, run `chmod 700` on the folder and `chmod 600` on the two files. Then type `/reload`. |
-| `STORE_CORRUPT` | A line of `vault.jsonl` is not valid, another process changed `vault.jsonl` while lmsk used it, or the `key` file has a wrong length. | Send the request again. If the error comes back, [start a new vault](#start-a-new-vault). If the `key` file is bad, move it too. |
+| `STORE_BUSY` | Another process held `vault.lock`, the lock of the vault, for more than 2 seconds. Or the lock has no owner that lmsk knows, for example after a process stopped while it took or released the lock. | Type `/reload`. If the error comes back, [start a new vault](#start-a-new-vault). |
+| `STORE_UNSAFE` | The vault folder of the session, or the `vault.jsonl` or `key` file in it, has wrong permissions or a wrong owner. The folder must have mode 700 and the files mode 600, all owned by your user. | On macOS or Linux, run `chmod 700` on the folder and `chmod 600` on the files. Then type `/reload`. |
+| `STORE_CORRUPT` | A line of `vault.jsonl` is not valid or does not decrypt with the `key` file, another process changed `vault.jsonl` while lmsk used it, or the `key` file has a wrong length. | Send the request again. If the error comes back, [start a new vault](#start-a-new-vault). |
 | `STORE_IO` | The computer could not read or write the vault file, for example because the disk is full. | Correct the disk problem, then type `/reload`. |
 | `UNEXPECTED_ERROR` | Another error. A `fixed` rule without `{n}` in its `replacement` causes it. A failure to read your user name, host name or git identity causes it too. | Check your `fixed` rules. Then type `/reload`. If the error stays, report it as an issue. |
 | `NOT_STARTED` | The session has not started yet. | Wait, or type `/reload`. |
@@ -76,16 +77,15 @@ The vault is the file `vault.jsonl` that keeps each real value next to its fake.
 
 After you upgrade lmsk, start each pi session again. If you use Claude Code, also run `lmsk install claude` again. It starts the proxy with the new version.
 
-A failed read or save of the vault during a request stops only that request. But a line of `vault.jsonl` that is not valid stops each later request with `STORE_CORRUPT` or `VAULT_COLLISION`, until you [start a new vault](#start-a-new-vault). The next save removes a last line that a stopped process did not finish.
+A failed read or save of the vault during a request stops only that request. But a line of `vault.jsonl` that is not valid stops each later request of the session with `STORE_CORRUPT` or `VAULT_COLLISION`, until you [start a new vault](#start-a-new-vault). The next save removes a last line that a stopped process did not finish.
+
+A vault of another session that lmsk cannot delete does not stop your session. lmsk shows `an idle vault was not deleted: <code>`. Correct the permissions of the folders in `session-vaults/`. The next session start deletes the vault.
 
 ### Start a new vault
 
-1. Close each pi session.
-2. If you use Claude Code, stop the proxy. On macOS, run `launchctl bootout gui/$(id -u)/io.github.hugolopes45.lmsk`. On Linux, run `systemctl --user stop lmsk.service`.
-3. Move the file `vault.jsonl` out of the vault folder. Keep the `key` file, so that each value gets the same fake again.
-4. If you use Claude Code, run `lmsk install claude`. It starts the proxy again.
+Start a new session. In pi, type `/new`. With Claude Code, quit, then run `claude` again. The new session gets a new, empty vault. lmsk deletes the vault of the old session when the session ends. A vault that no session used for one hour is deleted about one minute later, or at the next request or session start.
 
-If you move the `key` file too, each value gets a new fake.
+The old conversation keeps its fakes: lmsk no longer puts its real values back.
 
 ## Claude Code
 
@@ -95,7 +95,7 @@ With Claude Code, the codes above have the same meaning, with these differences:
 - There is no `/lmsk` command and no `/reload`. To clear a block, correct the cause. The next request opens the config again, so the proxy does not need a restart.
 - If the proxy stopped, for example with `PORT_TAKEN` or `TOKEN_CORRUPT`, correct the cause, then run `lmsk install claude`. It starts the proxy again.
 - Where this page says `/tree`, type `/rewind`, then choose `Restore conversation`.
-- The proxy writes its messages to `serve.log` in the vault folder on macOS. On Linux, run `journalctl --user -u lmsk.service`.
+- The proxy writes its messages to `serve.log` in the state folder on macOS. On Linux, run `journalctl --user -u lmsk.service`.
 
 These messages occur only with Claude Code:
 
@@ -106,12 +106,14 @@ These messages occur only with Claude Code:
 | `lmsk: UPSTREAM` | The proxy could not reach Anthropic or your gateway. | Check your network connection, then send the request again. |
 | `lmsk: FORBIDDEN` | A program sent a request to the proxy without its private token. The proxy logs only the first such request after it starts. | Run `lmsk install claude`, then restart Claude Code. Do not copy the proxy address into another program. |
 | `Connection refused` (`ECONNREFUSED`) | The proxy does not run. | Run `lmsk install claude`. If the error comes back, read the messages of the proxy. |
+| `lmsk: CLAUDE_CONFIG_DIR_INVALID: CLAUDE_CONFIG_DIR must be an absolute path.` from `lmsk install claude` | `CLAUDE_CONFIG_DIR` is a relative path. Claude Code would read the settings of another folder in each session and send your requests past the proxy. | Set `CLAUDE_CONFIG_DIR` to an absolute path, or unset it, then run the command again. |
 | `lmsk: SETTINGS_INVALID: <detail>.` from `lmsk install claude` | Your user settings file is not JSON, or one of its keys that lmsk changes has a wrong type. | Correct the file, then run the command again. |
 | `lmsk: SERVICE_FAILED: <command> exited <number>.` from `lmsk install claude` | `launchctl` or `systemctl` could not start the service. | Read the output of the command above the message. Correct the cause, then run the command again. |
 | `lmsk: INSTALL_NOT_CONFIRMED: run lmsk install claude in a terminal and answer yes.` from `lmsk install claude` | The command must save a new gateway address or write a new service file. It asks only when standard input and error output are terminals. Without a terminal, or if you did not answer yes, nothing changed. | Run `lmsk install claude` in a terminal, then answer `yes`. |
-| `lmsk: SERVICE_VALUE_INVALID: a folder or a path holds a control character.` from `lmsk install claude` on Linux | The path to Node.js or to lmsk, or the folder in `XDG_CONFIG_HOME` or `XDG_STATE_HOME`, holds a line break or another control character. | Rename the folder or change the variable, then run the command again. |
+| `lmsk: SERVICE_VALUE_INVALID: a folder or a path holds a control character.` from `lmsk install claude` on Linux | The path to Node.js or to lmsk, or the folder in `XDG_CONFIG_HOME`, `XDG_STATE_HOME` or `CLAUDE_CONFIG_DIR`, holds a line break or another control character. | Rename the folder or change the variable, then run the command again. |
 | `lmsk: PLATFORM_UNSUPPORTED: lmsk runs on macOS and Linux.` | Your operating system is not macOS or Linux. | Use pi, or use Claude Code on macOS or Linux. |
-| `TOKEN_CORRUPT` in the messages of the proxy | The file `serve-token` in the vault folder is not valid. | Delete the file, run `lmsk install claude`, then restart Claude Code. |
+| `lmsk: SESSION_ID_MISSING` | A request to the proxy has no `X-Claude-Code-Session-Id` header. lmsk needs it to give each session its own vault. Claude Code sends it. | Update Claude Code. Do not send requests to the proxy from another program. |
+| `TOKEN_CORRUPT` in the messages of the proxy | The file `serve-token` in the state folder is not valid. | Delete the file, run `lmsk install claude`, then restart Claude Code. |
 | `lmsk: serve stopped: PORT_TAKEN.` | Another program uses the port of the proxy, 25675. The proxy does not start. | See [PORT_TAKEN](#port_taken). |
 
 ## PORT_TAKEN

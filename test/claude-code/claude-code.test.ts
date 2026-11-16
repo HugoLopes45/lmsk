@@ -157,7 +157,10 @@ describe("serveClaude", () => {
 
     const res = await fetch(`${proxy.url}/v1/messages`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "x-claude-code-session-id": "s1",
+      },
       body: JSON.stringify({
         messages: [{ role: "user", content: `API_KEY=${REAL}` }],
       }),

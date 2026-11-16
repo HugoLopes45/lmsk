@@ -54,17 +54,26 @@ export function isDistinctPart(token: string): boolean {
 
 /**
  * Opaque letters and digits whose first and last four characters are a distinct part,
- * so that the slice the model takes of either end restores.
+ * so that the slice the model takes of either end restores. A shorter fake of 2 or more
+ * characters holds a letter and a digit: the model could write a fake of letters only,
+ * such as `to`, as a word, which would then restore to the real.
  */
 function sliceable(length: number, random: RandomBytes): string {
+  if (length < MIN_LEARNED_LENGTH) return mixed(opaque(length, random), random);
   for (;;) {
     const fake = opaque(length, random);
-    if (
-      length < MIN_LEARNED_LENGTH ||
-      (isDistinctPart(fake.slice(0, 4)) && isDistinctPart(fake.slice(-4)))
-    )
+    if (isDistinctPart(fake.slice(0, 4)) && isDistinctPart(fake.slice(-4)))
       return fake;
   }
+}
+
+function mixed(fake: string, random: RandomBytes): string {
+  if (fake.length < 2) return fake;
+  const [byte = 0] = random(1);
+  if (!/[0-9]/.test(fake)) return fake.slice(0, -1) + String(byte % 10);
+  if (!/[A-Za-z]/.test(fake))
+    return OPAQUE_ALPHABET.charAt(byte % 52) + fake.slice(1);
+  return fake;
 }
 
 /** Whether `fake` has the length of `real` and each of its other characters where `real` has it. */
@@ -78,7 +87,8 @@ function aligned(real: string, fake: string): boolean {
       return false;
   return true;
 }
-const SHORT_WORD = /^\p{L}{2,4}$/u;
+/** 2 to 7 letters, so shorter than `MIN_LEARNED_LENGTH`: a fake of this form can be a word. */
+const SHORT_WORD = /^\p{L}{2,7}$/u;
 const EMAIL_SHAPE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const OPAQUE_ALPHABET =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -96,15 +106,13 @@ function opaque(length: number, random: RandomBytes): string {
 }
 
 /**
- * `reshape` turns a real of 2 to 4 letters into a short word, such as `cat`. The model may write
- * that word, which would then restore to the real, so such a real gets a fake with a digit.
+ * `reshape` turns a real of 2 to 7 letters into letters, such as `cat` or `garden`. The model may
+ * write that word, which would then restore to the real, so such a real gets a fake with a letter and a digit.
  */
 function shaped(real: string, random: RandomBytes): string {
-  if (!SHORT_WORD.test(real)) return reshape(real, random);
-  for (;;) {
-    const fake = opaque(real.length, random);
-    if (!SHORT_WORD.test(fake)) return fake;
-  }
+  return SHORT_WORD.test(real)
+    ? mixed(opaque(real.length, random), random)
+    : reshape(real, random);
 }
 
 /** Whether the character at `index` is a letter or digit; outside the text it is not. */
@@ -271,11 +279,15 @@ export class Vault {
       return shape ? this.shapeFor(part, avoid) : this.fakeFor(part, avoid);
     const [, fake, start] = parent;
     const slice = fake.slice(start, start + part.length);
+    // A short slice of letters only, or of digits only, can be a word the model writes.
+    const safe =
+      part.length >= MIN_LEARNED_LENGTH ||
+      (/[A-Za-z]/.test(slice) && /[0-9]/.test(slice));
     return this.assign(
       part,
       avoid,
       (attempt, random) =>
-        attempt === 0 ? slice : opaque(part.length, random),
+        attempt === 0 && safe ? slice : sliceable(part.length, random),
       (known) => known === fake,
     );
   }

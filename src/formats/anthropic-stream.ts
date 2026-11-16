@@ -14,6 +14,19 @@ interface HeldCall {
   json: string;
 }
 
+/** The ids of the tool_use blocks in a Messages request: the calls that `anthropicStream` restores. */
+export function anthropicCallIds(payload: unknown): string[] {
+  if (!isRecord(payload) || !Array.isArray(payload.messages)) return [];
+  return payload.messages.flatMap((message: unknown) =>
+    isRecord(message) && Array.isArray(message.content)
+      ? message.content.flatMap((block: unknown) => {
+          const call = isRecord(block) ? toolUseStart(block) : undefined;
+          return call === undefined ? [] : [call.id];
+        })
+      : [],
+  );
+}
+
 function toolUseStart(block: Record<string, unknown>): HeldCall | undefined {
   if (block.type !== "tool_use") return undefined;
   if (typeof block.id !== "string" || typeof block.name !== "string")
@@ -118,7 +131,11 @@ export function anthropicStream(
 
   const release = (call: HeldCall, index: unknown): SseEvent[] => {
     const input = parseObject(call.json);
-    if (input === undefined) return call.deltas;
+    if (input === undefined) {
+      // The input keeps its fakes, but the call must reach the vault: a later request that holds it is refused otherwise.
+      restore({ id: call.id, tool: call.tool, input: {} });
+      return call.deltas;
+    }
     const restored = restore({ id: call.id, tool: call.tool, input });
     return [
       delta(index, {

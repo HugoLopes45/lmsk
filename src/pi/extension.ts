@@ -96,6 +96,7 @@ function lmsk(pi: HookApi): void {
           ? join(ctx.cwd, PROJECT_CONFIG)
           : undefined,
         stateDir: paths.stateDir,
+        sessionId: ctx.sessionManager.getSessionId(),
         env: process.env,
         defaultRules: localIdentityRules(),
       }),
@@ -103,8 +104,10 @@ function lmsk(pi: HookApi): void {
     );
   });
 
-  pi.on("session_shutdown", () => {
-    guard.close();
+  // A reload keeps the session, so it keeps its vault.
+  pi.on("session_shutdown", (event) => {
+    if (event.reason === "reload") guard.close();
+    else guard.end();
   });
 
   pi.on("before_provider_request", (event, ctx) =>

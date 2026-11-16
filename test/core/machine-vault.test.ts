@@ -5,17 +5,25 @@ import { syncBuiltinESMExports } from "node:module";
 import fs, {
   appendFileSync,
   chmodSync,
+  copyFileSync,
+  existsSync,
   mkdtempSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import fc from "fast-check";
 import { describe, expect, it, vi } from "vitest";
-import { MachineVault } from "../../src/core/machine-vault.ts";
+import {
+  deleteIdleVaults,
+  MachineVault,
+  sessionDir,
+} from "../../src/core/machine-vault.ts";
 
 function stateDir(): string {
   return join(mkdtempSync(join(tmpdir(), "lmsk-machine-")), "lmsk");
@@ -34,6 +42,41 @@ function fixedIn(machine: MachineVault, name: string): string {
   return fake;
 }
 
+/** Lines of a vault with the key of `dir` that give `Client1` to Globex, after `dir` gives it to Acme. */
+function collidingLines(dir: string): Buffer {
+  fixedIn(MachineVault.open(dir), "Acme");
+  const twin = stateDir();
+  mkdirSync(twin, { recursive: true, mode: 0o700 });
+  copyFileSync(join(dir, "key"), join(twin, "key"));
+  chmodSync(join(twin, "key"), 0o600);
+  fixedIn(MachineVault.open(twin), "Globex");
+  return readFileSync(join(twin, "vault.jsonl"));
+}
+
+describe("deleteIdleVaults", () => {
+  it("deletes the other idle vaults when the first one cannot be deleted, then reports the failure", () => {
+    const dir = stateDir();
+    const vaults = ["s1", "s2", "s3"].map((id) => sessionDir(dir, id));
+    for (const vault of vaults) MachineVault.open(vault);
+    const parent = join(dir, "session-vaults");
+    const [first = ""] = readdirSync(parent);
+    const stuck = join(parent, first);
+    chmodSync(stuck, 0o500);
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    for (const vault of vaults) utimesSync(vault, old, old);
+
+    try {
+      expect(() => deleteIdleVaults(dir, Date.now())).toThrow(
+        expect.objectContaining({ code: "STORE_IO" }),
+      );
+    } finally {
+      chmodSync(stuck, 0o700);
+    }
+
+    expect(vaults.filter((vault) => existsSync(vault))).toEqual([stuck]);
+  });
+});
+
 describe("MachineVault", () => {
   it("creates a private directory, key and journal", () => {
     const dir = stateDir();
@@ -42,6 +85,36 @@ describe("MachineVault", () => {
     expect(statSync(join(dir, "key")).mode & 0o777).toBe(0o600);
     expect(statSync(join(dir, "key")).size).toBe(32);
     expect(statSync(join(dir, "vault.jsonl")).mode & 0o777).toBe(0o600);
+  });
+
+  it("keeps no real, fake or call id in clear in the vault file", () => {
+    const dir = stateDir();
+    const machine = MachineVault.open(dir);
+    const fake = fakeIn(machine, "ghp_0123456789abcdefghij");
+    machine.recordCall("toolu_01", ["hunter2"]);
+    const journal = readFileSync(join(dir, "vault.jsonl"), "utf8");
+    for (const clear of [
+      "ghp_0123456789abcdefghij",
+      fake,
+      "toolu_01",
+      "hunter2",
+    ])
+      expect(journal).not.toContain(clear);
+    expect(MachineVault.open(dir).realsOf(["toolu_01"])).toEqual(["hunter2"]);
+  });
+
+  it("refuses a line that the key of the vault did not write", () => {
+    const dir = stateDir();
+    const other = stateDir();
+    fakeIn(MachineVault.open(other), "ghp_0123456789abcdefghij");
+    MachineVault.open(dir);
+    appendFileSync(
+      join(dir, "vault.jsonl"),
+      readFileSync(join(other, "vault.jsonl")),
+    );
+    expect(() => MachineVault.open(dir)).toThrow(
+      expect.objectContaining({ code: "STORE_CORRUPT" }),
+    );
   });
 
   it("restores a fake of an earlier process", () => {
@@ -139,27 +212,19 @@ describe("MachineVault", () => {
 
   it("refuses a journal that maps one fake to two reals", () => {
     const dir = stateDir();
-    MachineVault.open(dir);
-    appendFileSync(
-      join(dir, "vault.jsonl"),
-      '{"r":"real-one-1","f":"fake-0001"}\n{"r":"real-two-2","f":"fake-0001"}\n',
-    );
+    appendFileSync(join(dir, "vault.jsonl"), collidingLines(dir));
     expect(() => MachineVault.open(dir)).toThrow(
       expect.objectContaining({ code: "VAULT_COLLISION" }),
     );
   });
 
   it.each([
-    ["an invalid line", "{not json}\n", "STORE_CORRUPT"],
-    [
-      "a mapping that reuses a fake",
-      '{"r":"real-one-1","f":"fake-0001"}\n{"r":"real-two-2","f":"fake-0001"}\n',
-      "VAULT_COLLISION",
-    ],
+    ["an invalid line", () => "{not json}\n", "STORE_CORRUPT"],
+    ["a mapping that reuses a fake", collidingLines, "VAULT_COLLISION"],
   ])("keeps refusing %s that another process appends", (_, lines, code) => {
     const dir = stateDir();
     const vault = MachineVault.open(dir);
-    appendFileSync(join(dir, "vault.jsonl"), lines);
+    appendFileSync(join(dir, "vault.jsonl"), lines(dir));
     const read = () => vault.realsOf([]);
     expect(read).toThrow(expect.objectContaining({ code }));
     // A read that skips the refused lines would mask without them.
@@ -316,15 +381,12 @@ describe("MachineVault", () => {
   it("refuses a save that makes the vault file larger than 32 MiB", () => {
     const dir = stateDir();
     const machine = MachineVault.open(dir);
-    const empty = `${JSON.stringify({ c: "big", r: [""] })}\n`;
-    appendFileSync(
-      join(dir, "vault.jsonl"),
-      `${JSON.stringify({ c: "big", r: ["x".repeat(32 * 1024 * 1024 - empty.length - 10)] })}\n`,
-    );
-    expect(() => machine.recordCall("next", ["s3cretValue-0004"])).toThrow(
-      expect.objectContaining({ code: "VAULT_FULL" }),
-    );
-    expect(statSync(join(dir, "vault.jsonl")).size).toBe(32 * 1024 * 1024 - 10);
+    machine.recordCall("big", ["x".repeat(20 * 1024 * 1024)]);
+    const size = statSync(join(dir, "vault.jsonl")).size;
+    expect(() =>
+      machine.recordCall("next", ["x".repeat(5 * 1024 * 1024)]),
+    ).toThrow(expect.objectContaining({ code: "VAULT_FULL" }));
+    expect(statSync(join(dir, "vault.jsonl")).size).toBe(size);
   });
 
   it("creates the key whole or not at all, so a failed write does not block the next open", () => {
