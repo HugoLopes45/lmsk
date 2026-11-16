@@ -44,7 +44,7 @@
     }
   },
   "bin": {
-    "lmsk": "./dist/cli/bin.js"
+    "lmsk": "dist/cli/bin.js"
   },
   "pi": {
     "extensions": [
