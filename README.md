@@ -9,9 +9,9 @@
 
 ## Real keys for your agent. Fakes for the model.
 
-`lmsk` replaces detected API keys, passwords, tokens and emails with fakes before your AI coding agent sends a request to the model. Only the request changes: you read the real values in replies, and supported file and shell tools get the original values back. Keep useful context in your coding workflow, with masking handled on your computer.
+`lmsk` replaces detected API keys, passwords, tokens and emails with fakes before your AI coding agent sends a request to the model. Only the request changes: you read the real values in replies, except in the cases listed in [Limits](#limits), and supported file and shell tools get the original values back. Keep useful context in your coding workflow, with masking handled on your computer.
 
-[Website](https://hugolopes45.github.io/lmsk/) &nbsp;·&nbsp; [Install](#install) &nbsp;·&nbsp; [Agents](#agents) &nbsp;·&nbsp; [FAQ](#faq) &nbsp;·&nbsp; [Good to know](#good-to-know)
+[Website](https://hugolopes45.github.io/lmsk/) &nbsp;·&nbsp; [Install](#install) &nbsp;·&nbsp; [Agents](#agents) &nbsp;·&nbsp; [FAQ](#faq) &nbsp;·&nbsp; [Limits](#limits)
 
 [![CI](https://github.com/HugoLopes45/lmsk/actions/workflows/ci.yml/badge.svg)](https://github.com/HugoLopes45/lmsk/actions/workflows/ci.yml)
 ![Agents](https://img.shields.io/badge/agents-Claude%20Code%20%7C%20pi-6d28d9)
@@ -31,7 +31,7 @@ npm install -g @hugolopes45/lmsk
 lmsk install claude
 ```
 
-Requires macOS or Linux, Node.js 22.19+ and Claude Code 2.1.295+. Restart your Claude Code sessions, then use `claude` as usual. Setup and compatibility: [Claude Code guide](docs/claude-code.md).
+Requires macOS or Linux, Node.js 22.19+ and Claude Code 2.1.295+. Run the command in a terminal: it asks for a yes before it changes your setup. Restart your Claude Code sessions, then use `claude` as usual. Run `lmsk install claude` again after each update of lmsk. Setup and compatibility: [Claude Code guide](docs/claude-code.md).
 
 **pi**
 
@@ -62,7 +62,8 @@ The [user guide](docs/GUIDE.md) shows how to tailor masking to your project.
 
 1. **Run locally.** lmsk works as a local proxy service in front of Claude Code, or as an extension inside pi.
 2. **Mask detected values.** Built-in rules scan request text and replace matching values with fakes. A local vault keeps the mapping.
-3. **Restore values for you and your tools.** lmsk puts the original values back into the replies that you read. When a supported tool call uses an exact fake, lmsk restores its original value before execution. See [tool behavior and compatibility](docs/GUIDE.md#what-lmsk-does-not-protect).
+3. **Restore values for you and your tools.** lmsk puts the original values back into the replies that you read, except in the cases listed in [Limits](#limits). When a supported tool call uses an exact fake, lmsk restores its original value before execution. See [tool behavior and compatibility](docs/GUIDE.md#what-lmsk-does-not-protect).
+4. **Block secret files.** Supported file, search and shell tools refuse protected paths, such as `.env`, SSH keys, the lmsk vault folder and the Claude Code settings. See [Limits](#limits).
 
 ## See the transformation
 
@@ -107,7 +108,7 @@ You can add your own rules, for example to turn `Falcon Industries` into `Client
 
 ### A local vault
 
-The mapping stays in one encrypted local vault for each session, in `~/.local/state/lmsk/session-vaults/`, with owner-only file permissions. Its key is in the same folder, so a copy of the whole folder can be decrypted. lmsk deletes it when the session ends. A vault that no session used for one hour is deleted about one minute later, or at the next request or session start. lmsk does not upload it. A conversation that holds a tool call of an ended vault is refused with `VAULT_ENDED`. See [vault storage and backup guidance](docs/GUIDE.md#what-lmsk-does-not-protect).
+The mapping stays in one encrypted local vault for each session, in `~/.local/state/lmsk/session-vaults/`, with owner-only file permissions. Its key is in the same folder, so a copy of the whole folder can be decrypted. lmsk deletes it when the session ends. A vault that no session used for one hour is deleted about one minute later, or at the next request or session start. lmsk does not upload it. A conversation that holds a tool call of an ended vault is refused with `VAULT_ENDED`: go back before the call or start a new session, as [Troubleshooting](docs/TROUBLESHOOTING.md) explains. See [vault storage and backup guidance](docs/GUIDE.md#what-lmsk-does-not-protect).
 
 ### Try it with a sample key
 
@@ -128,7 +129,7 @@ Claude Code and pi. [Install](#install) has a separate setup path for each agent
 lmsk restores exact fakes in supported file and shell tool calls. For commands that access the network, supply credentials through the environment. See [tool behavior and compatibility](docs/GUIDE.md#what-lmsk-does-not-protect).
 
 **Do I see fakes in replies?**
-No. lmsk puts the real values back into the replies that you read. Thinking text and some short or glued values keep their fakes. See the [Claude Code guide](docs/claude-code.md#use-it-every-day) and the [pi guide](docs/pi.md#use-it-every-day).
+No. lmsk puts the real values back into the replies that you read. Thinking text, some short or glued values and, with Claude Code, a reply that is not streamed keep their fakes. See the [Claude Code guide](docs/claude-code.md#use-it-every-day) and the [pi guide](docs/pi.md#use-it-every-day).
 
 **Can I add client names and custom values?**
 Yes. Add a rule for the value you want to mask, including names, addresses and project-specific secrets. See [Add your own secrets](docs/GUIDE.md#add-your-own-secrets).
@@ -139,17 +140,22 @@ gitleaks scans files and commits. lmsk uses its detection rules, alongside addit
 **Is it free?**
 Yes. lmsk is open source under the MIT license. No account or telemetry.
 
-## Good to know
+## Limits
 
-Start with the built-in rules, then add project-specific values. The [coverage, tool compatibility and storage guide](docs/GUIDE.md#what-lmsk-does-not-protect) explains how to choose the right setup. Agent-specific behavior is documented in the [Claude Code guide](docs/claude-code.md) and [pi guide](docs/pi.md).
+lmsk masks what it detects. It is not a sandbox. Read these limits before you use it with real data:
+
+- A secret with no known format and no key name is not found, such as `summer2024` alone. Add a rule for it.
+- A shell command that names a network program, such as `curl` or `git push`, gets fakes. Give such a command its credentials through the environment.
+- Most fakes have the same length and form as their real value.
+- Thinking text, some short or glued values and, with Claude Code, a reply that is not streamed keep their fakes.
+- Images, PDF data and signed data go to the provider unchanged.
+- A script that opens a protected file itself can read it.
+
+The full list is in [What lmsk does not protect](docs/GUIDE.md#what-lmsk-does-not-protect). Each agent has more limits: see the [Claude Code guide](docs/claude-code.md#limits-that-are-specific-to-claude-code) and the [pi guide](docs/pi.md#limits-that-are-specific-to-pi).
 
 ## Privacy
 
 `lmsk` uses no model. It has no account and no telemetry. An extension inside the agent makes no network connections. The local proxy connects only to the provider address of the agent.
-
-## Start now
-
-[Choose your agent](#install), install lmsk, then try the sample key above.
 
 ## Use it in your own agent
 
