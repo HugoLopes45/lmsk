@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.0
+
 - Breaking: each session has its own vault, in `session-vaults/` in the state folder, in place of the one vault for each computer. A value gets other fakes in another session. lmsk deletes the vault when the session ends: in pi at quit, `/new`, `/resume` and `/fork`, but not `/reload`; in Claude Code through a new `SessionEnd` hook. A vault that no session used for one hour is deleted about one minute later, or at the next request or session start. A session that you open again after its end keeps its old fakes. Run `lmsk install claude` again to add the hook.
 - Breaking: a request whose conversation holds a tool call that the vault of the session did not restore, such as a call of an ended vault, is refused with `VAULT_ENDED`. lmsk no longer knows the real values that such a call got back, so it cannot mask them. Start a new session, or in pi go back before the calls with `/tree`.
 - Claude Code: the hooks get the state folder of the install as their last argument, so the `SessionEnd` hook deletes the vault also when Claude Code runs with another `XDG_STATE_HOME`. `lmsk install claude` sets `CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1`: the proxy puts real values back only in streamed replies. Run `lmsk install claude` again.
