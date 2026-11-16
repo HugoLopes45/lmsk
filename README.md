@@ -31,7 +31,7 @@ npm install -g @hugolopes45/lmsk
 lmsk install claude
 ```
 
-Requires macOS or Linux, Node.js 22.19+ and Claude Code 2.1.295+. Run the command in a terminal: it asks for a yes before it changes your setup. Restart your Claude Code sessions, then use `claude` as usual. Run `lmsk install claude` again after each update of lmsk. Setup and compatibility: [Claude Code guide](docs/claude-code.md).
+Requires macOS or Linux, Node.js 22.19+ and Claude Code 2.1.295+. Run the command in a terminal: it asks for a yes before the first install, a new gateway address or a new service file. Restart your Claude Code sessions, then use `claude` as usual. Run `lmsk install claude` again after each update of lmsk. Setup and compatibility: [Claude Code guide](docs/claude-code.md).
 
 **pi**
 
@@ -129,7 +129,7 @@ Claude Code and pi. [Install](#install) has a separate setup path for each agent
 lmsk restores exact fakes in supported file and shell tool calls. For commands that access the network, supply credentials through the environment. See [tool behavior and compatibility](docs/GUIDE.md#what-lmsk-does-not-protect).
 
 **Do I see fakes in replies?**
-No. lmsk puts the real values back into the replies that you read. Thinking text, some short or glued values and, with Claude Code, a reply that is not streamed keep their fakes. See the [Claude Code guide](docs/claude-code.md#use-it-every-day) and the [pi guide](docs/pi.md#use-it-every-day).
+Rarely. lmsk puts the real values back into the replies that you read. Thinking text, some short or glued values and, with Claude Code, a reply that is not streamed keep their fakes. See the [Claude Code guide](docs/claude-code.md#use-it-every-day) and the [pi guide](docs/pi.md#use-it-every-day).
 
 **Can I add client names and custom values?**
 Yes. Add a rule for the value you want to mask, including names, addresses and project-specific secrets. See [Add your own secrets](docs/GUIDE.md#add-your-own-secrets).
