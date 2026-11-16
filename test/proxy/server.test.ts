@@ -1,5 +1,12 @@
 import { execFile } from "node:child_process";
-import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { promisify } from "node:util";
 import {
   createServer,
@@ -12,9 +19,10 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { brotliCompressSync, gzipSync, zstdCompressSync } from "node:zlib";
-import { anthropicStream } from "../../src/formats/index.ts";
+import { sessionDir } from "../../src/core/machine-vault.ts";
+import { anthropicCallIds, anthropicStream } from "../../src/formats/index.ts";
 import { claudeProfile } from "../../src/claude-code/profile.ts";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type ProxyProfile,
   type RunningProxy,
@@ -33,6 +41,7 @@ interface Received {
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
   await Promise.all(closers.splice(0).map((close) => close()));
+  vi.useRealTimers();
 });
 
 /** A loopback upstream that records each request and replies with `reply`. */
@@ -73,9 +82,10 @@ function profile(upstreamUrl: string): ProxyProfile {
     protectedPaths: [],
     format: { opaque: () => false },
     upstream: upstreamUrl,
-    keptHeaders: ["x-session-id"],
+    sessionHeader: "x-session-id",
     cwd: "/work",
     codec: anthropicStream,
+    callIds: anthropicCallIds,
     commandKey: (tool) => (tool === "Bash" ? "command" : undefined),
     pathOf: (_tool, input) =>
       typeof input.file_path === "string" ? input.file_path : undefined,
@@ -146,7 +156,11 @@ function post(
 ): Promise<Response> {
   return fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json", ...headers },
+    headers: {
+      "content-type": "application/json",
+      "x-session-id": "s1",
+      ...headers,
+    },
     body: typeof body === "string" ? body : new Uint8Array(body),
   });
 }
@@ -253,7 +267,7 @@ describe("startProxy", () => {
     });
   });
 
-  it("masks the header values with the body's fakes, and forwards the credential and kept headers unchanged", async () => {
+  it("masks the header values with the body's fakes, and forwards the credential and session headers unchanged", async () => {
     const up = await upstream();
     const { url } = await proxy(up.url);
 
@@ -329,7 +343,9 @@ describe("startProxy", () => {
     const up = await upstream('{"models":[]}');
     const { url } = await proxy(up.url);
 
-    const res = await fetch(`${url}/v1/models`);
+    const res = await fetch(`${url}/v1/models`, {
+      headers: { "x-session-id": "s1" },
+    });
 
     expect(await res.text()).toBe('{"models":[]}');
     expect(up.received).toMatchObject([{ method: "GET", url: "/v1/models" }]);
@@ -345,6 +361,24 @@ describe("startProxy", () => {
     expect(res.status).toBe(403);
     expect(up.received).toEqual([]);
   });
+
+  it.each([[{}], [{ "x-session-id": "" }]])(
+    "refuses a request with session headers %j and forwards nothing",
+    async (headers) => {
+      const up = await upstream();
+      const { url } = await proxy(up.url);
+
+      const res = await fetch(`${url}/v1/messages`, {
+        method: "POST",
+        headers,
+        body: payload,
+      });
+
+      expect(res.status).toBe(400);
+      expect(await res.text()).toBe("lmsk: SESSION_ID_MISSING");
+      expect(up.received).toEqual([]);
+    },
+  );
 
   it("masks a request once a failed config is fixed, without a restart", async () => {
     const up = await upstream();
@@ -512,6 +546,7 @@ describe("startProxy", () => {
       const reply = await post(
         `${running.url}/v1/messages`,
         JSON.stringify({ messages: [{ role: "user", content: SECRET }] }),
+        { "x-claude-code-session-id": "s1" },
       );
 
       expect(streamedInput(await reply.text())).toEqual({
@@ -572,6 +607,67 @@ describe("startProxy", () => {
       expect(JSON.parse(body).messages[1].content[0].input).toEqual({
         command: `echo ${fake}`,
       });
+  });
+
+  it("refuses a history with a tool call that the vault of the session did not restore, as after the vault ended", async () => {
+    const up = await upstream();
+    const { url } = await proxy(up.url);
+
+    const res = await post(
+      `${url}/v1/messages`,
+      history({ command: "echo hi" }, "hi\n"),
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.text()).toBe("lmsk: VAULT_ENDED");
+    expect(up.received).toHaveLength(0);
+  });
+
+  it("accepts the history of a streamed tool call with empty arguments, as a tool without input gets", async () => {
+    const up = await upstream(
+      toolUseStream("t1", "Bash", {}).replaceAll(
+        /"partial_json":"[{}]"/g,
+        '"partial_json":""',
+      ),
+      "text/event-stream",
+    );
+    const { url } = await proxy(up.url);
+
+    await (await post(`${url}/v1/messages`, payload)).text();
+    const next = await post(`${url}/v1/messages`, history({}, "ok\n"));
+
+    expect(next.status).toBe(200);
+  });
+
+  it("leaves the fakes in a tool call of a reply that is not a stream, and refuses the history that holds the call", async () => {
+    let call = "";
+    const up = await upstream((body) => {
+      const fake = JSON.parse(body).messages[0].content.slice("ticket ".length);
+      call = JSON.stringify({
+        content: [
+          {
+            type: "tool_use",
+            id: "t1",
+            name: "Bash",
+            input: { command: `echo ${fake}` },
+          },
+        ],
+      });
+      return call;
+    });
+    const { url } = await proxy(up.url);
+
+    const reply = await post(`${url}/v1/messages`, payload);
+    expect(await reply.text()).toBe(call);
+    const next = await post(
+      `${url}/v1/messages`,
+      history(JSON.parse(call).content[0].input, "ok\n"),
+    );
+
+    expect(call).not.toContain(SECRET);
+    expect(next.status).toBe(400);
+    expect(await next.text()).toBe("lmsk: VAULT_ENDED");
+    expect(up.received).toHaveLength(1);
   });
 
   it("withholds a tool result that holds a reversed or hex-encoded real, and keeps the others", async () => {
@@ -678,7 +774,7 @@ describe("startProxy", () => {
     expect(after).toMatch(/^lmsk: withheld/);
   });
 
-  it("gives every run on the machine the same fakes, so a resumed or forked session keeps its history", async () => {
+  it("gives a session the same fakes after a proxy restart, so it keeps its history", async () => {
     const up = await upstream();
     const paths = dirs();
     const first = await proxy(up.url, paths);
@@ -691,6 +787,77 @@ describe("startProxy", () => {
     const [run1, run2] = up.received.map((r) => r.body);
     expect(run1).not.toContain(SECRET);
     expect(run2).toBe(run1);
+  });
+
+  it("gives another session other fakes", async () => {
+    const up = await upstream();
+    const { url } = await proxy(up.url);
+
+    for (const session of ["s1", "s2"])
+      await post(`${url}/v1/messages`, payload, { "x-session-id": session });
+
+    const [first, second] = up.received.map((r) => r.body);
+    expect(second).not.toContain(SECRET);
+    expect(second).not.toBe(first);
+  });
+
+  it("deletes the vault of a session idle for an hour when another session sends a request", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const up = await upstream();
+    const paths = dirs();
+    const { url } = await proxy(up.url, paths);
+    const send = (session: string) =>
+      post(`${url}/v1/messages`, payload, { "x-session-id": session });
+    await send("s1");
+    // s2 opens within the hour of s1, so only the idle check of s1 can delete its vault.
+    vi.setSystemTime(Date.now() + 31 * 60 * 1000);
+    await send("s2");
+
+    // The vault lock touches the folder at the real time, a little after the fake one.
+    vi.setSystemTime(Date.now() + 30 * 60 * 1000);
+    await post(`${url}/v1/messages`, payload, { "x-session-id": "s2" });
+
+    expect(existsSync(sessionDir(paths.stateDir, "s1"))).toBe(false);
+  });
+
+  it("serves a session when the idle vault of another session cannot be deleted, and reports that vault", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const up = await upstream();
+    const paths = dirs();
+    const notices: string[] = [];
+    const { url } = await proxy(up.url, paths, (message) =>
+      notices.push(message),
+    );
+    for (const session of ["s1", "s2"])
+      await post(`${url}/v1/messages`, payload, { "x-session-id": session });
+    const stuck = sessionDir(paths.stateDir, "s1");
+    chmodSync(stuck, 0o500);
+
+    vi.setSystemTime(Date.now() + 61 * 60 * 1000);
+    const res = await post(`${url}/v1/messages`, payload, {
+      "x-session-id": "s2",
+    }).finally(() => chmodSync(stuck, 0o700));
+
+    expect(res.status).toBe(200);
+    expect(notices).not.toHaveLength(0);
+    for (const notice of notices)
+      expect(notice).toMatch(/an idle vault was not deleted: /);
+  });
+
+  it("keeps the vault of a session that another process used within the hour", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const up = await upstream();
+    const paths = dirs();
+    const { url } = await proxy(up.url, paths);
+    for (const session of ["s1", "s2"])
+      await post(`${url}/v1/messages`, payload, { "x-session-id": session });
+
+    vi.setSystemTime(Date.now() + 61 * 60 * 1000);
+    const now = new Date();
+    utimesSync(sessionDir(paths.stateDir, "s1"), now, now);
+    await post(`${url}/v1/messages`, payload, { "x-session-id": "s2" });
+
+    expect(existsSync(sessionDir(paths.stateDir, "s1"))).toBe(true);
   });
 
   it.each(["text/event-stream", "Text/Event-Stream; charset=utf-8"])(
@@ -752,7 +919,10 @@ describe("startProxy", () => {
     const paths = dirs();
     const up = await upstream((body) => {
       const fake = JSON.parse(body).messages[0].content.slice("ticket ".length);
-      appendFileSync(join(paths.stateDir, "vault.jsonl"), "{not json}\n");
+      appendFileSync(
+        join(sessionDir(paths.stateDir, "s1"), "vault.jsonl"),
+        "{not json}\n",
+      );
       return toolUseStream("t1", "Bash", { command: `echo ${fake}` });
     }, "text/event-stream");
     const notices: string[] = [];

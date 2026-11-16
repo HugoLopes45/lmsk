@@ -556,7 +556,25 @@ function projectProblems(
   return [...rules, ...removals, ...globalOnly];
 }
 
-/** The defaults that the host adds, so the global level can change them like any default. */
+/** Removals of the host's own files: the model could read the machine key or the vault through them. */
+function hostPathProblems(
+  host: HostDefaults,
+  levels: readonly RawConfig[],
+): string[] {
+  return levels.flatMap((level) =>
+    asList(level.protectedPaths ?? []).flatMap((item) =>
+      typeof item === "string" &&
+      item.startsWith("!") &&
+      host.protectedPaths.includes(item.slice(1))
+        ? [
+            `protectedPaths: config cannot remove ${item.slice(1)}, a file of the host.`,
+          ]
+        : [],
+    ),
+  );
+}
+
+/** The defaults that the host adds. The global level can change them like any default, except the host's protected paths. */
 export interface HostDefaults {
   /** Rules found at run time. */
   rules: readonly Rule[];
@@ -582,13 +600,16 @@ export function loadConfig(
       : [{ path: projectPath, ...readLevel(projectPath) }];
   const read = [...globals, ...projects];
   const found = read.filter((level) => level.text !== undefined);
+  const globalFiles = globals.flatMap((level) =>
+    level.level ? [level.level] : [],
+  );
   const globalLevels = [
     {
       rules: host.rules,
       protectedPaths: host.protectedPaths,
       restoredTools: host.tools,
     },
-    ...globals.flatMap((level) => (level.level ? [level.level] : [])),
+    ...globalFiles,
   ];
   const projectLevels = projects.flatMap((level) =>
     level.level ? [level.level] : [],
@@ -602,6 +623,7 @@ export function loadConfig(
     config: result.config,
     problems: [
       ...read.flatMap((level) => level.problem ?? []),
+      ...hostPathProblems(host, globalFiles),
       ...projectLevels.flatMap((level) => projectProblems(inherited, level)),
       ...result.problems,
     ],

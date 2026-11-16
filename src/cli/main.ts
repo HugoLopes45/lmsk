@@ -22,7 +22,7 @@ export interface Io {
 const USAGE = `Usage:
   lmsk install claude     Start the masking proxy at login and point Claude Code at it.
   lmsk serve              Run the masking proxy that Claude Code uses, until a signal ends it.
-  lmsk hook claude        Run the PreToolUse hook on the hook input in stdin.
+  lmsk hook claude [dir]  Run the PreToolUse or SessionEnd hook on the hook input in stdin; dir is the state folder.
 `;
 
 /** Runs the command in `args` and returns the process exit code. */
@@ -52,7 +52,7 @@ export async function main(args: readonly string[], io: Io): Promise<number> {
       return 1;
     }
   }
-  if (command === "hook" && rest[0] === "claude") return runHook(io);
+  if (command === "hook" && rest[0] === "claude") return runHook(io, rest[1]);
   if (command === "--help" || command === "-h") {
     io.stdout.write(USAGE);
     return 0;
@@ -84,9 +84,12 @@ export async function confirm(
 }
 
 /** Exit code 2 is the only failure that makes Claude Code block the call; any other lets the tool run. */
-async function runHook(io: Io): Promise<number> {
+async function runHook(io: Io, stateDir?: string): Promise<number> {
   try {
-    const output = claudeHook(JSON.parse(await text(io.stdin)), io);
+    const output = claudeHook(JSON.parse(await text(io.stdin)), {
+      ...io,
+      stateDir,
+    });
     if (output !== undefined) io.stdout.write(output);
     return 0;
   } catch (error) {

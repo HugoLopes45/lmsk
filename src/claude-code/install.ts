@@ -7,7 +7,7 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import {
   CodedError,
   isRecord,
@@ -83,7 +83,7 @@ function isLmskHook(hook: unknown): boolean {
   return (
     isRecord(hook) &&
     Array.isArray(hook.args) &&
-    hook.args.length === 3 &&
+    (hook.args.length === 3 || hook.args.length === 4) &&
     hook.args[1] === "hook" &&
     hook.args[2] === "claude"
   );
@@ -105,22 +105,22 @@ function installedSettings(
   settings: Record<string, unknown>,
   url: string,
   deny: readonly string[],
+  stateDir: string,
   { node, bin, env }: InstallOptions,
 ): Record<string, unknown> {
   const own = record(settings.env, "env");
   const permissions = record(settings.permissions, "permissions");
   const hooks = record(settings.hooks, "hooks");
   const effective = { ...env, ...own };
+  const command = {
+    type: "command",
+    command: node,
+    // Hooks get the environment of Claude Code, whose XDG_STATE_HOME can differ from the proxy service's.
+    args: [bin, "hook", "claude", stateDir],
+  };
   const hook = {
     matcher: TOOLS.join("|"),
-    hooks: [
-      {
-        type: "command",
-        command: node,
-        args: [bin, "hook", "claude"],
-        onFailure: "block",
-      },
-    ],
+    hooks: [{ ...command, onFailure: "block" }],
   };
   return {
     ...settings,
@@ -128,6 +128,8 @@ function installedSettings(
       ...own,
       ANTHROPIC_BASE_URL: url,
       CLAUDE_CODE_MAX_RETRIES: own.CLAUDE_CODE_MAX_RETRIES ?? MAX_RETRIES,
+      // The proxy restores and saves the tool calls of a stream only: a later request with an unsaved call is refused.
+      CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK: "1",
       NO_PROXY: loopbackExempt(effective.NO_PROXY || effective.no_proxy),
       no_proxy: loopbackExempt(effective.no_proxy || effective.NO_PROXY),
       CLAUDE_CODE_USE_BEDROCK: "",
@@ -147,6 +149,10 @@ function installedSettings(
       PreToolUse: [
         ...list(hooks.PreToolUse, "hooks.PreToolUse").flatMap(withoutLmskHook),
         hook,
+      ],
+      SessionEnd: [
+        ...list(hooks.SessionEnd, "hooks.SessionEnd").flatMap(withoutLmskHook),
+        { hooks: [command] },
       ],
     },
   };
@@ -275,6 +281,12 @@ async function install(options: InstallOptions): Promise<void> {
       "PLATFORM_UNSUPPORTED",
       "lmsk runs on macOS and Linux",
     );
+  // Claude Code would read the settings of each session folder, and send past the proxy.
+  if (env.CLAUDE_CONFIG_DIR && !isAbsolute(env.CLAUDE_CONFIG_DIR))
+    throw new CodedError(
+      "CLAUDE_CONFIG_DIR_INVALID",
+      "CLAUDE_CONFIG_DIR must be an absolute path",
+    );
   const file = join(
     env.CLAUDE_CONFIG_DIR || join(home, ".claude"),
     "settings.json",
@@ -291,12 +303,12 @@ async function install(options: InstallOptions): Promise<void> {
       !value.startsWith(`http://127.0.0.1:${SERVE_PORT}/`),
   );
   const argv = [node, bin, "serve"];
-  const vars = (["XDG_CONFIG_HOME", "XDG_STATE_HOME"] as const).flatMap(
-    (name): [string, string][] => {
-      const value = env[name];
-      return value ? [[name, value]] : [];
-    },
-  );
+  const vars = (
+    ["XDG_CONFIG_HOME", "XDG_STATE_HOME", "CLAUDE_CONFIG_DIR"] as const
+  ).flatMap((name): [string, string][] => {
+    const value = env[name];
+    return value ? [[name, value]] : [];
+  });
   const service =
     platform === "darwin"
       ? launchdService(
@@ -317,7 +329,7 @@ async function install(options: InstallOptions): Promise<void> {
     const path = `/${pattern.startsWith("/") ? "" : "/"}${pattern}`;
     return [`Read(${path})`, `Edit(${path})`];
   });
-  const next = installedSettings(settings, url, deny, options);
+  const next = installedSettings(settings, url, deny, paths.stateDir, options);
   if (gateway !== undefined) saveUpstream(paths.stateDir, gateway);
   mkdirSync(dirname(service.path), { recursive: true });
   writeFileSync(service.path, service.text);

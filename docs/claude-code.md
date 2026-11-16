@@ -30,7 +30,7 @@ You start Claude Code with `claude`, as usual.
 5. Make sure that the last line is `lmsk: Claude Code now sends its requests through the proxy. Restart the Claude Code sessions that run.`
 6. Close each Claude Code session that runs, then start it again.
 
-`lmsk install claude` saves the gateway address of step 3. The proxy then sends the requests to your gateway, not to Anthropic. To stop using the gateway, remove `ANTHROPIC_BASE_URL` from your shell, delete the file `upstream` in the [vault folder](#what-lmsk-install-claude-changes), then run `lmsk install claude`.
+`lmsk install claude` saves the gateway address of step 3. The proxy then sends the requests to your gateway, not to Anthropic. To stop using the gateway, remove `ANTHROPIC_BASE_URL` from your shell, delete the file `upstream` in the [state folder](#what-lmsk-install-claude-changes), then run `lmsk install claude`.
 
 `lmsk install claude` asks you to answer yes before it saves a new or different gateway address, or writes the service file with new text. The first install asks too. The question needs a terminal. Without a terminal, the command stops with `INSTALL_NOT_CONFIRMED` and changes nothing.
 
@@ -97,14 +97,16 @@ To write your first rules, read [Add your own secrets](GUIDE.md#add-your-own-sec
 `lmsk install claude` writes these files:
 
 - **Your user settings**, `~/.claude/settings.json`, or `settings.json` in `CLAUDE_CONFIG_DIR` if you set it. Other keys do not change.
-  - `env.ANTHROPIC_BASE_URL` gets the proxy address: `http://127.0.0.1:25675/` and a private token.
+  - `env.ANTHROPIC_BASE_URL` gets the proxy address: `http://127.0.0.1:25675/` and a private token. If other users can read or change the file when the proxy starts, the proxy removes their access and tells you in its log.
   - `env.CLAUDE_CODE_MAX_RETRIES` gets `3` if your user settings do not set it, so that a proxy error shows sooner.
+  - `env.CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK` gets `1`. The proxy puts real values back only in streamed replies. After a failed stream, Claude Code would otherwise ask again without a stream, and the next request that holds the tool call of that reply would stop with `VAULT_ENDED`.
   - `env.NO_PROXY` and `env.no_proxy` get `127.0.0.1` added to their value, so that your HTTP proxy does not get the requests to `lmsk`.
   - `env.CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY`, `CLAUDE_CODE_USE_MANTLE` and `CLAUDE_CODE_USE_ANTHROPIC_AWS` get an empty value. This turns off the other providers, because the proxy cannot mask their requests.
   - `permissions.deny` gets one `Read` rule and one `Edit` rule for each protected path.
   - `hooks.PreToolUse` gets the hook of `lmsk`. It replaces a hook of an earlier `lmsk install claude`.
+  - `hooks.SessionEnd` gets the hook of `lmsk` that deletes the vault of a session when the session ends. It replaces a hook of an earlier `lmsk install claude`. Both hooks get the state folder of the install as their last argument: hooks run with the environment of Claude Code, whose `XDG_STATE_HOME` can differ from the one of the proxy.
 - **The service file.** On macOS, it is `~/Library/LaunchAgents/io.github.hugolopes45.lmsk.plist`. On Linux, it is `~/.config/systemd/user/lmsk.service`.
-- **The vault folder**, `~/.local/state/lmsk/`, or `lmsk/` in `XDG_STATE_HOME` if it was set. It gets `serve-token`, the private token of the proxy, and `upstream`, the address of your gateway.
+- **The state folder**, `~/.local/state/lmsk/`, or `lmsk/` in `XDG_STATE_HOME` if it was set. It gets `serve-token`, the private token of the proxy, and `upstream`, the address of your gateway.
 
 ### Settings that send requests past the proxy
 
@@ -140,10 +142,10 @@ The hook reads a shell command as a word list, not with a parser. It reads the w
 
 The limits that apply to each agent are in [What lmsk does not protect](GUIDE.md#what-lmsk-does-not-protect).
 
-- **There is no `/lmsk` command.** You cannot see the status, reveal a fake or stop masking from Claude Code. On macOS, the service writes its messages to `serve.log` in the vault folder. On Linux, run `journalctl --user -u lmsk.service`.
+- **There is no `/lmsk` command.** You cannot see the status, reveal a fake or stop masking from Claude Code. On macOS, the service writes its messages to `serve.log` in the state folder. On Linux, run `journalctl --user -u lmsk.service`.
 - **Thinking text keeps its fakes.** Anthropic rejects a changed thinking block. So the proxy gives thinking back as it came.
 - **A value can keep its fake in a reply.** The proxy puts back a value of 8 characters or more, and each value of a `literal` or `env` rule. It does not put back a value that the model glues to a letter, a digit or `_`. A later request cannot always mask a glued value.
-- **A reply that is not streamed keeps its fakes.** The proxy puts back real values only in streamed replies.
+- **A reply that is not streamed keeps its fakes.** The proxy puts back real values only in streamed replies, and does not check the tool calls of such a reply against the protected paths. The `PreToolUse` hook still checks them. The next request that holds such a tool call is refused with `VAULT_ENDED`.
 - **An `env` rule does not see your terminal.** See [Your configuration file](#your-configuration-file).
 - **A hidden copy can reach Anthropic before `lmsk` learns the secret.** The proxy withholds a text that holds a known secret spaced out, wrapped, reversed or encoded. The requests before `lmsk` learned the secret already sent the text.
 - **Do not use lmsk for Claude Code on a computer that other people log in to.** The proxy uses the fixed port 25675. When the proxy does not run, another user can open this port. Then that user gets your requests, with real values and your API key.
@@ -152,7 +154,7 @@ The limits that apply to each agent are in [What lmsk does not protect](GUIDE.md
 - **A header that hides a secret can make Anthropic refuse the request.** The proxy sends the withheld text in place of such a header value.
 - **Tools that run at Anthropic see fakes.** A web search that Anthropic runs uses the masked text.
 - **Telemetry goes past the proxy.** Claude Code sends its telemetry to Anthropic directly, not through the proxy. If you turn on OpenTelemetry content export, such as `OTEL_LOG_USER_PROMPTS`, it can send real values.
-- **The vault is in `~/.local/state/lmsk/`.** If `XDG_STATE_HOME` was set when you ran `lmsk install claude`, it is in `lmsk/` in that folder. pi uses the same vault. It is not encrypted. Exclude it from cloud backups.
+- **Each session has its own vault**, in `session-vaults/` in the state folder. The proxy finds the session from the `X-Claude-Code-Session-Id` header that Claude Code sends, and refuses a request without it with `SESSION_ID_MISSING`. The `SessionEnd` hook deletes the vault when the session ends. A vault that no session used for one hour is deleted about one minute later, or at the next request. A session that you resume after it ended gets a new vault, so its old fakes stay fakes. If its conversation holds a tool call of the ended vault, the proxy refuses the request with `VAULT_ENDED`: type `/rewind`, choose a point before the tool calls and `Restore conversation`, or start a new session. Exclude the state folder from cloud backups.
 
 ## Uninstall
 
@@ -173,8 +175,8 @@ The limits that apply to each agent are in [What lmsk does not protect](GUIDE.md
    systemctl --user daemon-reload
    ```
 
-2. Open `~/.claude/settings.json` and remove the keys that `lmsk install claude` added. See [What lmsk install claude changes](#what-lmsk-install-claude-changes). The hook is the `PreToolUse` group whose `args` end with `hook` and `claude`.
-3. If you use a gateway, set `ANTHROPIC_BASE_URL` again to the address in the file `upstream` in the vault folder.
+2. Open `~/.claude/settings.json` and remove the keys that `lmsk install claude` added. See [What lmsk install claude changes](#what-lmsk-install-claude-changes). The hooks are the `PreToolUse` and `SessionEnd` groups whose `args` hold `hook` and `claude`.
+3. If you use a gateway, set `ANTHROPIC_BASE_URL` again to the address in the file `upstream` in the state folder.
 4. Run `npm uninstall -g @hugolopes45/lmsk`.
-5. If you do not use lmsk with pi, delete the vault folder. It holds the real values next to their fakes. If you do not need your rules, delete the folder of [your configuration file](#your-configuration-file) too.
+5. If you do not use lmsk with pi, delete the state folder. It holds the vaults of the sessions that did not end. If you do not need your rules, delete the folder of [your configuration file](#your-configuration-file) too.
 6. Close each Claude Code session that runs, then start it again.

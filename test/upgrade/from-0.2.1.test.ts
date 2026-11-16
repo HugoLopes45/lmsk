@@ -1,9 +1,12 @@
 import {
   chmodSync,
   cpSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  utimesSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -75,6 +78,7 @@ function openGuard(
       configPaths,
       projectConfigPath: undefined,
       stateDir: copy.stateDir,
+      sessionId: "s1",
       env: {},
       defaultRules: [],
     }),
@@ -149,6 +153,22 @@ describe("upgrade from 0.2.1", () => {
     for (const real of REALS) expect(masked).not.toContain(real);
     expect(guard.restoreText(masked)).toBe(SAMPLE);
     expect(storeFiles(copy)).toEqual(before);
+  });
+
+  it("leaves an old 0.2.1 session file unchanged, and masks", async () => {
+    const copy = copyFixture();
+    const folder = join(copy.stateDir, "sessions");
+    const file = join(folder, "abc.calls.json");
+    mkdirSync(folder, { mode: 0o700 });
+    writeFileSync(file, "{}");
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    utimesSync(file, old, old);
+
+    const { guard, notices } = openGuard(copy);
+
+    expect(await guard.maskText(SAMPLE)).not.toContain(REALS[0]);
+    expect(notices).toEqual([]);
+    expect(readFileSync(file, "utf8")).toBe("{}");
   });
 
   it("restores a 0.2.1 fake unchanged, also after the sample is masked", async () => {

@@ -78,7 +78,7 @@ This example shows a tool result from `docker compose logs api --tail 3`. All va
 }
 ```
 
-Here is the masked version of that block. The surrounding log stays readable. Each computer makes its own fakes, and a value gets the same fake in each session on that computer:
+Here is the masked version of that block. The surrounding log stays readable. Each session makes its own fakes, and a value gets the same fake as long as the vault of the session lives:
 
 ```json
 {
@@ -107,7 +107,7 @@ You can add your own rules, for example to turn `Falcon Industries` into `Client
 
 ### A local vault
 
-The mapping stays in one local vault for each computer, `~/.local/state/lmsk/vault.jsonl`, with owner-only file permissions. lmsk does not upload it. See [vault storage and backup guidance](docs/GUIDE.md#what-lmsk-does-not-protect).
+The mapping stays in one encrypted local vault for each session, in `~/.local/state/lmsk/session-vaults/`, with owner-only file permissions. Its key is in the same folder, so a copy of the whole folder can be decrypted. lmsk deletes it when the session ends. A vault that no session used for one hour is deleted about one minute later, or at the next request or session start. lmsk does not upload it. A conversation that holds a tool call of an ended vault is refused with `VAULT_ENDED`. See [vault storage and backup guidance](docs/GUIDE.md#what-lmsk-does-not-protect).
 
 ### Try it with a sample key
 
@@ -170,6 +170,7 @@ guard.open(
     configPaths: [],
     projectConfigPath: undefined,
     stateDir: machinePaths(process.env, homedir()).stateDir,
+    sessionId: "conversation-1",
     env: process.env,
     defaultRules: localIdentityRules(),
   }),
@@ -179,10 +180,10 @@ const masked = await guard.maskText("API_KEY=Zq7Kp2Lm9Xw4Rt8Vb3Nc");
 console.log(masked);
 const restorer = guard.textRestorer();
 console.log(restorer.push(masked) + restorer.end());
-guard.close();
+guard.end();
 ```
 
-The vault in `stateDir` keeps the fakes, so a resumed conversation gets the same fakes.
+Give each conversation its own `sessionId`. `guard.end()` deletes the vault of the session. `guard.close()` keeps it, so a guard that opens the same `sessionId` again gets the same fakes. A vault that no guard used for one hour is deleted about one minute later while a guard is open, or at the next `open` or request. Pass the id of each tool call in the conversation as `callIds` to `guard.maskPayload` or `guard.maskTexts`: an id that the vault of the session did not restore is refused with `VAULT_ENDED`. `guard.maskText` does not check call ids.
 
 ## Documentation
 

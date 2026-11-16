@@ -12,6 +12,7 @@ export {
   Guard,
   type GuardHost,
   type HostContext,
+  IDLE_MS,
   type Redaction,
   type ToolCall,
 } from "./guard.ts";
@@ -37,6 +38,11 @@ export {
   Scanner,
 } from "./scanner.ts";
 export { Vault } from "./vault.ts";
-export { MachineVault } from "./machine-vault.ts";
+export {
+  deleteIdleVault,
+  deleteVault,
+  MachineVault,
+  sessionDir,
+} from "./machine-vault.ts";
 export { machinePaths, SERVICE_LABEL } from "./paths.ts";
 export { TextRestorer } from "./restorer.ts";

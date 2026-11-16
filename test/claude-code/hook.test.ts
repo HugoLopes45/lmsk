@@ -1,8 +1,13 @@
-import { mkdirSync, mkdtempSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { claudeHook } from "../../src/claude-code/index.ts";
+import {
+  machinePaths,
+  MachineVault,
+  sessionDir,
+} from "../../src/core/index.ts";
 
 describe("claudeHook", () => {
   const home = mkdtempSync(join(tmpdir(), "lmsk-claude-code-hook-"));
@@ -147,6 +152,26 @@ describe("claudeHook", () => {
     expect(
       output && JSON.parse(output).hookSpecificOutput.permissionDecision,
     ).toBe("deny");
+  });
+
+  it("deletes the vault of the session that ends, and keeps the others", () => {
+    const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "lmsk-end-")) };
+    const { stateDir } = machinePaths(env, home);
+    for (const id of ["s1", "s2"]) MachineVault.open(sessionDir(stateDir, id));
+
+    const output = claudeHook(
+      {
+        cwd: "/w",
+        hook_event_name: "SessionEnd",
+        session_id: "s1",
+        reason: "prompt_input_exit",
+      },
+      { env, home },
+    );
+
+    expect(output).toBeUndefined();
+    expect(existsSync(sessionDir(stateDir, "s1"))).toBe(false);
+    expect(existsSync(sessionDir(stateDir, "s2"))).toBe(true);
   });
 
   it("denies an edit of the settings in CLAUDE_CONFIG_DIR", () => {

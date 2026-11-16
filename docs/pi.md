@@ -106,7 +106,7 @@ The limits that apply to each agent are in [What lmsk does not protect](GUIDE.md
 - **`/lmsk off` stops most protection.** It stops the masking of requests, summaries and the text sent to model calls. The checks on tool calls and protected paths stay on, and fakes in tool calls still get their real values back.
 - **The session file holds real values.** Thinking text, and some short or glued values in replies and summaries, keep their fakes. Requests to the model provider mask them, but `/bug` does not. Its summary goes to the model provider, and its report can hold the session file.
 - **lmsk masks the model calls of other extensions only through the model registry.** These are the calls to `stream`, `streamSimple`, `complete`, `classify` and `generateImages` of `ctx.modelRegistry`. lmsk does not mask other calls, for example a provider stream from `getProvider()` or a network request of the extension. It also does not mask a call that an extension makes before the `session_start` handler of lmsk runs. The reply to a masked call keeps its fakes. If another extension also writes the compaction summary, pi keeps the summary of the extension that loads last.
-- **The vault is in `~/.local/state/lmsk/`**, or in `lmsk/` in `XDG_STATE_HOME` if you set it. Claude Code uses the same vault. It is not encrypted. Exclude it from cloud backups.
+- **Each session has its own vault**, in `~/.local/state/lmsk/session-vaults/`, or in `lmsk/session-vaults/` in `XDG_STATE_HOME` if you set it. lmsk deletes it when you quit pi, or when you leave the session with `/new`, `/resume` or `/fork`. `/reload` keeps it. A vault that no session used for one hour is deleted about one minute later, or at the next request or session start. A session that you open again gets a new vault, so its old fakes stay fakes. If its conversation holds a tool call of the ended vault, lmsk refuses the request with `VAULT_ENDED`: type `/tree` and go back to a point before the tool calls, or type `/new`. Exclude the state folder `~/.local/state/lmsk/` from cloud backups.
 
 ## Uninstall
 
@@ -117,6 +117,6 @@ The limits that apply to each agent are in [What lmsk does not protect](GUIDE.md
    ```
 
 2. Type `/reload` in pi, or start pi again.
-3. If you do not use `lmsk` with Claude Code, delete the vault folder `~/.local/state/lmsk/`. It holds the real values next to their fakes. If you do not need your rules, delete the configuration folder `~/.pi/agent/lmsk/` too.
+3. If you do not use `lmsk` with Claude Code, delete the state folder `~/.local/state/lmsk/`. It holds the vaults of the sessions that did not end. If you do not need your rules, delete the configuration folder `~/.pi/agent/lmsk/` too.
 
 Older versions of the extension kept their vaults in `~/.pi/agent/lmsk-vaults/`. This version does not use that folder. You can delete it. The session files that older versions saved keep their fakes.

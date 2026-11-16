@@ -47,10 +47,10 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - name: Install latest Pi
         if: matrix.pi == 'latest'
-        run: npm install --no-save --package-lock=false @earendil-works/pi-ai@latest @earendil-works/pi-coding-agent@latest
+        run: npm install --ignore-scripts --no-save --package-lock=false @earendil-works/pi-ai@latest @earendil-works/pi-coding-agent@latest
       - run: npm run check
       - name: Validate version change
         if: github.event_name == 'pull_request'

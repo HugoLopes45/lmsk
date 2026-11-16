@@ -8,12 +8,15 @@ import { isAbsolute } from "node:path";
 import { pipeline } from "node:stream/promises";
 import {
   CodedError,
+  deleteIdleVault,
   errorCode,
   Guard,
+  IDLE_MS,
   type GuardHost,
   type HostContext,
   isRecord,
   localIdentityRules,
+  sessionDir,
   type TextRestorer,
 } from "../core/index.ts";
 import { decodeJson, readBody } from "./body.ts";
@@ -36,13 +39,15 @@ export interface StreamCodec {
 export interface ProxyProfile extends GuardHost {
   /** The provider base URL. The request path after the token is appended to it. */
   upstream: string;
-  /** Headers that the proxy forwards unchanged besides the credentials, such as ids that the provider checks or that the agent makes per session. */
-  keptHeaders: readonly string[];
+  /** The header that names the agent session, which owns one vault. The proxy forwards it unchanged, as the provider checks it. */
+  sessionHeader: string;
   /** A codec for one response stream: `restore` gives the input that the agent gets for a tool call, `text` restores one text block. */
   codec(
     restore: (call: ToolInput) => Record<string, unknown>,
     text: () => TextRestorer,
   ): StreamCodec;
+  /** The ids of the tool calls in a request body: the calls that `codec` restores. */
+  callIds(payload: unknown): string[];
   /** The directory of the proxy process, for relative paths. The agents that the proxy serves run in other directories, so the deny hook, which gets the directory of each call, is the check that counts. */
   cwd: string;
   /** The input field that holds a shell command, for a shell tool. */
@@ -114,7 +119,7 @@ async function maskedHeaders(
 ): Promise<[string, string][]> {
   const entries = forwardedHeaders(headers);
   const kept = ([name]: [string, string]) =>
-    CREDENTIAL_HEADERS.has(name) || profile.keptHeaders.includes(name);
+    CREDENTIAL_HEADERS.has(name) || name === profile.sessionHeader;
   const credentials = entries.filter(kept);
   const others = entries.filter((entry) => !kept(entry));
   const masked = await guard.maskTexts(others.map(([, value]) => value));
@@ -139,20 +144,22 @@ function refuse(
   res.end(`lmsk: ${code}`);
 }
 
-/** Masks a request. A call id in the body makes the reals that its call got back masked everywhere. */
+/** Masks a request. A call id in the body makes the reals that its call got back masked everywhere. A call that the vault of the session did not restore refuses the request. */
 async function maskedRequest(
   req: IncomingMessage,
   guard: Guard,
   profile: ProxyProfile,
 ): Promise<MaskedRequest> {
   const raw = await readBody(req);
-  const body =
+  const payload =
     raw.length === 0
       ? undefined
+      : decodeJson(raw, req.headers["content-encoding"]);
+  const body =
+    payload === undefined
+      ? undefined
       : JSON.stringify(
-          await guard.maskPayload(
-            decodeJson(raw, req.headers["content-encoding"]),
-          ),
+          await guard.maskPayload(payload, profile.callIds(payload)),
         );
   return { headers: await maskedHeaders(req.headers, guard, profile), body };
 }
@@ -216,27 +223,54 @@ async function forward(
   else await pipeline(upstream.body, res);
 }
 
-/** Starts a loopback proxy that masks every request with one guard over the machine vault before it reaches `profile.upstream`. */
+/** Starts a loopback proxy that masks every request with the guard of its session before it reaches `profile.upstream`. */
 export async function startProxy(
   profile: ProxyProfile,
   options: ProxyOptions,
 ): Promise<RunningProxy> {
   const prefix = `/${options.token}/`;
-  const guard = new Guard(profile);
-  const openGuard = (notify: ProxyOptions["notify"]) =>
-    guard.open(
-      () => ({
-        configPaths: options.configPaths,
-        projectConfigPath: undefined,
-        stateDir: options.stateDir,
-        env: options.env,
-        defaultRules: localIdentityRules(),
-      }),
-      { ui: { notify }, abort: () => undefined },
-    );
-  openGuard(options.notify);
-  const restore = restorer(guard, profile);
-  const text = () => guard.textRestorer();
+  const guards = new Map<string, { guard: Guard; usedAt: number }>();
+  const guardOf = (sessionId: string): Guard => {
+    // The proxy outlives its sessions, so it frees the scanner of each idle one. Another process may still use the vault.
+    const since = Date.now() - IDLE_MS;
+    for (const [id, idle] of guards)
+      if (idle.usedAt < since) {
+        idle.guard.close();
+        guards.delete(id);
+        try {
+          deleteIdleVault(sessionDir(options.stateDir, id), since);
+        } catch (error) {
+          // The vault of another session does not block this request.
+          options.notify(
+            `lmsk: an idle vault was not deleted: ${errorCode(error)}.`,
+            "warning",
+          );
+        }
+      }
+    const guard = guards.get(sessionId)?.guard ?? new Guard(profile);
+    guards.set(sessionId, { guard, usedAt: Date.now() });
+    // A failed open is retried, so a fixed config masks the next request. The refusal carries the code of a block, so only warnings, such as an idle vault left on disk, pass.
+    if (guard.blocked)
+      guard.open(
+        () => ({
+          configPaths: options.configPaths,
+          projectConfigPath: undefined,
+          stateDir: options.stateDir,
+          sessionId,
+          env: options.env,
+          defaultRules: localIdentityRules(),
+        }),
+        {
+          ui: {
+            notify: (message, level) => {
+              if (level === "warning") options.notify(message, level);
+            },
+          },
+          abort: () => undefined,
+        },
+      );
+    return guard;
+  };
   // Requests without the token can come from any local process, so only the first one gets a notice.
   let forbiddenNoticed = false;
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
@@ -248,10 +282,15 @@ export async function startProxy(
       }
       return refuse(res, 403, "FORBIDDEN");
     }
-    // A failed open is retried, so a fixed config masks the next request. The retry sends no notice: the refusal carries the code.
-    if (guard.blocked) openGuard(() => undefined);
+    const sessionId = req.headers[profile.sessionHeader];
+    if (typeof sessionId !== "string" || sessionId === "") {
+      options.notify("lmsk: SESSION_ID_MISSING", "error");
+      return refuse(res, 400, "SESSION_ID_MISSING");
+    }
+    let guard: Guard;
     let masked: MaskedRequest;
     try {
+      guard = guardOf(sessionId);
       masked = await maskedRequest(req, guard, profile);
     } catch (error) {
       const code = errorCode(error);
@@ -259,33 +298,29 @@ export async function startProxy(
       return refuse(res, 400, code);
     }
     const url = `${profile.upstream.replace(/\/$/, "")}/${path.slice(prefix.length)}`;
-    await forward(req, res, url, masked, profile.codec(restore, text)).catch(
-      (error: unknown) => {
-        options.notify(`lmsk: a reply stopped: ${errorCode(error)}`, "error");
-        if (res.headersSent) res.destroy();
-        else refuse(res, 502, "UPSTREAM", true);
-      },
+    const codec = profile.codec(restorer(guard, profile), () =>
+      guard.textRestorer(),
     );
+    await forward(req, res, url, masked, codec).catch((error: unknown) => {
+      options.notify(`lmsk: a reply stopped: ${errorCode(error)}`, "error");
+      if (res.headersSent) res.destroy();
+      else refuse(res, 502, "UPSTREAM", true);
+    });
   };
   const server = createServer((req, res) => void handle(req, res));
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const onError = (error: unknown) =>
-        reject(
-          isRecord(error) && error.code === "EADDRINUSE"
-            ? new CodedError("PORT_TAKEN")
-            : error,
-        );
-      server.once("error", onError);
-      server.listen(options.port, "127.0.0.1", () => {
-        server.removeListener("error", onError);
-        resolve();
-      });
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: unknown) =>
+      reject(
+        isRecord(error) && error.code === "EADDRINUSE"
+          ? new CodedError("PORT_TAKEN")
+          : error,
+      );
+    server.once("error", onError);
+    server.listen(options.port, "127.0.0.1", () => {
+      server.removeListener("error", onError);
+      resolve();
     });
-  } catch (error) {
-    guard.close();
-    throw error;
-  }
+  });
   const address = server.address();
   if (address === null || typeof address === "string")
     throw new Error("proxy has no TCP address");
@@ -295,7 +330,7 @@ export async function startProxy(
       new Promise((resolve) => {
         server.closeAllConnections();
         server.close(() => {
-          guard.close();
+          for (const { guard } of guards.values()) guard.close();
           resolve();
         });
       }),

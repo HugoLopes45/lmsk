@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import fc from "fast-check";
 import { MachineVault, machinePaths } from "../../src/core/index.ts";
+import { sessionDir } from "../../src/core/machine-vault.ts";
 import {
   fakeProvider,
   harness,
@@ -146,10 +147,13 @@ async function integration(options: Partial<HarnessOptions> = {}) {
   return h;
 }
 
-/** The fake that the machine vault of the harness holds for a real value. */
-function learnedFake(real: string): string {
+/** The fake that the vault of the harness session holds for a real value. */
+function learnedFake(h: Harness, real: string): string {
   const { vault } = MachineVault.open(
-    machinePaths(process.env, homedir()).stateDir,
+    sessionDir(
+      machinePaths(process.env, homedir()).stateDir,
+      h.session.sessionId,
+    ),
   );
   const entry = vault.entries().find(([stored]) => stored === real);
   if (entry === undefined)
@@ -424,7 +428,7 @@ describe("supplied extension wire integration", () => {
     async () => {
       const h = await integration();
       await h.session.prompt(`Keep ${CANARY}`);
-      const fake = learnedFake(CANARY);
+      const fake = learnedFake(h, CANARY);
       h.provider.replies.push(
         {
           tool: "bash",
@@ -454,7 +458,7 @@ describe("supplied extension wire integration", () => {
     async () => {
       const h = await integration();
       await h.session.prompt(`Keep ${CANARY}`);
-      const fake = learnedFake(CANARY);
+      const fake = learnedFake(h, CANARY);
       h.provider.replies.push({
         tool: "write",
         args: { path: "written.txt", content: fake },
@@ -500,7 +504,7 @@ describe("supplied extension wire integration", () => {
       h.provider.replies.push({ tool: "read", args: { path: "source.txt" } });
       await h.session.prompt(`Keep ${USER_CANARY}`);
       h.provider.replies.push(
-        { text: `Assistant echoes ${learnedFake(USER_CANARY)}` },
+        { text: `Assistant echoes ${learnedFake(h, USER_CANARY)}` },
         { error: 503, message: `upstream rejected ${CANARY}` },
       );
       await h.session.prompt(`Echo ${USER_CANARY}`);
@@ -588,7 +592,7 @@ describe("supplied extension wire integration", () => {
       await h.session.prompt(`Remember ${path}`);
       h.provider.replies.push({
         tool: "read",
-        args: { path: learnedFake(path) },
+        args: { path: learnedFake(h, path) },
       });
       await h.session.prompt("Try the planned file read");
       expect(reads).toEqual([{ isError: true, durationMs: undefined }]);
@@ -721,7 +725,7 @@ describe("supplied extension wire integration", () => {
       const first = `5156 3777 8930 3107${code}`;
       const second = "4000 4000 0000 0000 002";
       await h.session.prompt(`card=${first} ${second}`);
-      const fakes = [learnedFake(first), learnedFake(second)];
+      const fakes = [learnedFake(h, first), learnedFake(h, second)];
       expect(h.sent().includes(`card=${fakes.join(" ")}`)).toBe(true);
       assertMasked(h, first);
       assertMasked(h, second);

@@ -1,6 +1,13 @@
-import { randomBytes } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  hkdfSync,
+  randomBytes,
+} from "node:crypto";
 import {
   closeSync,
+  existsSync,
   fstatSync,
   fsyncSync,
   ftruncateSync,
@@ -12,7 +19,9 @@ import {
   readdirSync,
   readSync,
   rmdirSync,
+  rmSync,
   unlinkSync,
+  utimesSync,
   writeSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -26,11 +35,14 @@ export type MachineVaultCode =
   | "STORE_CORRUPT"
   | "STORE_UNSAFE"
   | "STORE_BUSY"
-  | "STORE_IO";
+  | "STORE_IO"
+  | "VAULT_ENDED";
 
 export class MachineVaultError extends CodedError<MachineVaultCode> {}
 
 const KEY_BYTES = 32;
+const IV_BYTES = 12;
+const TAG_BYTES = 16;
 const DIR_MODE = 0o700;
 const FILE_MODE = 0o600;
 /** A writer holds the lock only while it renders one batch, so a longer wait means a stuck writer. */
@@ -151,6 +163,42 @@ function acquire(path: string): string {
   }
 }
 
+/** The fakes use the key too, so the journal gets its own key from it. */
+function lineKey(key: Buffer): Buffer {
+  return Buffer.from(
+    hkdfSync("sha256", key, Buffer.alloc(0), "lmsk vault line", KEY_BYTES),
+  );
+}
+
+function seal(key: Buffer, text: string): string {
+  const iv = randomBytes(IV_BYTES);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const body = Buffer.concat([cipher.update(text, "utf8"), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), body]).toString("base64");
+}
+
+function unseal(key: Buffer, line: string): string {
+  const bytes = Buffer.from(line, "base64");
+  try {
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      key,
+      bytes.subarray(0, IV_BYTES),
+      { authTagLength: TAG_BYTES },
+    );
+    decipher.setAuthTag(bytes.subarray(IV_BYTES, IV_BYTES + TAG_BYTES));
+    return Buffer.concat([
+      decipher.update(bytes.subarray(IV_BYTES + TAG_BYTES)),
+      decipher.final(),
+    ]).toString("utf8");
+  } catch {
+    throw new MachineVaultError(
+      "STORE_CORRUPT",
+      "a vault line does not decrypt with the key",
+    );
+  }
+}
+
 type Line =
   | { kind: "mapping"; entry: VaultEntry }
   | { kind: "call"; id: string; reals: string[] };
@@ -181,11 +229,78 @@ function parseLine(text: string): Line {
   );
 }
 
-/** The vault file of the machine: append-only lines that every process reads in order. */
+/** Not `sessions`: lmsk 0.2.1 keeps its session files there. */
+const sessionsDir = (stateDir: string) => join(stateDir, "session-vaults");
+
+/** The vault folder of a session. The id is hashed because the agent sets it, for example in a request header. */
+export function sessionDir(stateDir: string, sessionId: string): string {
+  return join(
+    sessionsDir(stateDir),
+    createHash("sha256").update(sessionId).digest("hex"),
+  );
+}
+
+/** Deletes the key first, so a journal that a failed delete leaves cannot be read. */
+export function deleteVault(dir: string): void {
+  io(() => {
+    rmSync(join(dir, "key"), { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  });
+}
+
+/** The shared vault of lmsk 0.3 holds reals in clear. The key goes first, as in `deleteVault`. */
+export function deleteSharedVault(stateDir: string): void {
+  io(() => {
+    for (const name of ["key", "vault.jsonl"])
+      rmSync(join(stateDir, name), { force: true });
+  });
+}
+
+/** Deletes the vault in `dir` when no process used it since `since`. */
+export function deleteIdleVault(dir: string, since: number): void {
+  // One call: another process can delete the vault between an exists check and the stat.
+  const stat = io(() => lstatSync(dir, { throwIfNoEntry: false }));
+  if (stat !== undefined && stat.mtimeMs < since) deleteVault(dir);
+}
+
+/** Deletes each session vault that no process used since `since`, such as the vault of a crashed agent. */
+export function deleteIdleVaults(stateDir: string, since: number): void {
+  const parent = sessionsDir(stateDir);
+  const names = io(() => {
+    mkdirSync(parent, { recursive: true, mode: DIR_MODE });
+    return readdirSync(parent);
+  });
+  // One vault that cannot be deleted must not keep the others, which hold keys and reals, on disk.
+  const errors: unknown[] = [];
+  for (const name of names)
+    try {
+      deleteIdleVault(join(parent, name), since);
+    } catch (error) {
+      errors.push(error);
+    }
+  if (errors.length > 0) throw errors[0];
+}
+
+const lockPathOf = (dir: string) => join(dir, "vault.lock");
+
+function withLock<T>(lockPath: string, write: () => T): T {
+  const owner = io(() => acquire(lockPath));
+  try {
+    return write();
+  } finally {
+    io(() => {
+      unlinkSync(owner);
+      rmdirSync(lockPath);
+    });
+  }
+}
+
+/** The vault file: append-only encrypted lines that every process reads in order. */
 class FileJournal implements Journal {
   private readonly path: string;
   private readonly lockPath: string;
   private readonly calls: Map<string, string[]>;
+  private readonly key: Buffer;
   /** The end of the last complete line read. */
   private offset = 0;
   /** How many bytes after `offset` the last read found. Under the lock, they are a line that a stopped write did not finish. */
@@ -193,24 +308,22 @@ class FileJournal implements Journal {
   /** No other process writes or cuts the file while this process holds the lock. */
   private holding = false;
 
-  constructor(dir: string, calls: Map<string, string[]>) {
+  constructor(dir: string, calls: Map<string, string[]>, key: Buffer) {
     this.path = join(dir, "vault.jsonl");
-    this.lockPath = join(dir, "vault.lock");
+    this.lockPath = lockPathOf(dir);
     this.calls = calls;
+    this.key = lineKey(key);
   }
 
   locked<T>(write: () => T): T {
-    const owner = io(() => acquire(this.lockPath));
-    this.holding = true;
-    try {
-      return write();
-    } finally {
-      this.holding = false;
-      io(() => {
-        unlinkSync(owner);
-        rmdirSync(this.lockPath);
-      });
-    }
+    return withLock(this.lockPath, () => {
+      this.holding = true;
+      try {
+        return write();
+      } finally {
+        this.holding = false;
+      }
+    });
   }
 
   /** Moves past the new lines only after all of them parse and `take` accepts them, so a refused line is read again. */
@@ -222,7 +335,7 @@ class FileJournal implements Journal {
       .toString("utf8", 0, end)
       .split("\n")
       .filter((raw) => raw !== "")
-      .map(parseLine);
+      .map((raw) => parseLine(unseal(this.key, raw)));
     take(
       lines.flatMap((line) => (line.kind === "mapping" ? [line.entry] : [])),
     );
@@ -251,7 +364,9 @@ class FileJournal implements Journal {
   private write(records: readonly object[]): void {
     if (records.length === 0) return;
     const bytes = Buffer.from(
-      records.map((record) => `${JSON.stringify(record)}\n`).join(""),
+      records
+        .map((record) => `${seal(this.key, JSON.stringify(record))}\n`)
+        .join(""),
     );
     if (this.offset + bytes.length > MAX_JOURNAL_BYTES)
       throw new VaultError(
@@ -342,19 +457,22 @@ function machineKey(path: string): Buffer {
 }
 
 /**
- * The vault that every lmsk process of the user shares: one key, so a real gets the same fakes
- * in every process, and one journal, so a fake restores in every process.
+ * The vault in one folder, which every process of a session shares: one key, so a real gets the
+ * same fakes in every process, and one journal, so a fake restores in every process.
  */
 export class MachineVault {
   readonly vault: Vault;
+  private readonly dir: string;
   private readonly journal: FileJournal;
   private readonly calls: Map<string, string[]>;
 
   private constructor(
+    dir: string,
     journal: FileJournal,
     calls: Map<string, string[]>,
     key: Buffer,
   ) {
+    this.dir = dir;
     this.journal = journal;
     this.calls = calls;
     this.vault = new Vault(keyedBytes(key), [], journal);
@@ -363,22 +481,31 @@ export class MachineVault {
   /** Opens the vault in `dir`, which it creates when missing. */
   static open(dir: string): MachineVault {
     const calls = new Map<string, string[]>();
-    const journal = new FileJournal(dir, calls);
     const key = io(() => {
       mkdirSync(dir, { recursive: true, mode: DIR_MODE });
       assertPrivate(dir, true);
-      return journal.locked(() => {
+      return withLock(lockPathOf(dir), () => {
         closeSync(openSync(join(dir, "vault.jsonl"), "a", FILE_MODE));
         assertPrivate(join(dir, "vault.jsonl"), false);
         return machineKey(join(dir, "key"));
       });
     });
-    return new MachineVault(journal, calls, key);
+    return new MachineVault(dir, new FileJournal(dir, calls, key), calls, key);
   }
 
-  /** Saves the reals that a tool call got back, so that every process masks them in that call's history. */
+  /** Whether a process deleted the vault, such as at the end of the session. */
+  get ended(): boolean {
+    return !existsSync(join(this.dir, "key"));
+  }
+
+  /** Marks the vault used now, for `deleteIdleVault` in every process. */
+  markUsed(): void {
+    const now = new Date();
+    io(() => utimesSync(this.dir, now, now));
+  }
+
+  /** Saves the reals that a tool call got back, so that every process masks them in that call's history. A call without reals is saved too, for `assertRecorded`. */
   recordCall(id: string, reals: readonly string[]): void {
-    if (reals.length === 0) return;
     // An empty id would make every later read of the journal fail.
     if (!isText(id))
       throw new MachineVaultError("CALL_ID_INVALID", "the call id is empty");
@@ -386,6 +513,17 @@ export class MachineVault {
       this.vault.refresh();
       this.journal.appendCall(id, reals);
     });
+  }
+
+  /** Throws VAULT_ENDED for a call that this vault did not save: an ended vault restored it, and its short reals are lost. */
+  assertRecorded(ids: Iterable<string>): void {
+    this.vault.refresh();
+    for (const id of ids)
+      if (!this.calls.has(id))
+        throw new MachineVaultError(
+          "VAULT_ENDED",
+          "the conversation holds a tool call of an ended vault",
+        );
   }
 
   /** The reals that the calls with these ids got back. */

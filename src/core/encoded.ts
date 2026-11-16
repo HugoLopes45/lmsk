@@ -132,6 +132,27 @@ export function decodedViews(text: string): View[] {
   return [...base64, ...percent].sort((a, b) => a.start - b.start);
 }
 
+/**
+ * The base64 and base64url characters that encode `value` whatever bytes surround it, at each of
+ * the three byte offsets, so a copy inside binary data or a data URL is found too. The edge
+ * characters that mix in neighbouring bytes are left out.
+ */
+export function base64Cores(value: string): string[] {
+  const bytes = Buffer.from(value, "utf8");
+  const cores = [0, 1, 2].map((offset) =>
+    Buffer.concat([Buffer.alloc(offset), bytes])
+      .toString("base64")
+      .slice(
+        Math.ceil((offset * 8) / 6),
+        Math.floor(((offset + bytes.length) * 8) / 6),
+      ),
+  );
+  return [
+    ...cores,
+    ...cores.map((core) => core.replaceAll("+", "-").replaceAll("/", "_")),
+  ];
+}
+
 const HEX_RUN = /[0-9A-Fa-f]{8,}/g;
 // One pass per family, as in JSON and HTML, so a `\\` or `&` that a pass decodes starts no escape in that pass.
 // Markdown, as in a fetched web page, can escape any ASCII punctuation.

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Breaking: each session has its own vault, in `session-vaults/` in the state folder, in place of the one vault for each computer. A value gets other fakes in another session. lmsk deletes the vault when the session ends: in pi at quit, `/new`, `/resume` and `/fork`, but not `/reload`; in Claude Code through a new `SessionEnd` hook. A vault that no session used for one hour is deleted about one minute later, or at the next request or session start. A session that you open again after its end keeps its old fakes. Run `lmsk install claude` again to add the hook.
+- Breaking: a request whose conversation holds a tool call that the vault of the session did not restore, such as a call of an ended vault, is refused with `VAULT_ENDED`. lmsk no longer knows the real values that such a call got back, so it cannot mask them. Start a new session, or in pi go back before the calls with `/tree`.
+- Claude Code: the hooks get the state folder of the install as their last argument, so the `SessionEnd` hook deletes the vault also when Claude Code runs with another `XDG_STATE_HOME`. `lmsk install claude` sets `CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1`: the proxy puts real values back only in streamed replies. Run `lmsk install claude` again.
+- A vault of another session that lmsk cannot delete does not block the session. lmsk shows `an idle vault was not deleted: <code>`.
+- Breaking: the vault file is encrypted with AES-256-GCM, with the `key` file of the session vault. A line that does not decrypt is `STORE_CORRUPT`.
+- Breaking: lmsk deletes the vault of 0.3.0, `vault.jsonl` and `key` in the state folder, which held the real values in clear.
+- Breaking: Claude Code: the proxy refuses a request without the `X-Claude-Code-Session-Id` header with `SESSION_ID_MISSING`.
+- Breaking: for code that imports lmsk, `Guard.open` needs a `sessionId`, and `guard.end()` closes the guard and deletes the vault of the session.
+- Files in `lmsk/session-vaults/` are protected paths, also by a relative path.
+- A known value of 8 characters or more, other than a local identity value, is withheld at any byte offset in base64 or base64url data, also in binary data, after `;base64,` and past 4096 characters.
+- Breaking: Claude Code: `lmsk install claude` stops with `CLAUDE_CONFIG_DIR_INVALID` when `CLAUDE_CONFIG_DIR` is a relative path. Claude Code would read the settings of another folder in each session and send the requests past the proxy.
+- Release: the install scripts of the dependencies no longer run in CI and release. A separate job builds `dist` with the compiler only and publishes it only when it equals the `dist` that the checks built.
+- A home folder or XDG folder whose name holds a glob character, such as `[` or `*`, no longer turns off the protection of the files of lmsk and of the Claude Code settings, also against a search of the home folder.
+- A value of 2 to 7 characters, a `shape` value of 2 to 7 letters and a short part of a longer value get a fake with a letter and a digit. So the fake cannot be a common word that the model writes and that is then put back as the real value.
+- Claude Code: when the proxy starts, it removes the read and write access of other users from your user settings file, which holds the proxy token, and tells you in its log.
+- Claude Code: the service gets the `CLAUDE_CONFIG_DIR` of the install, so the proxy protects the settings file in that folder. Run `lmsk install claude` again if you set it.
+- Breaking: a global configuration file that removes a protected path of lmsk with `!`, such as the vault folder, is invalid (`CONFIG_INVALID`).
 - Breaking: lmsk serve stops with UPSTREAM_INVALID when the saved gateway file is empty, instead of sending requests to Anthropic.
 - A crash while lmsk creates its key no longer leaves a short key that blocks the vault.
 - Breaking: a tool call with an empty id fails with CALL_ID_INVALID, instead of making the vault file unreadable.
